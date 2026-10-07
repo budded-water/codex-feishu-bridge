@@ -83,7 +83,7 @@ export class Feishu implements ContextPort {
     try {
       if (!limit && source.parentId) {
         const quote = await this.client.im.v1.message.get({ path: { message_id: source.parentId } });
-        if (quote.code !== 0) throw new Error('Quoted message access denied');
+        if (quote.code !== 0) throw new Error('Quoted message access denied', { cause: quote.code });
         const context = formatContext(quote.data?.items ?? [], session.chat, source.id, cutoff, 1, true);
         context.note = context.messages.length ? '只包含用户明确引用的那一条消息；未读取群前文，图片附件未展开。' : context.note;
         return context;
@@ -93,9 +93,14 @@ export class Feishu implements ContextPort {
         start_time: String(Math.max(0, Math.floor(cutoff / 1000) - 86400)),
         end_time: String(Math.floor(cutoff / 1000) + 1), sort_type: 'ByCreateTimeDesc', with_sender_name: true,
       } });
-      if (result.code !== 0) throw new Error('History access denied');
+      if (result.code !== 0) throw new Error('History access denied', { cause: result.code });
       return formatContext(result.data?.items ?? [], session.chat, source.id, cutoff, limit);
-    } catch { return { status: 'unavailable', messages: [], note: '当前机器人未能读取群聊前文；请引用相关消息或粘贴要讨论的内容。' }; }
+    } catch (error) {
+      const denied = record(error).cause === 230027 || record(record(record(error).response).data).code === 230027;
+      return { status: 'unavailable', messages: [], note: denied
+        ? '群聊前文读取权限尚未开通，请管理员先开通，或粘贴要讨论的内容。'
+        : '当前机器人未能读取群聊前文；请引用相关消息或粘贴要讨论的内容。' };
+    }
   }
 
   close(): void { this.socket.close({ force: true }); }
@@ -104,7 +109,9 @@ export class Feishu implements ContextPort {
 // Historical messages are reference material, never executable bridge commands.
 export function formatContext(items: unknown[], chat: string, trigger: string, cutoff: number, limit: number, includeQuotedBot = false): ChatContext {
   const messages = items.map(record).filter(item => !item.deleted && item.chat_id === chat && item.message_id !== trigger &&
-    /^\d+$/.test(string(item.create_time)) && Number(item.create_time) < cutoff && (record(item.sender).sender_type === 'user' || includeQuotedBot))
+    /^\d+$/.test(string(item.create_time)) && Number(item.create_time) < cutoff && (includeQuotedBot || Number(item.create_time) >= cutoff - 86_400_000) &&
+    (record(item.sender).sender_type === 'user' || includeQuotedBot))
+    .sort((a, b) => Number(b.create_time) - Number(a.create_time))
     .slice(0, Math.min(limit, 20)).reverse().map(item => {
       let body: Record<string, unknown> = {};
       try { body = record(JSON.parse(string(record(item.body).content))); } catch { /* Malformed content stays explicit. */ }

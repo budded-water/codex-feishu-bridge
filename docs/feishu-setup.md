@@ -8,7 +8,7 @@ The owner installation has completed application setup, SDK connection, and chal
 2. Copy its App ID and App Secret into the private `.env` file. Keep the secret off chat and out of git.
 3. Enable reading private messages sent to the bot, receiving users' group @mentions, and sending messages as the application bot. The developer console and [message event documentation](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive) show the required scopes for your application.
 4. Subscribe to `im.message.receive_v1` and choose SDK long connection mode. The local SDK client must be connected when saving this subscription mode.
-5. Publish the application version and make it available to the intended colleagues. Add the bot to the group where colleagues will @mention it. Enable group mentions for team use; the @mention transport does not require reading every group message. Optional history/quoted-message context also needs message-read permission and bot access to the target group; document permissions are not required. When group mode is enabled, startup also verifies the bot's own open ID through the bot-info API.
+5. Publish the application version and make it available to the intended colleagues. Add the bot to the group where colleagues will @mention it. Enable group mentions for team use; the @mention transport does not require reading every group message. Optional group-history context requires bot membership, a message-read scope (`im:message:readonly` or an equivalent accepted by the API), and `im:message.group_msg`. Receiving @mentions alone is insufficient. Publish the new scope through the application version approval process. The platform group scope grants access to all messages in associated groups; the bridge enforces the agreed trigger/chat/24-hour/20-record limits in code. Confirm this wider platform scope before granting it. Document permissions are not required. When group mode is enabled, startup also verifies the bot's own open ID through the bot-info API.
 
 The application bot is the chat interface. Local Codex continues to use its own separately configured tools and identities.
 
@@ -45,6 +45,9 @@ Only claim live acceptance after observing these results. Automated tests and th
 - No connection: verify credentials, self-built app type, network access, and long connection mode.
 - No incoming messages: verify published permissions, subscription, bot availability, and private text chat.
 - Ignored messages: verify tenant/user access and an actual @mention of this bot in groups; `allowedUsers` IDs must belong to this application; repeat enrollment from your own account.
+- History unavailable with API error `230027`: check published message-read and `im:message.group_msg` scopes; runtime configuration alone cannot grant platform permissions.
 - Codex unavailable: run `npm run doctor`, verify local Codex authentication separately, and restart after correcting installation or configuration.
 
 The [official Feishu Node SDK](https://github.com/larksuite/node-sdk) is the transport reference. Changes to external credentials, scopes, subscriptions, or availability must stay consistent with local configuration and these requirements.
+
+[Official chat-history API and permission requirements](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/list)

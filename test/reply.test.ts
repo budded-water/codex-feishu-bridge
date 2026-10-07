@@ -68,3 +68,50 @@ test('quoted rich replies preserve markdown and code text while media remains ex
   assert.ok(context.messages[0]!.text.includes('尚未读取'));
   assert.ok(!JSON.stringify(context).includes('private-media'));
 });
+
+test('recent history read is one scoped page with a 24-hour window and cannot paginate or fetch media', async t => {
+  const adapter = new Feishu({ appId: 'test-app', appSecret: 'test-secret' });
+  t.after(() => adapter.close());
+  const requests: unknown[] = [];
+  const cutoff = 1_800_000_000_123;
+  Object.assign(adapter, { client: { im: { v1: { message: { list: async (request: unknown) => {
+    requests.push(request);
+    return { code: 0, data: { has_more: true, page_token: 'do-not-follow', items: [{
+      message_id: 'previous', chat_id: 'group', create_time: String(cutoff - 500), msg_type: 'text', sender: { sender_type: 'user' }, body: { content: JSON.stringify({ text: 'Relevant context' }) },
+    }] } };
+  } } } } } });
+  const session = { id: 'session', owner: 'owner', tenant: 'tenant', user: 'user', chat: 'group', project: '$chat', directory: 'directory', thread: null };
+  const source = { id: 'trigger', chatType: 'group' as const, createTime: String(cutoff) };
+  const result = await adapter.context(session, source, 20);
+  assert.equal(result.status, 'available');
+  assert.deepEqual(requests, [{ params: {
+    container_id_type: 'chat', container_id: 'group', page_size: 20,
+    start_time: String(Math.floor(cutoff / 1000) - 86400), end_time: String(Math.floor(cutoff / 1000) + 1), sort_type: 'ByCreateTimeDesc', with_sender_name: true,
+  } }]);
+  assert.equal((await adapter.context(session, source, 21)).status, 'unavailable');
+  assert.equal(requests.length, 1);
+});
+
+test('recent context independently enforces 24-hour and trigger boundaries, selecting the latest 20 chronologically', () => {
+  const cutoff = 1_800_000_000_123;
+  const row = (id: string, time: number) => ({ message_id: id, chat_id: 'group', create_time: String(time), msg_type: 'text', sender: { sender_type: 'user' }, body: { content: JSON.stringify({ text: id }) } });
+  const rows = Array.from({ length: 25 }, (_, i) => row(`recent-${i}`, cutoff - 25 + i));
+  const result = formatContext([row('old', cutoff - 86_400_001), ...rows, row('future', cutoff + 1), row('same-time', cutoff)], 'group', 'trigger', cutoff, 20);
+  assert.deepEqual(result.messages.map(item => item.text), rows.slice(-20).map(item => JSON.parse(item.body.content).text));
+  assert.equal(formatContext([row('boundary', cutoff - 86_400_000)], 'group', 'trigger', cutoff, 20).messages.length, 1);
+  assert.equal(formatContext([row('explicit-older-quote', cutoff - 86_400_001)], 'group', 'trigger', cutoff, 1, true).messages.length, 1);
+});
+
+test('both SDK HTTP errors and API missing-permission results state the limitation without leaking raw responses', async t => {
+  const adapter = new Feishu({ appId: 'test-app', appSecret: 'test-secret' });
+  t.after(() => adapter.close());
+  const session = { id: 'session', owner: 'owner', tenant: 'tenant', user: 'user', chat: 'group', project: '$chat', directory: 'directory', thread: null };
+  for (const list of [async () => ({ code: 230027 }), async () => { throw { response: { data: { code: 230027, msg: 'private response' } } }; }]) {
+    Object.assign(adapter, { client: { im: { v1: { message: { list } } } } });
+    const result = await adapter.context(session, { id: 'trigger', chatType: 'group', createTime: '1800000000123' }, 20);
+    assert.equal(result.status, 'unavailable');
+    assert.deepEqual(result.messages, []);
+    assert.ok(result.note.includes('权限尚未开通'));
+    assert.ok(!JSON.stringify(result).includes('private response'));
+  }
+});

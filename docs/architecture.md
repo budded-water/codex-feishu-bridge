@@ -104,7 +104,7 @@ Write-capable tasks must not be automatically replayed after an uncertain outcom
 
 Publish source, placeholder examples, architecture, and tests. Keep credentials, actual user IDs, local project paths, database files, transcripts, and logs ignored and locally private. Runtime state should use restrictive filesystem permissions.
 
-Configuration has two surfaces: checked-in examples and private runtime values. src/config.ts is canonical for accepted fields; keep examples synchronized. External application credentials, scopes, subscriptions, and availability must match docs/feishu-setup.md.
+Configuration has two surfaces: checked-in examples and private runtime values. src/config.ts is canonical for accepted fields; keep examples synchronized. External application credentials, scopes, subscriptions, and availability must match docs/feishu-setup.md. Feishu is canonical for published permission grants; private configuration is canonical for the opted-in message count; code enforces trigger/chat/time/count limits. A platform group-read scope is broader than these limits and requires separate scope confirmation. Missing platform grants make context unavailable even when private configuration enables it.
 
 ## Acceptance boundary
 
