@@ -13,6 +13,11 @@ export interface Delivery {
   next: number;
 }
 
+export interface FeedbackRecord {
+  task: string; message: string; chat: string; status: string;
+  reaction: string | null; uncertain: number; fallback: number; attempts: number; next: number;
+}
+
 export class State {
   private db: DatabaseSync;
 
@@ -45,12 +50,19 @@ export class State {
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, chat TEXT, body TEXT,
         attempts INTEGER DEFAULT 0, next INTEGER DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS feedback (
+        task TEXT PRIMARY KEY REFERENCES tasks(id), message TEXT, reaction TEXT,
+        uncertain INTEGER DEFAULT 0, fallback INTEGER DEFAULT 0,
+        attempts INTEGER DEFAULT 0, next INTEGER DEFAULT 0
+      );
       CREATE TABLE IF NOT EXISTS approvals (
         id TEXT PRIMARY KEY, task TEXT, method TEXT, status TEXT, created INTEGER
       );
     `);
     const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
     if (!taskColumns.some(column => column.name === 'source')) this.db.exec('ALTER TABLE tasks ADD COLUMN source TEXT');
+    const outboxColumns = this.db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[];
+    if (!outboxColumns.some(column => column.name === 'task')) this.db.exec('ALTER TABLE outbox ADD COLUMN task TEXT');
     const approvalColumns = this.db.prepare('PRAGMA table_info(approvals)').all() as { name: string }[];
     if (!approvalColumns.some(column => column.name === 'actor')) this.db.exec('ALTER TABLE approvals ADD COLUMN actor TEXT');
   }
@@ -104,6 +116,7 @@ export class State {
   enqueue(session: string, input: string, source?: Task['source']): Task {
     const task: Task = { id: randomUUID(), session, input, status: 'queued', turn: null, source };
     this.db.prepare('INSERT INTO tasks (id, session, input, status, source) VALUES (?, ?, ?, ?, ?)').run(task.id, session, input, task.status, source ? JSON.stringify(source) : null);
+    if (source) this.db.prepare('INSERT INTO feedback (task, message) VALUES (?, ?)').run(task.id, source.id);
     return task;
   }
 
@@ -166,7 +179,49 @@ export class State {
     }
   }
 
+  sendStatus(task: string, chat: string, body: string): void {
+    this.db.prepare('INSERT INTO outbox (id, chat, body, task) VALUES (?, ?, ?, ?)').run(randomUUID(), chat, body, task);
+  }
+
+  feedback(task: string): FeedbackRecord | undefined {
+    return this.db.prepare(`SELECT feedback.*, tasks.status, sessions.chat FROM feedback
+      JOIN tasks ON tasks.id=feedback.task JOIN sessions ON sessions.id=tasks.session WHERE feedback.task=?`)
+      .get(task) as unknown as FeedbackRecord | undefined;
+  }
+
+  pendingFeedback(now = Date.now()): FeedbackRecord[] {
+    return this.db.prepare(`SELECT feedback.*, tasks.status, sessions.chat FROM feedback
+      JOIN tasks ON tasks.id=feedback.task JOIN sessions ON sessions.id=tasks.session WHERE next<=?
+      AND (reaction IS NULL OR tasks.status NOT IN ('queued','running')) ORDER BY tasks.sequence LIMIT 10`)
+      .all(now) as unknown as FeedbackRecord[];
+  }
+
+  feedbackAttempt(task: string): void {
+    this.db.prepare('UPDATE feedback SET uncertain=1 WHERE task=?').run(task);
+  }
+
+  feedbackAdded(task: string, reaction: string | null): void {
+    this.db.prepare('UPDATE feedback SET reaction=?, uncertain=0, attempts=0, next=0 WHERE task=?').run(reaction, task);
+  }
+
+  feedbackFinished(task: string): void { this.db.prepare('DELETE FROM feedback WHERE task=?').run(task); }
+
+  feedbackRetry(row: FeedbackRecord): void {
+    this.transaction(() => {
+      const current = this.feedback(row.task);
+      if (current && !current.fallback && ['queued', 'running'].includes(current.status) && !current.reaction) {
+        this.sendStatus(row.task, row.chat, '收到，我来看看。');
+        this.db.prepare('UPDATE feedback SET fallback=1 WHERE task=?').run(row.task);
+      }
+      this.db.prepare('UPDATE feedback SET attempts=attempts+1, next=? WHERE task=?').run(
+        Date.now() + Math.min(60_000, 1000 * 2 ** Math.min(row.attempts + 1, 6)), row.task);
+    });
+  }
+
   pending(now = Date.now()): Delivery[] {
+    // A delayed status must never appear after its task has finished.
+    this.db.prepare(`DELETE FROM outbox WHERE task IS NOT NULL AND task IN
+      (SELECT id FROM tasks WHERE status NOT IN ('queued','running'))`).run();
     // Preserve message ordering within each chat, even if its first message is backing off.
     return this.db.prepare(`SELECT id, chat, body, attempts, next FROM outbox AS current WHERE next<=?
       AND NOT EXISTS (SELECT 1 FROM outbox AS previous WHERE previous.chat=current.chat AND previous.sequence<current.sequence)

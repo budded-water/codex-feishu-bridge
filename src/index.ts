@@ -5,6 +5,7 @@ import { CodexClient, checkVersion } from './codex/client.js';
 import { Bridge } from './bridge.js';
 import { State } from './state.js';
 import { Feishu } from './feishu.js';
+import { Feedback } from './feedback.js';
 import { Outbox } from './outbox.js';
 
 async function main(): Promise<void> {
@@ -41,6 +42,7 @@ async function main(): Promise<void> {
   const feishu = new Feishu(auth, config.enableGroups, config.groupContextImages);
   const bridge = new Bridge(config, state, codex, feishu);
   const outbox = new Outbox(state, feishu, [auth.appSecret, process.env.OPENAI_API_KEY ?? '']);
+  const feedback = new Feedback(state, feishu);
   let closing: Promise<void> | undefined;
   let stopping = false;
   let restart: NodeJS.Timeout | undefined;
@@ -80,6 +82,7 @@ async function main(): Promise<void> {
       await bridge.close();
       await codex.close();
       await outbox.close();
+      await feedback.close();
       state.close();
       await release().catch(() => {});
       console.log('Bridge stopped');
@@ -94,8 +97,9 @@ async function main(): Promise<void> {
     await codex.start();
     if (stopping) return;
     outbox.start();
+    feedback.start();
     await feishu.start(message => {
-      try { bridge.receive(message); }
+      try { bridge.receive(message); void feedback.flush(); void outbox.flush(); }
       catch { console.error('Message could not be persisted; Feishu may retry the event'); throw new Error('Local message processing failed'); }
     });
     if (!stopping) console.log('Bridge running; configured tenant/user access and per-user sessions are enforced');

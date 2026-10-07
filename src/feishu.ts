@@ -1,6 +1,7 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { attachImages, contextText } from './chat-images.js';
 import { MAX_CONTEXT_MESSAGES, CONTEXT_WINDOW_MS } from './context-limits.js';
+import { RECEIVED_EMOJI, type ReactionPort } from './feedback.js';
 import { markdownPost } from './reply.js';
 import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext } from './types.js';
 
@@ -35,15 +36,23 @@ export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMe
   return result;
 }
 
+function reactionGone(value: unknown): boolean {
+  const error = record(value);
+  const code = error.code ?? record(record(error.response).data).code;
+  return [230110, 231003, 231011].includes(Number(code));
+}
+
 const silentLogger = { trace() {}, debug() {}, info() {}, warn() {}, error() {} };
 
-export class Feishu implements ContextPort {
+export class Feishu implements ContextPort, ReactionPort {
   private client: lark.Client;
   private socket: lark.WSClient;
   private enableGroups: boolean;
   private imageLimit: number;
+  private appId: string;
 
   constructor(credentials: { appId: string; appSecret: string }, enableGroups = false, imageLimit = 0) {
+    this.appId = credentials.appId;
     this.imageLimit = imageLimit;
     this.enableGroups = enableGroups;
     lark.defaultHttpInstance.defaults.timeout = 10_000;
@@ -79,6 +88,38 @@ export class Feishu implements ContextPort {
       data: { receive_id: chat, msg_type: 'post', content: JSON.stringify(markdownPost(text)), uuid: idempotencyKey },
     });
     if (result.code !== 0) throw new Error('Feishu rejected message delivery');
+  }
+
+  async addReaction(message: string): Promise<string> {
+    const response = await this.client.im.v1.messageReaction.create({
+      path: { message_id: message }, data: { reaction_type: { emoji_type: RECEIVED_EMOJI } },
+    });
+    if (response.code !== 0 || !response.data?.reaction_id) throw new Error('Reaction not confirmed');
+    return response.data.reaction_id;
+  }
+
+  async findReaction(message: string): Promise<string | undefined> {
+    let page: string | undefined;
+    for (let count = 0; count < 10; count++) {
+      const response = await this.client.im.v1.messageReaction.list({
+        path: { message_id: message }, params: { reaction_type: RECEIVED_EMOJI, page_size: 50, page_token: page },
+      }).catch(error => { if (reactionGone(error)) return { code: 231003, data: undefined }; throw new Error('Reaction reconciliation unavailable'); });
+      if ([230110, 231003].includes(response.code ?? -1)) return;
+      if (response.code !== 0 || !response.data) throw new Error('Reaction reconciliation unavailable');
+      const own = response.data.items.find(item => item.operator?.operator_type === 'app' &&
+        item.operator.operator_id === this.appId && item.reaction_type?.emoji_type === RECEIVED_EMOJI);
+      if (own?.reaction_id) return own.reaction_id;
+      if (!response.data.has_more) return;
+      if (!response.data.page_token) break;
+      page = response.data.page_token;
+    }
+    throw new Error('Reaction reconciliation exceeded page budget');
+  }
+
+  async removeReaction(message: string, reaction: string): Promise<void> {
+    const response = await this.client.im.v1.messageReaction.delete({ path: { message_id: message, reaction_id: reaction } })
+      .catch(error => { if (reactionGone(error)) return { code: 231011 }; throw new Error('Reaction removal unavailable'); });
+    if (response.code !== 0 && ![230110, 231003, 231011].includes(response.code ?? -1)) throw new Error('Reaction removal not confirmed');
   }
 
   async context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext> {

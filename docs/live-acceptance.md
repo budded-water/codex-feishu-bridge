@@ -48,3 +48,7 @@ The owner screenshot showed relevant text context but an explicit unread-image l
 - Optional service installation and activation after foreground acceptance.
 
 Automated behavior checks and the no-inference protocol smoke test are separate evidence. A connected socket and enrollment message do not prove model access or outbound result delivery.
+
+## Received feedback
+
+Native `OnIt` received reactions, one-time 30-second stage notices, explicit queue feedback and richer `/status` are implemented. Reaction intent/IDs are persisted for late-add and restart cleanup; retries never rerun Codex. Behavioral tests cover deduplication, authorization, long context reads, queued work, approval waits, process loss, ambiguous add responses, deletion retry, restart recovery, stale notice suppression and independent answer delivery. The developer console currently shows reaction-write/read scopes Added and current changes published. A real application-identity check added `OnIt` to an existing owner request, looked up this app’s reaction, deleted it and verified absence, without sending new chat messages. The foreground feedback build connected successfully; fresh bot-message UX acceptance remains pending.

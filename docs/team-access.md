@@ -22,13 +22,13 @@ Group mode requires the published group-mention scope and bot identity access. E
 
 ## Conversation ownership
 
-Ordinary messages start in discussion mode, not an automatically selected code project. Use `/project <alias>` for code work and `/chat` to return. Discussion replies omit task acknowledgment, start, progress, and completion labels. Local repository rules are never group chat history.
+Ordinary messages start in discussion mode, not an automatically selected code project. Use `/project <alias>` for code work and `/chat` to return. Normal tasks receive a native `OnIt` reaction on their original message. If adding the reaction fails, one short acknowledgment is queued instead. Queued work is identified as not yet started. After 30 seconds, at most one truthful stage notice is queued; `/status` shows elapsed time, the current stage, and the age of the last correlated Codex event. Process readiness is not model/network health. These are feedback signals, not proof of completion. Draft answers remain internal. Terminal tasks remove only the bot's own reaction, with persisted reconciliation and cleanup retries; delayed statuses are discarded after task completion. HTTP outages can delay feedback or cleanup, and host sleep cannot be reported through an offline channel. A long wait does not automatically interrupt or replay work. Local repository rules are never group chat history.
 
 Each user has a separate session per tenant, chat, and project. Two colleagues in one group do not share Codex conversation history. Their work on the same real directory uses one serial queue. `/stop`, `/补充`, `/clear`, and `/new` affect the sender's selected session only.
 
 Group commands also require @mentioning the bot, including `/status`, `/project`, and control commands. Ordinary group discussion, @all, other-bot mentions, and bot senders are ignored. Startup fetches the bot's own open ID; failure prevents group startup rather than guessing identity.
 
-The bridge sends group task output back to that group, where members can read it. Project replies use a small project/number footer to distinguish interleaved results; activity and approval notices retain the request number. Native rich posts render Markdown emphasis, lists, links, and code. Answer drafts are never forwarded as progress. A private task replies in its private chat. Session isolation does not isolate the shared filesystem, host credentials, or installed tools.
+The bridge sends group task output back to that group, where members can read it. Project replies use a small project/number footer to distinguish interleaved results; approval notices retain the request number. Native rich posts render Markdown emphasis, lists, links, and code. Answer drafts are never forwarded as progress. A private task replies in its private chat. Session isolation does not isolate the shared filesystem, host credentials, or installed tools.
 
 ## Approval ownership
 

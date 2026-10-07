@@ -4,7 +4,7 @@ A local bridge that lets your Feishu colleagues submit tasks to the Codex instal
 
 ## Status
 
-The team chat bridge is implemented, including default discussion sessions, explicit project execution, optional bounded group context and image inputs, tenant access, verified group @mentions, per-user conversations, native rich replies, administrator approval routing, SQLite state, steering, interruption, and retryable delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes/subscription and SDK connection are verified, and private-chat enrollment succeeded. Owner group delivery, a bounded read-only project turn, and a count-only scoped history API read are observed. The supplied screenshot confirms text grounding and bold rendering; a separate real-image vision turn is verified. New image-grounded bot replies, other rich rendering, colleague-account access, and administrator approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for evidence.
+The team chat bridge is implemented, including default discussion sessions, explicit project execution, optional bounded group context and image inputs, tenant access, verified group @mentions, per-user conversations, native rich replies, administrator approval routing, SQLite state, steering, interruption, and retryable delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes/subscription and SDK connection are verified, and private-chat enrollment succeeded. Owner group delivery, a bounded read-only project turn, and a count-only scoped history API read are observed. The supplied screenshot confirms text grounding and bold rendering; a separate real-image vision turn is verified. Native reaction add/lookup/delete APIs are verified; fresh feedback UX, new image-grounded bot replies, other rich rendering, colleague-account access, and administrator approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for evidence.
 
 ## Design
 
@@ -33,7 +33,7 @@ See [the architecture](docs/architecture.md) for lifecycle, session, and recover
 - Optional recent group context, limited to at most 50 messages; disabled by default. Quoted-message-only context is supported.
 - Optional standalone and rich-post group images passed as actual Codex image inputs; unread or failed media stays explicit.
 - Persistent Codex conversation mapping.
-- Native Feishu rich-post replies for emphasis, lists, links, and code. Short tool activity notices for project execution; answer drafts stay private until the final result.
+- Native Feishu rich-post replies for emphasis, lists, links, and code. Native received reactions, queue feedback and a single delayed stage notice; answer drafts stay private until the final result.
 - Text-based approvals, steering, and interruption.
 - Local operation without a public HTTP listener.
 
@@ -71,7 +71,7 @@ Keep `.env`, `bridge.config.json`, the local state database, transcripts, and cr
 | `/project <alias>` | Explicitly enter execution mode for a registered local project. |
 | `/chat` | Return to ordinary discussion, without defaulting to a code repository. |
 | `/new` | Create a new conversation when the selected session has no pending work. |
-| `/status` | Show task counts, Codex readiness, and pending requests. |
+| `/status` | Show task counts, process readiness, active stage/event age, and pending requests. |
 | `/补充 <text>` | Steer the selected active turn. |
 | `/stop` | Interrupt the selected active turn; queued tasks remain queued. |
 | `/clear` | Cancel the selected session's queued tasks. |
@@ -79,7 +79,7 @@ Keep `.env`, `bridge.config.json`, the local state database, transcripts, and cr
 | `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
 | `/help` | Show help. |
 
-In a group, include an actual @mention of the bot before every task or command. Ordinary discussion uses a neutral local session and returns a direct answer without execution-status messages. Group references require available recent or quoted context; unavailable history is stated instead of substituting local repository rules. Normal text in an explicitly selected project starts a project task. While the project is busy, normal text queues for the next turn. Tasks retain their original session and project even if you switch projects. Aliases pointing at the same directory share one execution queue.
+In a group, include an actual @mention of the bot before every task or command. Ordinary discussion uses a neutral local session and returns a direct answer. Normal tasks receive a native `OnIt` reaction on their original message. If adding the reaction fails, one short acknowledgment is queued instead. Queued work is identified as not yet started. After 30 seconds (canonical in [feedback.ts](src/feedback.ts)), at most one truthful stage notice is queued; `/status` shows elapsed time, the current stage, and the age of the last correlated Codex event. Process readiness is not model/network health. These are feedback signals, not proof of completion. Draft answers remain internal. Terminal tasks remove only the bot's own reaction, with persisted reconciliation and cleanup retries; delayed statuses are discarded after task completion. HTTP outages can delay feedback or cleanup, and host sleep cannot be reported through an offline channel. A long wait does not automatically interrupt or replay work. Group references require available recent or quoted context; unavailable history is stated instead of substituting local repository rules. Normal text in an explicitly selected project starts a project task. While the project is busy, normal text queues for the next turn. Tasks retain their original session and project even if you switch projects. Aliases pointing at the same directory share one execution queue.
 
 ## Verification and operation
 

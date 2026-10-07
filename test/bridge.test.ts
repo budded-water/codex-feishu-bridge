@@ -352,16 +352,14 @@ test('project agent deltas and commentary never duplicate the final answer, incl
   await until(() => h.turns().length === 1);
   const active = h.current();
   const initial = h.deliveries();
-  assert.equal(initial.length, 1);
-  assert.ok(initial[0]!.includes('我来处理'));
+  assert.deepEqual(initial, []);
   h.codex.notify('item/agentMessage/delta', { ...active, itemId: 'draft', delta: 'Unfinished answer fragment' });
   h.codex.notify('item/completed', { ...active, item: { id: 'draft', type: 'agentMessage', phase: 'commentary', text: 'Long draft paragraph' } });
   assert.deepEqual(h.deliveries(), []);
   h.codex.notify('item/started', { ...active, item: { id: 'tool', type: 'commandExecution' } });
   h.codex.notify('item/started', { ...active, item: { id: 'tool2', type: 'commandExecution' } });
   const progress = h.deliveries();
-  assert.equal(progress.length, 1);
-  assert.ok(progress[0]!.includes('正在运行'));
+  assert.deepEqual(progress, []);
   h.codex.complete(active.threadId, active.turnId, 'completed', '**实际结论**\n\n- 一条建议');
   h.codex.complete(active.threadId, active.turnId, 'completed', '**实际结论**\n\n- 一条建议');
   const replies = h.deliveries();
