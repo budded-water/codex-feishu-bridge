@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { State } from '../src/state.js';
 import { Bridge } from '../src/bridge.js';
 import type { Config } from '../src/config.js';
-import { record, type CodexPort, type IncomingMessage, type RpcEvent, type RpcRequest } from '../src/types.js';
+import { record, type CodexPort, type IncomingMessage, type ContextPort, type RpcEvent, type RpcRequest } from '../src/types.js';
 
 export class FakeCodex implements CodexPort {
   generation = 'generation-1';
@@ -63,19 +63,19 @@ export async function until(check: () => boolean): Promise<void> {
   }
 }
 
-export function setup() {
+export function setup(contextPort?: ContextPort) {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'codex-bridge-test-')));
   const alpha = join(directory, 'alpha');
   const beta = join(directory, 'beta');
   mkdirSync(alpha);
   mkdirSync(beta);
   const config: Config = {
-    allowedUsers: ['ou_owner'], accessMode: 'allowlist', allowedTenant: null, enableGroups: false, approvalUsers: ['ou_owner'], approvalChat: null, codexExecutable: 'codex', stateDirectory: join(directory, 'state'),
+    allowedUsers: ['ou_owner'], accessMode: 'allowlist', allowedTenant: null, enableGroups: false, groupContextMessages: 0, approvalUsers: ['ou_owner'], approvalChat: null, codexExecutable: 'codex', stateDirectory: join(directory, 'state'),
     approvalTimeoutSeconds: 300, projects: { alpha, beta },
   };
   const state = new State(config.stateDirectory);
   const codex = new FakeCodex();
-  const bridge = new Bridge(config, state, codex);
+  const bridge = new Bridge(config, state, codex, contextPort);
   bridge.receive(message('/project alpha'));
   const session = state.selected(message(''))!;
   const turns = () => codex.calls.filter(call => call.method === 'turn/start');

@@ -43,7 +43,7 @@ Regenerate after moving the checkout or changing executable paths. Logs remain i
 
 SQLite holds deduplication keys, thread mappings, task inputs/statuses, pending outbound text, and a minimal approval audit. The directory uses 0700, the database 0600, and the process a restrictive umask. Gateway credentials are excluded from the Codex subprocess environment.
 
-Approval audits store request IDs, task IDs, methods, deciding actor IDs, and decision-sent or invalidated statuses. Existing audit tables are migrated in place to add nullable actor IDs; existing rows and session mappings are retained. They do not prove action execution. Pending RPC requests are in-memory and cannot survive process replacement.
+Approval audits store request IDs, task IDs, methods, deciding actor IDs, and decision-sent or invalidated statuses. Queued tasks also retain trigger ID, chat type, timestamp, and quoted parent ID for bounded context preparation. Existing task tables gain a nullable source column without changing prior inputs. Existing audit tables are migrated in place to add nullable actor IDs; existing rows and session mappings are retained. They do not prove action execution. Pending RPC requests are in-memory and cannot survive process replacement.
 
 There is no automatic data expiry yet. Stop before managing or deleting state. Database deletion loses mappings and deduplication history. Treat backups as private task data.
 

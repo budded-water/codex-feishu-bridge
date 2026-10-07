@@ -4,6 +4,9 @@ export interface IncomingMessage {
   chat: string;
   id: string;
   text: string;
+  chatType?: 'p2p' | 'group';
+  createTime?: string;
+  parentId?: string;
 }
 
 export interface Session {
@@ -23,6 +26,7 @@ export interface Task {
   input: string;
   status: string;
   turn: string | null;
+  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string };
 }
 
 export interface RpcEvent {
@@ -56,4 +60,13 @@ export function string(value: unknown): string {
 
 export function ownerKey(message: Pick<IncomingMessage, 'tenant' | 'user' | 'chat'>): string {
   return JSON.stringify([message.tenant, message.user, message.chat]);
+}
+
+export interface ChatContext {
+  status: 'available' | 'unavailable';
+  messages: { sender: string; type: string; text: string }[];
+  note: string;
+}
+export interface ContextPort {
+  context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext>;
 }

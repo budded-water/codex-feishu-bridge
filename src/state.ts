@@ -48,6 +48,8 @@ export class State {
         id TEXT PRIMARY KEY, task TEXT, method TEXT, status TEXT, created INTEGER
       );
     `);
+    const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
+    if (!taskColumns.some(column => column.name === 'source')) this.db.exec('ALTER TABLE tasks ADD COLUMN source TEXT');
     const approvalColumns = this.db.prepare('PRAGMA table_info(approvals)').all() as { name: string }[];
     if (!approvalColumns.some(column => column.name === 'actor')) this.db.exec('ALTER TABLE approvals ADD COLUMN actor TEXT');
   }
@@ -98,16 +100,17 @@ export class State {
     this.db.prepare('UPDATE sessions SET thread=? WHERE id=?').run(thread, session);
   }
 
-  enqueue(session: string, input: string): Task {
-    const task: Task = { id: randomUUID(), session, input, status: 'queued', turn: null };
-    this.db.prepare('INSERT INTO tasks (id, session, input, status) VALUES (?, ?, ?, ?)').run(task.id, session, input, task.status);
+  enqueue(session: string, input: string, source?: Task['source']): Task {
+    const task: Task = { id: randomUUID(), session, input, status: 'queued', turn: null, source };
+    this.db.prepare('INSERT INTO tasks (id, session, input, status, source) VALUES (?, ?, ?, ?, ?)').run(task.id, session, input, task.status, source ? JSON.stringify(source) : null);
     return task;
   }
 
   queued(directory: string): Task | undefined {
-    return this.db.prepare(`SELECT tasks.id, tasks.session, tasks.input, tasks.status, tasks.turn FROM tasks
+    const row = this.db.prepare(`SELECT tasks.id, tasks.session, tasks.input, tasks.status, tasks.turn, tasks.source FROM tasks
       JOIN sessions ON sessions.id=tasks.session WHERE tasks.status='queued' AND sessions.directory=? ORDER BY tasks.sequence LIMIT 1`)
-      .get(directory) as unknown as Task | undefined;
+      .get(directory) as unknown as (Omit<Task, 'source'> & { source: string | null }) | undefined;
+    return row ? { ...row, source: row.source ? JSON.parse(row.source) as Task['source'] : undefined } : undefined;
   }
 
   directories(): string[] {

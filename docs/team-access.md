@@ -11,6 +11,7 @@ Colleagues can submit private text tasks or @mention the application bot in a gr
 | `accessMode` | `tenant` admits user senders only from `allowedTenant`; `allowlist` admits only `allowedUsers`. Defaults to `allowlist`. |
 | `allowedTenant` | Required explicit tenant key in tenant mode; also restricts an allowlist when supplied. Never use a wildcard. |
 | `allowedUsers` | Distinct application-scoped user open IDs. In tenant mode this retained list does not restrict colleagues. It supplies the default approver list when `approvalUsers` is omitted. |
+| `groupContextMessages` | Recent group context count, 0–20; default 0 disables it. Opt-in fetches one page from the 24 hours preceding the trigger. With 0, an explicit quoted reply can fetch just its referenced message. |
 | `enableGroups` | Enables group text with a verified @mention of this particular bot. Defaults to false for older configurations. |
 | `approvalUsers` | User open IDs authorized to accept or reject Codex command/file approval requests. Defaults to `allowedUsers`; in allowlist mode approvers must be listed there. |
 | `approvalChat` | Designated chat for command/file approval previews and decisions, normally the owner private bot chat. When omitted, approval stays in the task chat. |
@@ -19,6 +20,8 @@ Colleagues can submit private text tasks or @mention the application bot in a gr
 Group mode requires the published group-mention scope and bot identity access. Existing private configurations retain their allowlist/private-chat defaults. To enable team use, explicitly choose tenant mode, pin its tenant, enable groups, and configure the owner as approver with the owner private approval chat. Enrollment prints the application-scoped owner open ID, tenant, and private chat. It never enrolls everyone as an approver.
 
 ## Conversation ownership
+
+Ordinary messages start in discussion mode, not an automatically selected code project. Use `/project <alias>` for code work and `/chat` to return. Discussion replies omit task acknowledgment, start, progress, and completion labels. Local repository rules are never group chat history.
 
 Each user has a separate session per tenant, chat, and project. Two colleagues in one group do not share Codex conversation history. Their work on the same real directory uses one serial queue. `/stop`, `/补充`, `/clear`, and `/new` affect the sender's selected session only.
 
@@ -39,3 +42,13 @@ The approval audit stores the deciding actor for human responses. It records a s
 ## Live acceptance
 
 Check the application's published availability includes colleagues and add it to the intended group. From two colleague accounts, test @mentions, independent follow-ups, and controls. Check an approval arrives in the owner chat, a submitter decision is rejected, and the owner decision reaches the actual task. Keep external application visibility/scopes synchronized with the local access policy. See live-acceptance.md for observed evidence and remaining acceptance.
+
+## Chat context
+
+Context is prepared only after tenant/user admission and persisted task routing. Commands do not fetch history. Trigger metadata survives queuing; the read is bounded by the original trigger time, so messages arriving afterward are not treated as prior discussion. The recent-history API receives only the originating chat, a 24-hour window, and the configured page size, with no pagination to older records. Deleted messages and ordinary bot chatter are excluded.
+
+Context includes text and rich-post text; images, attachments, cards, and pinned documents have explicit unread markers. Quoted-message-only mode reads the one referenced message and validates its chat and timestamp. It may include a quoted bot answer; automatic recent history excludes bot messages.
+
+Reference messages are separately labelled JSON, with developer instructions that they cannot authorize tools or approvals. The latest submitter request remains the instruction. If a question refers to prior discussion but the relevant context cannot be obtained, the bot states the limitation without starting a repository task or pretending it read the conversation. If recent history is disabled, users can quote or paste the relevant text.
+
+Fetched context is passed to the installed Codex and its configured model provider; normal Codex transcript storage applies. It is not committed or printed as raw SDK history. Group reading requires published message-read scope and actual bot access; code tests do not establish these external permissions.

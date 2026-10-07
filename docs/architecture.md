@@ -1,6 +1,6 @@
 # Architecture
 
-This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. Live inference and approval acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
+This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. Context-grounded discussion and live administrator approval acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
 
 ## Goal and boundary
 
@@ -39,8 +39,8 @@ Use the local Codex identity and configuration. Pin and verify the installed pro
 2. Register the message ID durably. Duplicate events must not create another task or approval decision.
 3. Finish the event handler promptly. Do not wait for a Codex task inside the Feishu SDK handler.
 4. Route bridge commands or enqueue a normal task. Persist queued task input locally, with the same protections as transcripts.
-5. For a normal task, create or restore a Codex thread for the selected bridge session and project.
-6. Start the turn and forward meaningful progress. Merge text deltas into rate-limited replies; do not publish raw protocol events, secrets, or complete shell logs by default.
+5. Default to a neutral discussion session, or use a project the user explicitly selected. Store trigger ID/time/type/reference with the queued request. After authorization, fetch only the configured bounded context in the originating chat before creating or restoring a Codex thread.
+6. Start the turn with developer instructions distinguishing chat reference material from execution authority and repository configuration. Discussion returns a direct final answer; explicitly selected project execution can forward meaningful progress. Merge text deltas into rate-limited replies; do not publish raw protocol events, secrets, or complete shell logs by default.
 7. Interpret `turn/completed` using the actual turn status. Report completion, failure, and interruption distinctly.
 8. Persist the outcome and enqueue the final reply for retryable delivery. A delivery retry must not rerun the agent task.
 
@@ -54,7 +54,8 @@ These commands belong to the bridge, not the Codex CLI:
 
 | Command | Behavior |
 | --- | --- |
-| `/project <alias>` | Select a registered project and its bridge session. |
+| `/project <alias>` | Explicitly select a registered project and execution session. |
+| `/chat` | Select a neutral per-user/chat discussion workspace. |
 | `/new` | Create a new session when the selected session has no pending work. |
 | `/status` | Display active task, queued work, and pending approvals. |
 | `/补充 <text>` | Steer the selected active turn through `turn/steer`; reject if none is active. |
@@ -63,6 +64,8 @@ These commands belong to the bridge, not the Codex CLI:
 | `/批准 <id>` | Configured administrators accept a live approval in its designated chat. |
 | `/拒绝 <id>` | Configured administrators decline an approval; the submitter can decline their own question. |
 | `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
+
+Discussion sessions use private per-user/chat directories under the state directory. Older project histories are preserved; switch with `/chat` to leave an existing selected project. Neutral mode instructs Codex not to browse a repository to guess group context, without relaxing local sandbox or approvals.
 
 When a session is idle, normal text starts another turn in the same thread. When busy, normal text queues for the next turn. Control commands bypass the queue. Bind queued tasks to their original session and project so a later project switch cannot reroute them.
 

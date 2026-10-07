@@ -8,7 +8,7 @@ The owner installation has completed application setup, SDK connection, and chal
 2. Copy its App ID and App Secret into the private `.env` file. Keep the secret off chat and out of git.
 3. Enable reading private messages sent to the bot, receiving users' group @mentions, and sending messages as the application bot. The developer console and [message event documentation](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive) show the required scopes for your application.
 4. Subscribe to `im.message.receive_v1` and choose SDK long connection mode. The local SDK client must be connected when saving this subscription mode.
-5. Publish the application version and make it available to the intended colleagues. Add the bot to the group where colleagues will @mention it. Enable group mentions for team use; reading every group message and document permissions are not required by the bridge transport. When group mode is enabled, startup also verifies the bot's own open ID through the bot-info API.
+5. Publish the application version and make it available to the intended colleagues. Add the bot to the group where colleagues will @mention it. Enable group mentions for team use; the @mention transport does not require reading every group message. Optional history/quoted-message context also needs message-read permission and bot access to the target group; document permissions are not required. When group mode is enabled, startup also verifies the bot's own open ID through the bot-info API.
 
 The application bot is the chat interface. Local Codex continues to use its own separately configured tools and identities.
 
@@ -31,8 +31,8 @@ Open IDs are application-specific. An ID from another bot or CLI application's l
 ## First live acceptance run
 
 1. Register an existing local project directory; run `npm run doctor`, `npm run build`, and `npm start`.
-2. Send `/project <alias>` and `/status` to verify private-message transport.
-3. Send a bounded read-only prompt, such as summarizing top-level files without modifications. Confirm acknowledgment, progress, and final output.
+2. Send `/chat` and `/status`, then `/project <alias>` and `/status` to verify private-message transport.
+3. @mention a bounded discussion question with quoted or explicitly enabled recent context and verify a relevant direct answer, without repository-rule commentary. Then explicitly select a project and send a bounded read-only prompt, such as summarizing top-level files without modifications. Confirm acknowledgment, progress, and final output.
 4. Send a follow-up to verify context continues. Test `/new` after work has completed.
 5. Start a longer bounded task; verify `/补充` and `/stop` reach the right turn.
 6. Exercise a bounded local action that triggers approval under your existing Codex policy. Confirm the preview and `/拒绝` work. Repeat with explicit approval if desired.

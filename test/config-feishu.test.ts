@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, symlinkSync, realpathSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from '../src/config.js';
-import { normalizeMessage } from '../src/feishu.js';
+import { normalizeMessage, formatContext } from '../src/feishu.js';
 
 function event() {
   return {
@@ -15,7 +15,7 @@ function event() {
 
 test('Feishu adapter accepts private user text and rejects group, bot, malformed, and cross-tenant events', () => {
   const valid = event();
-  assert.deepEqual(normalizeMessage(valid), { tenant: 'tenant', user: 'ou_owner', chat: 'chat', id: 'message', text: 'Hello' });
+  assert.deepEqual(normalizeMessage(valid), { tenant: 'tenant', user: 'ou_owner', chat: 'chat', id: 'message', text: 'Hello', chatType: 'p2p' });
   assert.equal(normalizeMessage({ ...valid, message: { ...valid.message, chat_type: 'group' } }), undefined);
   assert.equal(normalizeMessage({ ...valid, sender: { ...valid.sender, sender_type: 'app' } }), undefined);
   assert.equal(normalizeMessage({ ...valid, message: { ...valid.message, content: 'broken JSON' } }), undefined);
@@ -71,10 +71,30 @@ test('tenant access requires a pinned tenant and keeps approvers separate from s
   assert.deepEqual(config.approvalUsers, ['ou_owner']); assert.equal(config.approvalChat, 'oc_admin');
   for (const invalid of [
     { ...valid, allowedTenant: null }, { ...valid, allowedTenant: '*' }, { ...valid, accessMode: 'anyone' },
-    { ...valid, approvalUsers: [] }, { ...valid, enableGroups: 'yes' }, { ...valid, approvalChat: '*' },
+    { ...valid, approvalUsers: [] }, { ...valid, groupContextMessages: 21 }, { ...valid, groupContextMessages: -1 }, { ...valid, groupContextMessages: '20' }, { ...valid, enableGroups: 'yes' }, { ...valid, approvalChat: '*' },
     { ...valid, accessMode: 'allowlist', approvalUsers: ['ou_unlisted'] },
   ]) { write(invalid); assert.throws(() => loadConfig(file)); }
   write({ allowedUsers: ['ou_owner'], projects: { example: directory } });
   const legacy = loadConfig(file);
   assert.equal(legacy.accessMode, 'allowlist'); assert.equal(legacy.enableGroups, false); assert.deepEqual(legacy.approvalUsers, ['ou_owner']);
+});
+
+
+test('history context excludes other chats, future/current/deleted/bot records and labels unread media', () => {
+  const row = (id: string, type: string, content: unknown, overrides: Record<string, unknown> = {}) => ({
+    message_id: id, chat_id: 'group', create_time: '1000', msg_type: type,
+    sender: { sender_type: 'user', sender_name: 'Colleague' }, body: { content: JSON.stringify(content) }, ...overrides,
+  });
+  const context = formatContext([
+    row('trigger', 'text', { text: 'current' }), row('future', 'text', { text: 'future' }, { create_time: '3000' }),
+    row('other', 'text', { text: 'secret other chat' }, { chat_id: 'other' }), row('deleted', 'text', { text: 'deleted' }, { deleted: true }),
+    row('bot', 'text', { text: 'task noise' }, { sender: { sender_type: 'app' } }),
+    row('image', 'image', { image_key: 'private-key' }), row('post', 'post', { zh_cn: { title: 'Book', content: [[{ tag: 'text', text: 'Read this' }]] } }),
+  ], 'group', 'trigger', 2000, 20);
+  assert.equal(context.messages.length, 2);
+  assert.equal(context.messages[0]!.text, 'Book\nRead this');
+  assert.ok(context.messages[1]!.text.includes('尚未读取'));
+  assert.equal(JSON.stringify(context).includes('private-key'), false);
+  assert.equal(formatContext([], 'group', 'trigger', 2000, 20).status, 'unavailable');
+  assert.equal(formatContext([row('bot', 'text', { text: 'quoted answer' }, { sender: { sender_type: 'app' } })], 'group', 'trigger', 2000, 1, true).messages[0]!.text, 'quoted answer');
 });

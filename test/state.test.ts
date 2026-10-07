@@ -118,3 +118,16 @@ test('legacy approval audit migrates once and records the deciding team actor wi
     { id: 'old', status: 'decline_sent', actor: null }, { id: 'new', status: 'accept_sent', actor: 'ou_admin' },
   ]);
 });
+
+
+test('queued trigger metadata survives reopen without fetching or changing the original request', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'codex-trigger-metadata-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let state = new State(directory);
+  const session = state.select(message('Work'), 'project', directory);
+  const source = { id: 'trigger', chatType: 'group' as const, createTime: '1791400000000', parentId: 'quoted' };
+  state.enqueue(session.id, 'What do you think?', source); state.close();
+  state = new State(directory); t.after(() => state.close());
+  assert.deepEqual(state.queued(directory)!.source, source);
+  assert.equal(state.queued(directory)!.input, 'What do you think?');
+});

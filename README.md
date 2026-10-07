@@ -4,7 +4,7 @@ A local bridge that lets your Feishu colleagues submit tasks to the Codex instal
 
 ## Status
 
-The team text-chat bridge is implemented, including tenant access, verified group @mentions, per-user conversations, administrator approval routing, and Codex stdio control, project sessions, SQLite state, text approvals, steering, interruption, and retryable result delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes and subscription are verified, the SDK long connection is connected, and private-chat challenge enrollment has succeeded. Team group delivery, the intended bounded task/result round trip, and administrator approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for observed evidence.
+The team text-chat bridge is implemented, including default discussion mode, optional bounded context, direct discussion replies, tenant access, verified group @mentions, per-user conversations, administrator approval routing, and Codex stdio control, default discussion sessions, explicit project execution, optional bounded group context, SQLite state, text approvals, steering, interruption, and retryable result delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes and subscription are verified, the SDK long connection is connected, and private-chat challenge enrollment has succeeded. Owner group delivery and a bounded read-only project turn are observed. Relevant context-grounded discussion, colleague-account access, and administrator approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for observed evidence.
 
 ## Design
 
@@ -29,7 +29,8 @@ See [the architecture](docs/architecture.md) for lifecycle, session, and recover
 - Colleagues in one explicitly configured tenant, or a configured user allowlist.
 - Private text chats and group text messages that mention this particular bot.
 - Separate conversations per user and chat, with configured administrators deciding Codex approval requests.
-- Explicit project selection from a configured directory allowlist.
+- Discussion mode by default; `/project` explicitly selects project execution and `/chat` returns to discussion.
+- Optional recent group context, limited to at most 20 messages; disabled by default. Quoted-message-only context is supported.
 - Persistent Codex conversation mapping.
 - Progress and final results, text-based approvals, steering, and interruption.
 - Local operation without a public HTTP listener.
@@ -65,7 +66,8 @@ Keep `.env`, `bridge.config.json`, the local state database, transcripts, and cr
 
 | Command | Action |
 | --- | --- |
-| `/project <alias>` | Select a registered local project. |
+| `/project <alias>` | Explicitly enter execution mode for a registered local project. |
+| `/chat` | Return to ordinary discussion, without defaulting to a code repository. |
 | `/new` | Create a new conversation when the selected session has no pending work. |
 | `/status` | Show task counts, Codex readiness, and pending requests. |
 | `/补充 <text>` | Steer the selected active turn. |
@@ -75,7 +77,7 @@ Keep `.env`, `bridge.config.json`, the local state database, transcripts, and cr
 | `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
 | `/help` | Show help. |
 
-In a group, include an actual @mention of the bot before every task or command. Normal text starts a task. While the project is busy, normal text queues for the next turn. Tasks retain their original session and project even if you switch projects. Aliases pointing at the same directory share one execution queue.
+In a group, include an actual @mention of the bot before every task or command. Ordinary discussion uses a neutral local session and returns a direct answer without execution-status messages. Group references require available recent or quoted context; unavailable history is stated instead of substituting local repository rules. Normal text in an explicitly selected project starts a project task. While the project is busy, normal text queues for the next turn. Tasks retain their original session and project even if you switch projects. Aliases pointing at the same directory share one execution queue.
 
 ## Verification and operation
 
@@ -87,6 +89,8 @@ npm run smoke:codex    # Actual local stdio handshake; no model inference
 GitHub Actions runs the automated checks without live Codex or Feishu credentials. Protocol types are generated from the installed Codex executable; `npm run protocol:generate` regenerates them for an upgrade, which requires review and verification before use.
 
 See [operation](docs/operation.md) for macOS service setup and recovery, and [the implementation plan](docs/implementation-plan.md) for remaining live acceptance work.
+
+Recent history is off by default (`groupContextMessages: 0`); opt in to 1–20 only for the agreed group-context scope. It uses one bounded page from the preceding 24 hours, excludes future/other-chat/deleted/bot messages, and never presents image or attachment markers as read content. A quoted reply can use its explicitly referenced single message without reading recent history.
 
 Limitations: text chats are supported within the configured tenant/user policy. Group output is visible to group members; private-chat output stays in that private chat. Sessions isolate conversation history, while project files, Codex credentials, and installed tools remain shared on the host. Approvals apply to requests raised by the existing Codex policy, not every action. Secret questions, multiple simultaneous questions in one RPC request, and unsupported tool permission interactions are declined. Known gateway/API secrets are redacted from outgoing text; arbitrary secrets in model output still require care. Persistent local state contains task inputs and replies and has no automatic retention policy yet.
 
