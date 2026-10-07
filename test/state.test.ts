@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import lockfile from 'proper-lockfile';
 import { State } from '../src/state.js';
 import { Outbox } from '../src/outbox.js';
@@ -96,4 +97,24 @@ test('a second process cannot own the same state lock', async t => {
   const release = await lockfile.lock(directory, { retries: 0 });
   try { await assert.rejects(lockfile.lock(directory, { retries: 0 }), /already being held/); }
   finally { await release(); }
+});
+
+
+test('legacy approval audit migrates once and records the deciding team actor without losing history', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'codex-approval-migration-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const filename = join(directory, 'bridge.db');
+  let db = new DatabaseSync(filename);
+  db.exec("CREATE TABLE approvals (id TEXT PRIMARY KEY, task TEXT, method TEXT, status TEXT, created INTEGER); INSERT INTO approvals VALUES ('old', 'task', 'method', 'decline_sent', 1)");
+  db.close();
+  let state = new State(directory);
+  state.recordApproval('new', 'task', 'method');
+  state.approvalStatus('new', 'accept_sent', 'ou_admin');
+  state.close();
+  state = new State(directory); state.close();
+  db = new DatabaseSync(filename);
+  t.after(() => db.close());
+  assert.deepEqual(db.prepare('SELECT id, status, actor FROM approvals ORDER BY created').all().map(row => ({ ...row })), [
+    { id: 'old', status: 'decline_sent', actor: null }, { id: 'new', status: 'accept_sent', actor: 'ou_admin' },
+  ]);
 });

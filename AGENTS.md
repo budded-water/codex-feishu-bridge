@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This independent TypeScript project bridges Feishu private chat to Codex installed on the user's computer. Read README.md and docs/architecture.md before implementation. Runtime and simulated behavior coverage are implemented. Application setup, SDK connection, and owner enrollment are verified; complete live task and approval acceptance remains pending. Read docs/live-acceptance.md for observed evidence.
+This independent TypeScript project bridges Feishu private chat and group @mentions to Codex installed on the user's computer. Read README.md and docs/architecture.md before implementation. Runtime and simulated behavior coverage are implemented. Application setup, SDK connection, and owner enrollment are verified; complete live task and approval acceptance remains pending. Read docs/live-acceptance.md for observed evidence.
 
 ## Delivery
 
@@ -18,7 +18,7 @@ This independent TypeScript project bridges Feishu private chat to Codex install
 - Use TypeScript for the bridge and the official Feishu SDK for transport.
 - Use the locally installed `codex app-server` over stdio with version-matched protocol bindings.
 - Retain the local Codex configuration, sandbox, and approval policies.
-- Restrict the initial bot to explicitly authorized private-chat users and registered project directories.
+- Enforce the configured tenant or user allowlist, verified bot mentions for groups, per-user/chat session ownership, designated approval administrators, and registered project directories.
 - Do not interpolate chat messages into shell commands.
 - Never approve by timeout, reuse stale approval decisions, or automatically replay a write-capable task after an uncertain outcome.
 - Keep reasoning and agent execution inside Codex; the bridge owns routing, state, and interaction.

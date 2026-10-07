@@ -31,6 +31,7 @@ interface Prompt {
   rpc: RpcRequest;
   active: Active;
   kind: 'approval' | 'question';
+  replyChat: string;
   questions: string[];
   timer: NodeJS.Timeout;
   expires: number;
@@ -60,8 +61,9 @@ export class Bridge {
   }
 
   receive(message: IncomingMessage): void {
-    if (this.closed || !this.config.allowedUsers.includes(message.user) ||
-        !message.tenant || !message.chat || !message.id || !message.text.trim()) return;
+    if (this.closed || !message.user || !message.tenant || !message.chat || !message.id || !message.text.trim() ||
+        (this.config.allowedTenant && this.config.allowedTenant !== message.tenant) ||
+        (this.config.accessMode === 'allowlist' && !this.config.allowedUsers.includes(message.user))) return;
     if (message.text.length > 30_000) return;
     let after: (() => void) | undefined;
     this.state.transaction(() => {
@@ -72,6 +74,10 @@ export class Bridge {
       if (/^pair\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return;
       const [command, ...parts] = text.split(/\s+/);
       const argument = parts.join(' ');
+      if (['/批准', '/拒绝', '/回答'].includes(command!)) {
+        after = () => this.replyPrompt(message, command!, argument);
+        return;
+      }
       let session = this.state.selected(message);
       if (command === '/help') { this.state.send(message.chat, HELP); return; }
       if (command === '/project') {
@@ -108,11 +114,12 @@ export class Bridge {
       }
       if (command === '/status') {
         const statuses = this.state.status(session.id).map(row => `${row.status}: ${row.count}`).join('，') || '暂无任务';
-        const requests = [...this.prompts.values()].filter(prompt => prompt.active.session.id === session.id).map(prompt => prompt.token);
+        const requests = [...this.prompts.values()].filter(prompt => prompt.active.session.id === session.id ||
+          (prompt.kind === 'approval' && prompt.replyChat === message.chat && this.config.approvalUsers.includes(message.user))).map(prompt => prompt.token);
         this.state.send(message.chat, `项目：${session.project}\nCodex：${this.codex.ready ? '在线' : '重连中'}\n${statuses}\n待回复：${requests.join('、') || '无'}`);
         return;
       }
-      if (['/stop', '/补充', '/批准', '/拒绝', '/回答'].includes(command!)) {
+      if (['/stop', '/补充'].includes(command!)) {
         const selected = session;
         after = () => { void this.control(message, selected, command!, argument).catch(() => {
           if (!this.closed) this.state.send(message.chat, '控制请求未确认成功，请用 /status 查看状态。');
@@ -224,7 +231,7 @@ export class Bridge {
       previous.text = (previous.text + string(params.delta)).slice(-200_000);
       active.messages.set(id, previous);
       if (Date.now() - active.progressAt > 5000 && previous.text.trim()) {
-        this.state.send(active.session.chat, `进度：${previous.text.slice(-600)}`);
+        this.state.send(active.session.chat, `任务 ${active.task.id.slice(0, 8)} 进度：${previous.text.slice(-600)}`);
         active.progressAt = Date.now();
       }
     } else if (event.method === 'item/completed') {
@@ -296,11 +303,13 @@ export class Bridge {
     const expires = Date.now() + this.config.approvalTimeoutSeconds * 1000;
     const prompt: Prompt = {
       token, rpc, active, kind: approval ? 'approval' : 'question',
+      replyChat: approval ? this.config.approvalChat ?? active.session.chat : active.session.chat,
       questions: questions.map(item => string(item.id)), expires,
       timer: setTimeout(() => {
         if (!this.prompts.has(token)) return;
         this.decide(prompt, false);
-        this.state.send(active.session.chat, `请求 ${token} 已超时，未授权执行。`);
+        this.state.send(prompt.replyChat, `请求 ${token} 已超时，未授权执行。`);
+        if (prompt.replyChat !== active.session.chat) this.state.send(active.session.chat, `任务 ${active.task.id.slice(0, 8)} 的请求 ${token} 已超时，未授权执行。`);
       }, this.config.approvalTimeoutSeconds * 1000),
     };
     this.prompts.set(token, prompt);
@@ -315,7 +324,8 @@ export class Bridge {
         this.state.send(active.session.chat, '审批请求没有提供可核对的动作，已拒绝；请在本机处理。');
         return;
       }
-      this.state.send(active.session.chat, `请求 ${token}\n项目：${active.session.project}\n动作：${description}\n原因：${string(rpc.params.reason) || '未提供'}\n/批准 ${token} 或 /拒绝 ${token}。${this.config.approvalTimeoutSeconds} 秒后自动拒绝。`);
+      this.state.send(prompt.replyChat, `请求 ${token}\n任务：${active.task.id.slice(0, 8)}\n提交者：<at user_id="${active.session.user}"></at>\n项目：${active.session.project}\n动作：${description}\n原因：${string(rpc.params.reason) || '未提供'}\n/批准 ${token} 或 /拒绝 ${token}。${this.config.approvalTimeoutSeconds} 秒后自动拒绝。`);
+      if (prompt.replyChat !== active.session.chat) this.state.send(active.session.chat, `任务 ${active.task.id.slice(0, 8)} 等待管理员审批，请求 ${token}。`);
     } else {
       const item = questions[0]!;
       const choices = Array.isArray(item.options) ? item.options.map(option => string(record(option).label)).join('、') : '';
@@ -329,45 +339,48 @@ export class Bridge {
     this.state.approvalStatus(prompt.token, 'invalidated');
   }
 
-  private decide(prompt: Prompt, accept: boolean, answer?: string): void {
+  private decide(prompt: Prompt, accept: boolean, answer?: string, actor?: string): void {
     this.forget(prompt);
     if (prompt.active.done || prompt.active.generation !== this.codex.generation ||
         prompt.rpc.params.threadId !== prompt.active.thread || prompt.rpc.params.turnId !== prompt.active.turn) return;
     if (prompt.kind === 'approval') {
       const result: CommandExecutionRequestApprovalResponse = { decision: accept ? 'accept' : 'decline' };
       this.codex.reply(prompt.rpc.id, result);
-      this.state.approvalStatus(prompt.token, accept ? 'accept_sent' : 'decline_sent');
+      this.state.approvalStatus(prompt.token, accept ? 'accept_sent' : 'decline_sent', actor);
     } else {
       const result: ToolRequestUserInputResponse = { answers: answer ? { [prompt.questions[0]!]: { answers: [answer] } } : {} };
       this.codex.reply(prompt.rpc.id, result);
-      this.state.approvalStatus(prompt.token, answer ? 'answer_sent' : 'decline_sent');
+      this.state.approvalStatus(prompt.token, answer ? 'answer_sent' : 'decline_sent', actor);
     }
   }
 
-  private async control(message: IncomingMessage, session: Session, command: string, argument: string): Promise<void> {
-    if (['/批准', '/拒绝', '/回答'].includes(command)) {
-      const [token, question, ...answer] = argument.split(/\s+/);
-      const prompt = this.prompts.get(token!);
-      if (!prompt || prompt.active.session.owner !== ownerKey(message) ||
-          prompt.active.done || prompt.active.generation !== this.codex.generation || Date.now() >= prompt.expires ||
-          prompt.rpc.params.threadId !== prompt.active.thread || prompt.rpc.params.turnId !== prompt.active.turn) {
-        this.state.send(message.chat, '请求已过期或不属于当前会话，未执行。');
-        return;
-      }
-      if (command === '/回答') {
-        if (prompt.kind !== 'question' || prompt.questions[0] !== question || !answer.length) {
-          this.state.send(message.chat, '请使用 /回答 编号 问题ID 内容，或 /拒绝 编号。'); return;
-        }
-        this.decide(prompt, false, answer.join(' '));
-      } else {
-        if (command === '/批准' && prompt.kind !== 'approval') {
-          this.state.send(message.chat, '这是提问，请用 /回答 回复。'); return;
-        }
-        this.decide(prompt, command === '/批准');
-      }
-      this.state.send(message.chat, `请求 ${token} 已回复。`);
+  private replyPrompt(message: IncomingMessage, command: string, argument: string): void {
+    const [token, question, ...answer] = argument.split(/\s+/);
+    const prompt = this.prompts.get(token!);
+    const authorized = prompt && (prompt.kind === 'approval'
+      ? this.config.approvalUsers.includes(message.user) && message.tenant === prompt.active.session.tenant && message.chat === prompt.replyChat
+      : prompt.active.session.owner === ownerKey(message));
+    if (!prompt || !authorized || prompt.active.done || prompt.active.generation !== this.codex.generation || Date.now() >= prompt.expires ||
+        prompt.rpc.params.threadId !== prompt.active.thread || prompt.rpc.params.turnId !== prompt.active.turn) {
+      this.state.send(message.chat, '请求已过期或你无权在此聊天回复，未执行。');
       return;
     }
+    if (command === '/回答') {
+      if (prompt.kind !== 'question' || prompt.questions[0] !== question || !answer.length) {
+        this.state.send(message.chat, '请使用 /回答 编号 问题ID 内容，或 /拒绝 编号。'); return;
+      }
+      this.decide(prompt, false, answer.join(' '), message.user);
+    } else {
+      if (command === '/批准' && prompt.kind !== 'approval') {
+        this.state.send(message.chat, '这是提问，请用 /回答 回复。'); return;
+      }
+      this.decide(prompt, command === '/批准', undefined, message.user);
+    }
+    this.state.send(message.chat, `请求 ${token} 已回复。`);
+    if (prompt.replyChat !== prompt.active.session.chat) this.state.send(prompt.active.session.chat, `任务 ${prompt.active.task.id.slice(0, 8)} 的请求 ${token} 已由管理员回复。`);
+  }
+
+  private async control(message: IncomingMessage, session: Session, command: string, argument: string): Promise<void> {
     const active = this.active.get(session.directory);
     if (!active || active.session.id !== session.id || !active.turn || active.done) {
       this.state.send(message.chat, '当前会话暂无可控制的运行任务。'); return;

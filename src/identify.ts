@@ -21,6 +21,7 @@ async function identify(): Promise<void> {
     await feishu.start(message => {
       if (stopped || message.text.trim() !== challenge) return;
       console.log(`Set allowedUsers to ${JSON.stringify([message.user])} in your private bridge.config.json.`);
+      console.log(`Tenant: ${message.tenant}; owner private approval chat: ${message.chat}. Use the enrolled open ID for approvalUsers.`);
       close();
     });
   } catch {

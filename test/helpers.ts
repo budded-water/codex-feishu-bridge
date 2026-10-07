@@ -70,7 +70,7 @@ export function setup() {
   mkdirSync(alpha);
   mkdirSync(beta);
   const config: Config = {
-    allowedUsers: ['ou_owner'], codexExecutable: 'codex', stateDirectory: join(directory, 'state'),
+    allowedUsers: ['ou_owner'], accessMode: 'allowlist', allowedTenant: null, enableGroups: false, approvalUsers: ['ou_owner'], approvalChat: null, codexExecutable: 'codex', stateDirectory: join(directory, 'state'),
     approvalTimeoutSeconds: 300, projects: { alpha, beta },
   };
   const state = new State(config.stateDirectory);

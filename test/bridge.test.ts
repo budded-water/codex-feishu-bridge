@@ -214,3 +214,80 @@ test('completion arriving before the turn/start RPC response cannot be overwritt
   await until(() => h.state.status(h.session.id).some(row => row.status === 'completed'));
   assert.ok(!h.state.status(h.session.id).some(row => row.status === 'running'));
 });
+
+
+test('tenant colleagues in one group have isolated threads and cannot steer or stop each other', async t => {
+  const h = setup(); t.after(h.close);
+  h.config.accessMode = 'tenant'; h.config.allowedTenant = 'tenant';
+  const alice = { user: 'ou_alice', chat: 'group' };
+  const bob = { user: 'ou_bob', chat: 'group' };
+  h.bridge.receive(message('/project alpha', { ...alice, tenant: 'outside' }));
+  assert.equal(h.state.selected(message('', { ...alice, tenant: 'outside' })), undefined);
+  h.bridge.receive(message('/project alpha', alice));
+  h.bridge.receive(message('Alice task', alice));
+  await until(() => h.turns().length === 1);
+  const first = h.current();
+  h.bridge.receive(message('/project alpha', bob));
+  h.bridge.receive(message('/补充 Change Alice task', bob));
+  h.bridge.receive(message('/stop', bob));
+  h.bridge.receive(message('Bob task', bob));
+  assert.equal(h.turns().length, 1);
+  assert.equal(h.codex.calls.some(call => ['turn/steer', 'turn/interrupt'].includes(call.method)), false);
+  h.codex.complete(first.threadId, first.turnId);
+  await until(() => h.turns().length === 2);
+  assert.notEqual(h.current().threadId, first.threadId);
+  assert.notEqual(h.state.selected(message('', alice))!.id, h.state.selected(message('', bob))!.id);
+});
+
+test('only configured administrators can decide colleague approvals in the routed approval chat', async t => {
+  const h = setup(); t.after(h.close);
+  h.config.accessMode = 'tenant'; h.config.allowedTenant = 'tenant'; h.config.approvalChat = 'oc_admin';
+  const colleague = { user: 'ou_colleague', chat: 'group' };
+  h.bridge.receive(message('/project alpha', colleague)); h.bridge.receive(message('Colleague task', colleague));
+  await until(() => h.turns().length === 1);
+  h.codex.ask('team-approval', 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo bounded' });
+  const preview = h.state.pending(Number.MAX_SAFE_INTEGER).find(reply => reply.body.includes('动作：'))!;
+  assert.equal(preview.chat, 'oc_admin');
+  const token = preview.body.match(/请求 ([a-f0-9]{8})/)![1]!;
+  h.bridge.receive(message(`/批准 ${token}`, { user: 'ou_colleague', chat: 'oc_admin' }));
+  h.bridge.receive(message(`/批准 ${token}`, { user: 'ou_owner', chat: 'group' }));
+  h.bridge.receive(message(`/批准 ${token}`, { user: 'ou_owner', chat: 'oc_admin', tenant: 'outside' }));
+  assert.equal(h.codex.replies.length, 0);
+  assert.equal(h.state.selected(message('', { chat: 'oc_admin' })), undefined);
+  h.bridge.receive(message(`/批准 ${token}`, { chat: 'oc_admin' }));
+  assert.deepEqual(h.codex.replies, [{ id: 'team-approval', result: { decision: 'accept' } }]);
+  h.bridge.receive(message(`/批准 ${token}`, { chat: 'oc_admin' }));
+  assert.equal(h.codex.replies.length, 1);
+});
+
+test('administrators cannot answer a colleague question; only its submitter in the original chat can', async t => {
+  const h = setup(); t.after(h.close);
+  h.config.accessMode = 'tenant'; h.config.allowedTenant = 'tenant'; h.config.approvalChat = 'oc_admin';
+  const colleague = { user: 'ou_colleague', chat: 'group' };
+  h.bridge.receive(message('/project alpha', colleague)); h.bridge.receive(message('Colleague task', colleague));
+  await until(() => h.turns().length === 1);
+  h.codex.ask('team-question', 'item/tool/requestUserInput', { ...h.current(), questions: [{ id: 'q', question: 'Which file?' }] });
+  const token = h.deliveries().join('\n').match(/问题 ([a-f0-9]{8})/)![1]!;
+  h.bridge.receive(message(`/回答 ${token} q wrong`, { chat: 'oc_admin' }));
+  h.bridge.receive(message(`/回答 ${token} q wrong`, { ...colleague, chat: 'other-group' }));
+  assert.equal(h.codex.replies.length, 0);
+  h.bridge.receive(message(`/回答 ${token} q chosen`, colleague));
+  assert.deepEqual(h.codex.replies, [{ id: 'team-question', result: { answers: { q: { answers: ['chosen'] } } } }]);
+});
+
+
+test('routed colleague approvals expire in the administrator chat and late decisions remain ineffective', async t => {
+  const h = setup(); t.after(h.close);
+  h.config.accessMode = 'tenant'; h.config.allowedTenant = 'tenant'; h.config.approvalChat = 'oc_admin'; h.config.approvalTimeoutSeconds = 0.03;
+  const colleague = { user: 'ou_colleague', chat: 'group' };
+  h.bridge.receive(message('/project alpha', colleague)); h.bridge.receive(message('Colleague task', colleague));
+  await until(() => h.turns().length === 1);
+  h.codex.ask('expiring-team-approval', 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo bounded' });
+  const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
+  await until(() => h.codex.replies.length === 1);
+  const notices = h.state.pending(Number.MAX_SAFE_INTEGER);
+  assert.ok(notices.some(reply => reply.chat === 'oc_admin' && reply.body.includes('已超时')));
+  assert.ok(notices.some(reply => reply.chat === 'group' && reply.body.includes('已超时')));
+  h.bridge.receive(message(`/批准 ${token}`, { chat: 'oc_admin' }));
+  assert.deepEqual(h.codex.replies, [{ id: 'expiring-team-approval', result: { decision: 'decline' } }]);
+});

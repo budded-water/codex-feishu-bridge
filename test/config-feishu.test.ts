@@ -35,7 +35,46 @@ test('configuration requires explicit authorization and existing absolute direct
   assert.equal(loadConfig(file).stateDirectory, join(directory, 'state'));
   for (const invalid of [
     { ...valid, allowedUsers: [] }, { ...valid, allowedUsers: ['*'] },
-    { ...valid, allowedUsers: ['ou_owner', 'ou_other'] }, { ...valid, projects: { example: './relative' } },
+    { ...valid, allowedUsers: ['ou_owner', 'ou_owner'] }, { ...valid, projects: { example: './relative' } },
     { ...valid, projects: {} }, { ...valid, approvalTimeoutSeconds: 0 }, { ...valid, permissive: true },
   ]) { write(invalid); assert.throws(() => loadConfig(file)); }
+});
+
+
+test('group transport requires a verified mention of this bot and removes only its exact placeholders', () => {
+  const valid = event();
+  const group = {
+    ...valid,
+    message: { ...valid.message, chat_type: 'group', content: JSON.stringify({ text: '@_user_1 /status @_user_10' }),
+      mentions: [{ key: '@_user_1', id: { open_id: 'ou_bot' } }, { key: '@_user_10', id: { open_id: 'ou_other' } }] },
+  };
+  assert.equal(normalizeMessage(group), undefined);
+  assert.equal(normalizeMessage(group, 'ou_different_bot'), undefined);
+  assert.equal(normalizeMessage(group, 'ou_bot')?.text, '/status @_user_10');
+  assert.equal(normalizeMessage({ ...group, message: { ...group.message, mentions: [] } }, 'ou_bot'), undefined);
+  assert.equal(normalizeMessage({ ...group, message: { ...group.message, content: JSON.stringify({ text: '@all /status' }) } }, 'ou_bot'), undefined);
+  assert.equal(normalizeMessage({ ...group, message: { ...group.message, content: JSON.stringify({ text: '@_user_10 /status' }) } }, 'ou_bot'), undefined);
+  assert.equal(normalizeMessage({ ...group, message: { ...group.message, content: JSON.stringify({ text: '@_user_1' }) } }, 'ou_bot'), undefined);
+  assert.equal(normalizeMessage({ ...group, sender: { ...group.sender, sender_type: 'app' } }, 'ou_bot'), undefined);
+});
+
+test('tenant access requires a pinned tenant and keeps approvers separate from submission users', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'codex-team-config-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const file = join(directory, 'config.json');
+  const valid = { allowedUsers: ['ou_owner', 'ou_other'], accessMode: 'tenant', allowedTenant: 'tenant', enableGroups: true,
+    approvalUsers: ['ou_owner'], approvalChat: 'oc_admin', projects: { example: directory } };
+  const write = (value: unknown) => writeFileSync(file, JSON.stringify(value));
+  write(valid);
+  const config = loadConfig(file);
+  assert.equal(config.accessMode, 'tenant'); assert.equal(config.enableGroups, true);
+  assert.deepEqual(config.approvalUsers, ['ou_owner']); assert.equal(config.approvalChat, 'oc_admin');
+  for (const invalid of [
+    { ...valid, allowedTenant: null }, { ...valid, allowedTenant: '*' }, { ...valid, accessMode: 'anyone' },
+    { ...valid, approvalUsers: [] }, { ...valid, enableGroups: 'yes' }, { ...valid, approvalChat: '*' },
+    { ...valid, accessMode: 'allowlist', approvalUsers: ['ou_unlisted'] },
+  ]) { write(invalid); assert.throws(() => loadConfig(file)); }
+  write({ allowedUsers: ['ou_owner'], projects: { example: directory } });
+  const legacy = loadConfig(file);
+  assert.equal(legacy.accessMode, 'allowlist'); assert.equal(legacy.enableGroups, false); assert.deepEqual(legacy.approvalUsers, ['ou_owner']);
 });

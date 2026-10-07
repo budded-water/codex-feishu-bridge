@@ -1,15 +1,15 @@
 # Codex Feishu Bridge
 
-A local bridge that lets you interact with the Codex installed on your computer through Feishu.
+A local bridge that lets your Feishu colleagues submit tasks to the Codex installed on your computer, through private chat or group @mentions.
 
 ## Status
 
-The private-chat MVP is implemented, including Codex stdio control, project sessions, SQLite state, text approvals, steering, interruption, and retryable result delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes and subscription are verified, the SDK long connection is connected, and private-chat challenge enrollment has succeeded. A real inference/result round trip and interactive approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for observed evidence.
+The team text-chat bridge is implemented, including tenant access, verified group @mentions, per-user conversations, administrator approval routing, and Codex stdio control, project sessions, SQLite state, text approvals, steering, interruption, and retryable result delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes and subscription are verified, the SDK long connection is connected, and private-chat challenge enrollment has succeeded. Team group delivery, the intended bounded task/result round trip, and administrator approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for observed evidence.
 
 ## Design
 
 ```text
-Feishu private chat
+Feishu private chat / group @bot
         ↕
 Feishu Open Platform
         ↕ outbound SDK WebSocket connection
@@ -26,7 +26,9 @@ See [the architecture](docs/architecture.md) for lifecycle, session, and recover
 
 ## Initial scope
 
-- One authorized user, using private text chats with the application bot.
+- Colleagues in one explicitly configured tenant, or a configured user allowlist.
+- Private text chats and group text messages that mention this particular bot.
+- Separate conversations per user and chat, with configured administrators deciding Codex approval requests.
 - Explicit project selection from a configured directory allowlist.
 - Persistent Codex conversation mapping.
 - Progress and final results, text-based approvals, steering, and interruption.
@@ -45,8 +47,8 @@ cp bridge.config.example.json bridge.config.json
 ```
 
 1. Create your own Feishu self-built application with bot capability and enter its credentials in the local `.env`.
-2. Follow [Feishu setup](docs/feishu-setup.md) to enable private message events and obtain your open ID for this particular application using `npm run identify`.
-3. Configure exactly one allowed user and your actual project directories in `bridge.config.json`. Directory paths must be absolute and exist. State paths are relative to that configuration file unless absolute.
+2. Follow [Feishu setup](docs/feishu-setup.md) to enable private and group-mention message events and obtain your application-specific open ID, tenant key, and private approval chat using `npm run identify`.
+3. Configure team access, approval routing, and your actual project directories in `bridge.config.json`; see [team access](docs/team-access.md). Directory paths must be absolute and exist. State paths are relative to that configuration file unless absolute.
 4. Verify configuration, then build and start:
 
 ```bash
@@ -69,11 +71,11 @@ Keep `.env`, `bridge.config.json`, the local state database, transcripts, and cr
 | `/补充 <text>` | Steer the selected active turn. |
 | `/stop` | Interrupt the selected active turn; queued tasks remain queued. |
 | `/clear` | Cancel the selected session's queued tasks. |
-| `/批准 <id>` / `/拒绝 <id>` | Decide a specific pending approval. |
+| `/批准 <id>` / `/拒绝 <id>` | Configured administrators decide a specific approval in its designated chat; a submitter may decline their own question. |
 | `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
 | `/help` | Show help. |
 
-Normal text starts a task. While the project is busy, normal text queues for the next turn. Tasks retain their original session and project even if you switch projects. Aliases pointing at the same directory share one execution queue.
+In a group, include an actual @mention of the bot before every task or command. Normal text starts a task. While the project is busy, normal text queues for the next turn. Tasks retain their original session and project even if you switch projects. Aliases pointing at the same directory share one execution queue.
 
 ## Verification and operation
 
@@ -86,7 +88,7 @@ GitHub Actions runs the automated checks without live Codex or Feishu credential
 
 See [operation](docs/operation.md) for macOS service setup and recovery, and [the implementation plan](docs/implementation-plan.md) for remaining live acceptance work.
 
-Limitations: only private text chat with one configured user is supported. Secret questions, multiple simultaneous questions in one RPC request, and unsupported tool permission interactions are declined. Known gateway/API secrets are redacted from outgoing text; arbitrary secrets in model output still require care. Persistent local state contains task inputs and replies and has no automatic retention policy yet.
+Limitations: text chats are supported within the configured tenant/user policy. Group output is visible to group members; private-chat output stays in that private chat. Sessions isolate conversation history, while project files, Codex credentials, and installed tools remain shared on the host. Approvals apply to requests raised by the existing Codex policy, not every action. Secret questions, multiple simultaneous questions in one RPC request, and unsupported tool permission interactions are declined. Known gateway/API secrets are redacted from outgoing text; arbitrary secrets in model output still require care. Persistent local state contains task inputs and replies and has no automatic retention policy yet.
 
 Sending results uses a stable Feishu idempotency key and never reruns the task. Delivery remains at least once across external deduplication-window expiry; rare duplicate replies are possible.
 

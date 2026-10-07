@@ -4,7 +4,7 @@ This MVP is implemented and covered by simulated behavior tests. Application set
 
 ## Goal and boundary
 
-Expose the Codex already installed on the owner's computer through a Feishu application bot. Keep project execution, Codex configuration, and local tools on that computer.
+Expose the Codex already installed on the owner's computer through a Feishu application bot for colleagues using private text or group @mentions. Keep project execution, Codex configuration, and local tools on that computer.
 
 The bridge owns the transport and user interaction. Codex owns task reasoning, its tool loop, and execution under its configured permissions. Model inference continues to use Codex's configured provider.
 
@@ -24,7 +24,7 @@ The first version uses app-server's default stdio transport. It does not expose 
 
 ## Startup
 
-1. Validate private configuration: required Feishu credentials, an explicit user allowlist, registered project paths, and local storage location.
+1. Validate private configuration: required Feishu credentials, an explicit tenant or user access policy, approval routing, registered project paths, and local storage location.
 2. Resolve project directories to real paths and verify they exist. Reject arbitrary paths supplied through chat.
 3. Open SQLite and mark previously running tasks as interrupted or outcome unknown.
 4. Launch the installed Codex executable using a subprocess argument array, without shell interpolation.
@@ -35,7 +35,7 @@ Use the local Codex identity and configuration. Pin and verify the installed pro
 
 ## Message handling
 
-1. Validate the event sender and chat type. Initially accept only the configured user's private text messages. Ignore bot-originated and unauthorized events.
+1. Validate the event sender and chat type. Accept authorized private text or group text with a verified mention of this bot; enforce the pinned tenant in tenant mode. Ignore bot-originated and unauthorized events.
 2. Register the message ID durably. Duplicate events must not create another task or approval decision.
 3. Finish the event handler promptly. Do not wait for a Codex task inside the Feishu SDK handler.
 4. Route bridge commands or enqueue a normal task. Persist queued task input locally, with the same protections as transcripts.
@@ -48,7 +48,7 @@ Receiving a task, completing execution, and delivering the result are separate s
 
 ## Conversations and commands
 
-A session mapping uses the application tenant, user, private chat, project, and bridge session identifier. Each mapping records the Codex thread ID. SQLite is canonical for the bridge mapping; Codex's thread history is canonical for agent conversation history. The bridge must validate that the referenced thread remains available before resuming it.
+A session mapping uses the application tenant, user, private or group chat, project, and bridge session identifier. Each mapping records the Codex thread ID. SQLite is canonical for the bridge mapping; Codex's thread history is canonical for agent conversation history. The bridge must validate that the referenced thread remains available before resuming it.
 
 These commands belong to the bridge, not the Codex CLI:
 
@@ -60,8 +60,8 @@ These commands belong to the bridge, not the Codex CLI:
 | `/补充 <text>` | Steer the selected active turn through `turn/steer`; reject if none is active. |
 | `/stop` | Interrupt the selected active turn through `turn/interrupt`. |
 | `/clear` | Cancel the selected session's queued tasks. |
-| `/批准 <id>` | Accept a live approval request from the configured user. |
-| `/拒绝 <id>` | Decline a live approval request from the configured user. |
+| `/批准 <id>` | Configured administrators accept a live approval in its designated chat. |
+| `/拒绝 <id>` | Configured administrators decline an approval; the submitter can decline their own question. |
 | `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
 
 When a session is idle, normal text starts another turn in the same thread. When busy, normal text queues for the next turn. Control commands bypass the queue. Bind queued tasks to their original session and project so a later project switch cannot reroute them.
@@ -72,13 +72,15 @@ Thread resumption can be added for existing local chats if the installed Codex v
 
 ## Approvals
 
-An approval response must match its authenticated user, chat, thread, turn, and subprocess generation. Show the action, scope, and reason. Offer request-level acceptance and rejection using the pinned protocol's decisions. Switching projects does not change request ownership.
+An approval response must come from a configured administrator in its designated chat and match the task tenant, thread, turn, and subprocess generation. The approval chat can be the owner's private chat, even for a colleague task. Question replies require the original submitter and original chat. Show the action, scope, and reason. Offer request-level acceptance and rejection using the pinned protocol's decisions. Switching projects does not change request ownership.
 
 Never turn an approval timeout into acceptance. If the configured timeout expires, decline or cancel using a supported protocol decision and clearly report the result. Do not treat a text reply to an old request as approval for a new request.
 
 Command/file approvals and single non-sensitive questions are supported. Multi-question requests, secret questions, and permission grants are denied. Unknown interactive families receive a protocol error and user-facing explanation. Missing action previews are declined.
 
-Persist an approval summary for audit, but its live JSON-RPC request belongs to the current subprocess. On subprocess exit or turn interruption, invalidate affected approvals. A recovered session may generate fresh requests with fresh identifiers.
+Persist an approval summary and the deciding actor for audit, but its live JSON-RPC request belongs to the current subprocess. On subprocess exit or turn interruption, invalidate affected approvals. A recovered session may generate fresh requests with fresh identifiers.
+
+Sessions isolate conversation history, not filesystem or credential access. All admitted colleagues share the registered projects and the host Codex identity and tools. Group task output is sent to the originating group.
 
 Retain Codex's sandbox and approval settings. The bridge must not enable unrestricted execution just to make unattended tasks succeed.
 

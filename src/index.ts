@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   }
   const codex = new CodexClient(config.codexExecutable);
   const bridge = new Bridge(config, state, codex);
-  const feishu = new Feishu(auth);
+  const feishu = new Feishu(auth, config.enableGroups);
   const outbox = new Outbox(state, feishu, [auth.appSecret, process.env.OPENAI_API_KEY ?? '']);
   let closing: Promise<void> | undefined;
   let stopping = false;
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
       try { bridge.receive(message); }
       catch { console.error('Message could not be persisted; Feishu may retry the event'); throw new Error('Local message processing failed'); }
     });
-    if (!stopping) console.log('Bridge running; only the configured private-chat user can submit tasks');
+    if (!stopping) console.log('Bridge running; configured tenant/user access and per-user sessions are enforced');
   } catch {
     await shutdown();
     throw new Error('Bridge startup failed; run npm run doctor and verify Feishu application settings');

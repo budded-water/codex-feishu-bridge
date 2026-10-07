@@ -48,6 +48,8 @@ export class State {
         id TEXT PRIMARY KEY, task TEXT, method TEXT, status TEXT, created INTEGER
       );
     `);
+    const approvalColumns = this.db.prepare('PRAGMA table_info(approvals)').all() as { name: string }[];
+    if (!approvalColumns.some(column => column.name === 'actor')) this.db.exec('ALTER TABLE approvals ADD COLUMN actor TEXT');
   }
 
   transaction<T>(work: () => T): T {
@@ -146,11 +148,11 @@ export class State {
   }
 
   recordApproval(id: string, task: string, method: string): void {
-    this.db.prepare('INSERT INTO approvals VALUES (?, ?, ?, ?, ?)').run(id, task, method, 'pending', Date.now());
+    this.db.prepare('INSERT INTO approvals (id, task, method, status, created) VALUES (?, ?, ?, ?, ?)').run(id, task, method, 'pending', Date.now());
   }
 
-  approvalStatus(id: string, status: string): void {
-    this.db.prepare('UPDATE approvals SET status=? WHERE id=?').run(status, id);
+  approvalStatus(id: string, status: string, actor?: string): void {
+    this.db.prepare('UPDATE approvals SET status=?, actor=COALESCE(?, actor) WHERE id=?').run(status, actor ?? null, id);
   }
 
   send(chat: string, body: string): void {
