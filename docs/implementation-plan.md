@@ -1,11 +1,11 @@
 # Implementation and acceptance status
 
-The private-text-chat MVP is implemented. Automated checks and a real local Codex handshake pass. The owner will create the Feishu application after code delivery; live Feishu and inference acceptance are pending.
+The private-text-chat MVP is implemented. Automated checks and a real local Codex handshake pass. The owner application is published, message scopes/subscription and SDK connection are verified, and owner challenge enrollment has succeeded. Live inference/result and approval acceptance remain pending; see [live acceptance](live-acceptance.md).
 
 | Milestone | Code and automated evidence | Remaining acceptance |
 | --- | --- | --- |
 | Codex adapter | Version-matched types; stdio initialization, request correlation, events, interruption, timeout and exit coverage. Actual local handshake and model catalog smoke test without inference. | A bounded real turn and inference access. |
-| Feishu transport | SDK long connection, private text normalization, allowlist, deduplication, progress and result delivery. | Application provisioning, published permissions/availability, live round trip. |
+| Feishu transport | SDK long connection, private text normalization, allowlist, deduplication, progress and result delivery. Owner application provisioning, published permissions, message subscription, SDK connection, and challenge enrollment verified. | Live reply/result round trip. |
 | Sessions and state | SQLite mappings, project queues, steering, stopping, clearing, restart recovery, and outbox retry coverage. | Live follow-up, disconnect, and restart exercises. |
 | Interactive requests | Correlated command/file approvals, timeout denial, stale invalidation, single-question replies, unsupported-request denial. | Live rejection and approval under the actual local policy. |
 | Host operation | Clean shutdown, heartbeat lock, bounded restart, doctor, challenge enrollment, and launchd generation. Generated plist validated locally. | Foreground acceptance, optional service installation and activation. |

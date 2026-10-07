@@ -1,6 +1,6 @@
 # Architecture
 
-This MVP is implemented and covered by simulated behavior tests. Live Feishu and inference acceptance remain pending; see README.md and docs/implementation-plan.md for evidence boundaries.
+This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. Live inference and approval acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
 
 ## Goal and boundary
 

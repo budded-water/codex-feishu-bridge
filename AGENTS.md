@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This independent TypeScript project bridges Feishu private chat to Codex installed on the user's computer. Read README.md and docs/architecture.md before implementation. Runtime and simulated behavior coverage are implemented; live Feishu acceptance remains pending.
+This independent TypeScript project bridges Feishu private chat to Codex installed on the user's computer. Read README.md and docs/architecture.md before implementation. Runtime and simulated behavior coverage are implemented. Application setup, SDK connection, and owner enrollment are verified; complete live task and approval acceptance remains pending. Read docs/live-acceptance.md for observed evidence.
 
 ## Delivery
 

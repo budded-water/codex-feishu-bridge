@@ -4,7 +4,7 @@ A local bridge that lets you interact with the Codex installed on your computer 
 
 ## Status
 
-The private-chat MVP is implemented, including Codex stdio control, project sessions, SQLite state, text approvals, steering, interruption, and retryable result delivery. Automated behavior checks and a real local Codex protocol handshake have passed. A Feishu application has not been provisioned or connected, so live message and approval round trips remain unverified.
+The private-chat MVP is implemented, including Codex stdio control, project sessions, SQLite state, text approvals, steering, interruption, and retryable result delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes and subscription are verified, the SDK long connection is connected, and private-chat challenge enrollment has succeeded. A real inference/result round trip and interactive approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for observed evidence.
 
 ## Design
 

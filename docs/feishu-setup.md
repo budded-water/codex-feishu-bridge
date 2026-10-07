@@ -1,6 +1,6 @@
 # Feishu setup
 
-Live integration has not been performed yet. Complete these steps with your own application before treating the bot as operational.
+The owner installation has completed application setup, SDK connection, and challenge enrollment. A full task and approval round trip is still pending; see [live acceptance](live-acceptance.md). New installations must complete the steps below with their own application.
 
 ## Create and configure the application
 
