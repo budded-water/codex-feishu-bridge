@@ -68,15 +68,17 @@ test('tenant access requires a pinned tenant and keeps approvers separate from s
   write(valid);
   const config = loadConfig(file);
   assert.equal(config.accessMode, 'tenant'); assert.equal(config.enableGroups, true);
+  write({ ...valid, groupContextMessages: 50, groupContextImages: 8 });
+  assert.equal(loadConfig(file).groupContextMessages, 50); assert.equal(loadConfig(file).groupContextImages, 8);
   assert.deepEqual(config.approvalUsers, ['ou_owner']); assert.equal(config.approvalChat, 'oc_admin');
   for (const invalid of [
     { ...valid, allowedTenant: null }, { ...valid, allowedTenant: '*' }, { ...valid, accessMode: 'anyone' },
-    { ...valid, approvalUsers: [] }, { ...valid, groupContextMessages: 21 }, { ...valid, groupContextMessages: -1 }, { ...valid, groupContextMessages: '20' }, { ...valid, enableGroups: 'yes' }, { ...valid, approvalChat: '*' },
+    { ...valid, approvalUsers: [] }, { ...valid, groupContextMessages: 51 }, { ...valid, groupContextMessages: -1 }, { ...valid, groupContextMessages: '50' }, { ...valid, groupContextImages: 9 }, { ...valid, groupContextImages: -1 }, { ...valid, groupContextImages: '8' }, { ...valid, enableGroups: 'yes' }, { ...valid, approvalChat: '*' },
     { ...valid, accessMode: 'allowlist', approvalUsers: ['ou_unlisted'] },
   ]) { write(invalid); assert.throws(() => loadConfig(file)); }
   write({ allowedUsers: ['ou_owner'], projects: { example: directory } });
   const legacy = loadConfig(file);
-  assert.equal(legacy.accessMode, 'allowlist'); assert.equal(legacy.enableGroups, false); assert.deepEqual(legacy.approvalUsers, ['ou_owner']);
+  assert.equal(legacy.groupContextImages, 0); assert.equal(legacy.groupContextMessages, 0); assert.equal(legacy.accessMode, 'allowlist'); assert.equal(legacy.enableGroups, false); assert.deepEqual(legacy.approvalUsers, ['ou_owner']);
 });
 
 

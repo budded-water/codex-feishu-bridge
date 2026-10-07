@@ -1,5 +1,6 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { MAX_CONTEXT_MESSAGES, MAX_CONTEXT_IMAGES } from './context-limits.js';
 import { record } from './types.js';
 
 export interface Config {
@@ -8,6 +9,7 @@ export interface Config {
   allowedTenant: string | null;
   enableGroups: boolean;
   groupContextMessages: number;
+  groupContextImages: number;
   approvalUsers: string[];
   approvalChat: string | null;
   codexExecutable: string;
@@ -19,7 +21,7 @@ export interface Config {
 export function loadConfig(filename = 'bridge.config.json'): Config {
   const path = resolve(filename);
   const value = record(JSON.parse(readFileSync(path, 'utf8')));
-  const fields = ['allowedUsers', 'accessMode', 'allowedTenant', 'enableGroups', 'groupContextMessages', 'approvalUsers', 'approvalChat', 'codexExecutable', 'stateDirectory', 'approvalTimeoutSeconds', 'projects'];
+  const fields = ['allowedUsers', 'accessMode', 'allowedTenant', 'enableGroups', 'groupContextMessages', 'groupContextImages', 'approvalUsers', 'approvalChat', 'codexExecutable', 'stateDirectory', 'approvalTimeoutSeconds', 'projects'];
   if (Object.keys(value).some(key => !fields.includes(key))) throw new Error('Unknown bridge configuration field');
   const accessMode = value.accessMode ?? 'allowlist';
   if (accessMode !== 'allowlist' && accessMode !== 'tenant') throw new Error('Invalid accessMode');
@@ -38,7 +40,9 @@ export function loadConfig(filename = 'bridge.config.json'): Config {
   const enableGroups = value.enableGroups ?? false;
   if (typeof enableGroups !== 'boolean') throw new Error('Invalid enableGroups');
   const groupContextMessages = value.groupContextMessages ?? 0;
-  if (!Number.isInteger(groupContextMessages) || typeof groupContextMessages !== 'number' || groupContextMessages < 0 || groupContextMessages > 20) throw new Error('groupContextMessages must be an integer from 0 to 20');
+  if (!Number.isInteger(groupContextMessages) || typeof groupContextMessages !== 'number' || groupContextMessages < 0 || groupContextMessages > MAX_CONTEXT_MESSAGES) throw new Error(`groupContextMessages must be an integer from 0 to ${MAX_CONTEXT_MESSAGES}`);
+  const groupContextImages = value.groupContextImages ?? 0;
+  if (typeof groupContextImages !== 'number' || !Number.isInteger(groupContextImages) || groupContextImages < 0 || groupContextImages > MAX_CONTEXT_IMAGES) throw new Error(`groupContextImages must be an integer from 0 to ${MAX_CONTEXT_IMAGES}`);
   const approvalChat = value.approvalChat ?? null;
   if (approvalChat !== null && (typeof approvalChat !== 'string' || !/^oc_[\w-]+$/.test(approvalChat))) throw new Error('Invalid approvalChat');
   const executable = value.codexExecutable ?? 'codex';
@@ -60,7 +64,7 @@ export function loadConfig(filename = 'bridge.config.json'): Config {
   }
   if (!Object.keys(projects).length) throw new Error('Register at least one project');
   return {
-    allowedUsers, accessMode, allowedTenant, enableGroups, groupContextMessages, approvalUsers, approvalChat, codexExecutable: executable,
+    allowedUsers, accessMode, allowedTenant, enableGroups, groupContextMessages, groupContextImages, approvalUsers, approvalChat, codexExecutable: executable,
     stateDirectory: resolve(dirname(path), state), approvalTimeoutSeconds: timeout, projects,
   };
 }

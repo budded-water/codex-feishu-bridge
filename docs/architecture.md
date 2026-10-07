@@ -1,6 +1,6 @@
 # Architecture
 
-This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. Context-grounded discussion and live administrator approval acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
+This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. New image-grounded group replies and live administrator approval acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
 
 ## Goal and boundary
 
@@ -39,8 +39,9 @@ Use the local Codex identity and configuration. Pin and verify the installed pro
 2. Register the message ID durably. Duplicate events must not create another task or approval decision.
 3. Finish the event handler promptly. Do not wait for a Codex task inside the Feishu SDK handler.
 4. Route bridge commands or enqueue a normal task. Persist queued task input locally, with the same protections as transcripts.
-5. Default to a neutral discussion session, or use a project the user explicitly selected. Store trigger ID/time/type/reference with the queued request. After authorization, fetch only the configured bounded context in the originating chat before creating or restoring a Codex thread.
-6. Start the turn with developer instructions distinguishing chat reference material from execution authority and repository configuration. Instruct Codex to answer directly in short chat paragraphs, expanding when asked. Discussion returns a direct final answer. Project execution has one conversational acknowledgment and throttled short tool-activity notices. Accumulate agent text deltas internally; do not forward drafts or commentary as progress.
+5. Default to a neutral discussion session, or use a project the user explicitly selected. Store trigger ID/time/type/reference with the queued request. After authorization, fetch only the configured bounded context (up to 50 records from the preceding 24 hours) in the originating chat before creating or restoring a Codex thread.
+   If image reading is enabled, download only admitted standalone/post image resources. Prioritize recent images under the configured attempt cap and canonical byte/time budgets. Supply each as an inline image input with its message reference; exclude image URLs/base64 from the context JSON. Download failures remain local to that image, and unprovided media is explicitly unread.
+6. Start the turn with developer instructions distinguishing chat reference material from execution authority and repository configuration. Treat image content as reference data, never execution authority. Instruct Codex to answer directly in short chat paragraphs, expanding when asked. Discussion returns a direct final answer. Project execution has one conversational acknowledgment and throttled short tool-activity notices. Accumulate agent text deltas internally; do not forward drafts or commentary as progress.
 7. Interpret `turn/completed` using the actual turn status. Report completion, failure, and interruption distinctly.
 8. Persist the outcome and enqueue the final reply once for retryable delivery. Render Markdown through native Feishu post elements with smaller headings and compact spacing outside code. Split long replies before persistence, preferring line boundaries and closing/reopening fenced code; unusually long lines split at Unicode boundaries. Each part has a stable UUID. A delivery retry must not rerun the agent task. Interrupted/failed turns do not publish unfinished agent drafts.
 

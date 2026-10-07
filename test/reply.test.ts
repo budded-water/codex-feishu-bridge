@@ -88,16 +88,16 @@ test('recent history read is one scoped page with a 24-hour window and cannot pa
     container_id_type: 'chat', container_id: 'group', page_size: 20,
     start_time: String(Math.floor(cutoff / 1000) - 86400), end_time: String(Math.floor(cutoff / 1000) + 1), sort_type: 'ByCreateTimeDesc', with_sender_name: true,
   } }]);
-  assert.equal((await adapter.context(session, source, 21)).status, 'unavailable');
+  assert.equal((await adapter.context(session, source, 51)).status, 'unavailable');
   assert.equal(requests.length, 1);
 });
 
-test('recent context independently enforces 24-hour and trigger boundaries, selecting the latest 20 chronologically', () => {
+test('recent context independently enforces 24-hour and trigger boundaries, selecting the latest 50 chronologically', () => {
   const cutoff = 1_800_000_000_123;
   const row = (id: string, time: number) => ({ message_id: id, chat_id: 'group', create_time: String(time), msg_type: 'text', sender: { sender_type: 'user' }, body: { content: JSON.stringify({ text: id }) } });
-  const rows = Array.from({ length: 25 }, (_, i) => row(`recent-${i}`, cutoff - 25 + i));
-  const result = formatContext([row('old', cutoff - 86_400_001), ...rows, row('future', cutoff + 1), row('same-time', cutoff)], 'group', 'trigger', cutoff, 20);
-  assert.deepEqual(result.messages.map(item => item.text), rows.slice(-20).map(item => JSON.parse(item.body.content).text));
+  const rows = Array.from({ length: 60 }, (_, i) => row(`recent-${i}`, cutoff - 60 + i));
+  const result = formatContext([row('old', cutoff - 86_400_001), ...rows, row('future', cutoff + 1), row('same-time', cutoff)], 'group', 'trigger', cutoff, 50);
+  assert.deepEqual(result.messages.map(item => item.text), rows.slice(-50).map(item => JSON.parse(item.body.content).text));
   assert.equal(formatContext([row('boundary', cutoff - 86_400_000)], 'group', 'trigger', cutoff, 20).messages.length, 1);
   assert.equal(formatContext([row('explicit-older-quote', cutoff - 86_400_001)], 'group', 'trigger', cutoff, 1, true).messages.length, 1);
 });

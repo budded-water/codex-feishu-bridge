@@ -66,6 +66,7 @@ export interface ChatContext {
   status: 'available' | 'unavailable';
   messages: { sender: string; type: string; text: string }[];
   note: string;
+  images?: { messageIndex: number; label: string; url: string }[];
 }
 export interface ContextPort {
   context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext>;

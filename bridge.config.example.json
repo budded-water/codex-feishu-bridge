@@ -15,5 +15,6 @@
     "your_feishu_open_id"
   ],
   "approvalChat": "oc_your_owner_private_chat_id",
-  "groupContextMessages": 0
+  "groupContextMessages": 0,
+  "groupContextImages": 0
 }

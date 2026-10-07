@@ -38,7 +38,7 @@ async function main(): Promise<void> {
     throw new Error('Cannot initialize local state');
   }
   const codex = new CodexClient(config.codexExecutable);
-  const feishu = new Feishu(auth, config.enableGroups);
+  const feishu = new Feishu(auth, config.enableGroups, config.groupContextImages);
   const bridge = new Bridge(config, state, codex, feishu);
   const outbox = new Outbox(state, feishu, [auth.appSecret, process.env.OPENAI_API_KEY ?? '']);
   let closing: Promise<void> | undefined;

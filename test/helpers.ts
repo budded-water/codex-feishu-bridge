@@ -70,7 +70,7 @@ export function setup(contextPort?: ContextPort) {
   mkdirSync(alpha);
   mkdirSync(beta);
   const config: Config = {
-    allowedUsers: ['ou_owner'], accessMode: 'allowlist', allowedTenant: null, enableGroups: false, groupContextMessages: 0, approvalUsers: ['ou_owner'], approvalChat: null, codexExecutable: 'codex', stateDirectory: join(directory, 'state'),
+    allowedUsers: ['ou_owner'], accessMode: 'allowlist', allowedTenant: null, enableGroups: false, groupContextMessages: 0, groupContextImages: 0, approvalUsers: ['ou_owner'], approvalChat: null, codexExecutable: 'codex', stateDirectory: join(directory, 'state'),
     approvalTimeoutSeconds: 300, projects: { alpha, beta },
   };
   const state = new State(config.stateDirectory);

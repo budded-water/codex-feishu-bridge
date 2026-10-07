@@ -45,6 +45,8 @@ SQLite holds deduplication keys, thread mappings, task inputs/statuses, pending 
 
 Approval audits store request IDs, task IDs, methods, deciding actor IDs, and decision-sent or invalidated statuses. Queued tasks also retain trigger ID, chat type, timestamp, and quoted parent ID for bounded context preparation. Existing task tables gain a nullable source column without changing prior inputs. Existing audit tables are migrated in place to add nullable actor IDs; existing rows and session mappings are retained. They do not prove action execution. Pending RPC requests are in-memory and cannot survive process replacement.
 
+Reference image bytes are streamed into bounded memory and passed as inline inputs; the bridge does not persist downloaded image files or put base64 into the SQLite outbox. Codex/model transcript storage may retain image inputs. Canonical caps are in src/context-limits.ts. Downloads stop starting new resources after their time budget; an in-flight request can finish under the SDK timeout.
+
 There is no automatic data expiry yet. Stop before managing or deleting state. Database deletion loses mappings and deduplication history. Treat backups as private task data.
 
 Logs cover connection, restart, and delivery state. Raw SDK responses, Codex stderr, shell output, and credentials are not printed. Known gateway/API secrets are redacted from outgoing text, but arbitrary secrets in model content cannot all be identified.
