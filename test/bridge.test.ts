@@ -15,6 +15,24 @@ test('only authorized, distinct messages can execute; completed output is return
   assert.ok(h.deliveries().some(text => text.includes('Verified result')));
 });
 
+test('redelivered enrollment challenges never execute or queue a Codex task', async t => {
+  const h = setup(); t.after(h.close);
+  const text = 'pair 12345678-1234-1234-1234-123456789abc';
+  const enrollment = message(text);
+  h.bridge.receive(enrollment);
+  h.bridge.receive(enrollment);
+  h.bridge.receive(message(text));
+  h.bridge.receive(message('/status'));
+  assert.deepEqual(h.state.status(h.session.id), []);
+  assert.equal(h.turns().length, 0);
+  assert.ok(h.deliveries().some(reply => reply.includes('暂无任务')));
+  h.bridge.receive(message(`Explain the enrollment syntax: ${text}`));
+  await until(() => h.turns().length === 1);
+  h.bridge.receive(message(text));
+  assert.deepEqual(h.state.status(h.session.id).map(row => ({ ...row })), [{ status: 'running', count: 1 }]);
+  assert.equal(h.turns().length, 1);
+});
+
 test('tasks remain bound to their project and serialize per directory while other projects run', async t => {
   const h = setup(); t.after(h.close);
   h.bridge.receive(message('First alpha'));

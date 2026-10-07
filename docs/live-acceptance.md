@@ -13,6 +13,12 @@ This record describes the owner installation. It does not imply that a new insta
 - The bridge initialized local Codex and connected to Feishu in foreground mode.
 - A local launchd definition passed `plutil -lint`; it has not been installed or activated.
 
+## Enrollment redelivery regression
+
+The live setup exposed a replay boundary: Feishu redelivered the enrollment message after the identification client disconnected, and the initial task router treated it as ordinary task text. The exact `pair <UUID>` syntax is now reserved and ignored before session selection or task enqueueing. A behavioral regression covers duplicate/redelivered challenges before and during a normal task, while allowing ordinary discussion of enrollment syntax.
+
+A completed turn caused by that redelivery is not counted as the intended bounded task acceptance.
+
 ## Pending
 
 - Status reply, acknowledgment, progress, and final delivery for a bounded real inference turn.

@@ -24,7 +24,7 @@ Enrollment connects the Feishu SDK and prints a random `pair ...` challenge loca
 
 Send the exact challenge in a private chat with the application bot from your own account. The command prints that sender's open ID, then disconnects. Put that ID in `allowedUsers` in the private `bridge.config.json`.
 
-Enrollment never starts Codex, accepts tasks, or sends a reply. It ignores nonmatching messages and expires after 15 minutes. Do not share the challenge: the account that sends it is the account you will allow.
+Enrollment never starts Codex, accepts tasks, or sends a reply. The running bridge also ignores exact `pair <UUID>` messages, including redelivery after enrollment closes. It ignores nonmatching messages and expires after 15 minutes. Do not share the challenge: the account that sends it is the account you will allow.
 
 Open IDs are application-specific. An ID from another bot or CLI application's login may not identify you for this application.
 

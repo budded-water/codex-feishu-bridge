@@ -67,6 +67,9 @@ export class Bridge {
     this.state.transaction(() => {
       if (!this.state.remember(message)) return;
       const text = message.text.trim();
+      // Feishu can redeliver enrollment after the identify connection closes.
+      // Reserve the exact challenge syntax so it can never become a Codex task.
+      if (/^pair\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return;
       const [command, ...parts] = text.split(/\s+/);
       const argument = parts.join(' ');
       let session = this.state.selected(message);
