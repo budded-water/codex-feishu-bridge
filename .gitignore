@@ -1,0 +1,24 @@
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+bridge.config.json
+auth.json
+
+# Runtime data and output
+.local/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.log
+logs/
+transcripts/
+
+# Build and development output
+node_modules/
+dist/
+coverage/
+.DS_Store

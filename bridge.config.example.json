@@ -1,0 +1,9 @@
+{
+  "allowedUsers": ["your_feishu_open_id"],
+  "codexExecutable": "codex",
+  "stateDirectory": ".local/state",
+  "approvalTimeoutSeconds": 300,
+  "projects": {
+    "example": "/absolute/path/to/your/project"
+  }
+}
