@@ -1,0 +1,32 @@
+{
+  "name": "codex-feishu-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --import tsx src/index.ts",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "npm run typecheck && npm test && npm run build",
+    "doctor": "node --env-file-if-exists=.env --import tsx src/index.ts doctor",
+    "identify": "node --env-file-if-exists=.env --import tsx src/identify.ts",
+    "smoke:codex": "node --import tsx scripts/smoke-codex.ts",
+    "protocol:generate": "node scripts/generate-protocol.mjs",
+    "service:print": "node scripts/launchd.mjs"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.74.0",
+    "proper-lockfile": "4.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "@types/proper-lockfile": "4.1.4",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}

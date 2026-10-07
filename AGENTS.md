@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This independent project bridges Feishu private chat to Codex installed on the user's computer. Read README.md and docs/architecture.md before implementation. The initial repository contains design and configuration examples only.
+This independent TypeScript project bridges Feishu private chat to Codex installed on the user's computer. Read README.md and docs/architecture.md before implementation. Runtime and simulated behavior coverage are implemented; live Feishu acceptance remains pending.
 
 ## Delivery
 
@@ -10,6 +10,7 @@ This independent project bridges Feishu private chat to Codex installed on the u
 - Use Conventional Commit messages.
 - Keep PRs open unless the user authorizes merging.
 - Run checks appropriate to the change. Runtime behavior requires meaningful tests, especially around authorization, retries, approvals, and recovery.
+- Required local and CI check: `npm run check`. Run `npm run smoke:codex` separately for local protocol changes; it performs no inference. Keep the Codex release and generated types synchronized through `npm run protocol:generate`.
 - Before claiming implementation complete, synchronize source, configuration examples, README status, architecture, implementation plan, and PR description.
 
 ## Implementation boundaries

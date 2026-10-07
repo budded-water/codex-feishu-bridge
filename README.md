@@ -4,7 +4,7 @@ A local bridge that lets you interact with the Codex installed on your computer 
 
 ## Status
 
-This repository currently contains the reviewed architecture and configuration examples. The bridge runtime is planned; it is not implemented or connected to a live Feishu application yet.
+The private-chat MVP is implemented, including Codex stdio control, project sessions, SQLite state, text approvals, steering, interruption, and retryable result delivery. Automated behavior checks and a real local Codex protocol handshake have passed. A Feishu application has not been provisioned or connected, so live message and approval round trips remain unverified.
 
 ## Design
 
@@ -34,19 +34,61 @@ See [the architecture](docs/architecture.md) for lifecycle, session, and recover
 
 The host computer must be awake and connected to the network. Messages sent while it is offline are not guaranteed to be recovered. Existing desktop conversations are not automatically attached to the bridge.
 
-## Configuration examples
+## Requirements and setup
 
-The examples are a proposed bridge configuration contract. They are not consumed by a runtime yet.
+Use Node.js 24 or later and an installed, authenticated Codex. The exact supported Codex release is generated in [the protocol version file](src/codex/generated/version.ts); startup checks that it matches your executable.
 
-1. Copy `.env.example` to `.env` and supply credentials for your own Feishu self-built application.
-2. Copy `bridge.config.example.json` to `bridge.config.json` and configure the allowed user and project directories.
-3. Use your locally installed and authenticated Codex. The bridge will load its local configuration; individual tool availability and authorization must be verified during implementation.
+```bash
+npm ci
+cp .env.example .env
+cp bridge.config.example.json bridge.config.json
+```
+
+1. Create your own Feishu self-built application with bot capability and enter its credentials in the local `.env`.
+2. Follow [Feishu setup](docs/feishu-setup.md) to enable private message events and obtain your open ID for this particular application using `npm run identify`.
+3. Configure exactly one allowed user and your actual project directories in `bridge.config.json`. Directory paths must be absolute and exist. State paths are relative to that configuration file unless absolute.
+4. Verify configuration, then build and start:
+
+```bash
+npm run doctor
+npm run build
+npm start
+```
+
+`doctor` verifies local configuration, credential presence, and the Codex version. It does not verify authentication, inference access, or Feishu permissions. `npm run dev` runs the TypeScript entry point directly during development.
 
 Keep `.env`, `bridge.config.json`, the local state database, transcripts, and credentials outside version control. Published examples use placeholders only.
 
-## Development and delivery
+## Chat commands
 
-Implementation will use TypeScript and the official Feishu SDK, with Codex controlled through the app-server protocol. Dependency versions and generated protocol bindings will be pinned when implementation begins.
+| Command | Action |
+| --- | --- |
+| `/project <alias>` | Select a registered local project. |
+| `/new` | Create a new conversation when the selected session has no pending work. |
+| `/status` | Show task counts, Codex readiness, and pending requests. |
+| `/补充 <text>` | Steer the selected active turn. |
+| `/stop` | Interrupt the selected active turn; queued tasks remain queued. |
+| `/clear` | Cancel the selected session's queued tasks. |
+| `/批准 <id>` / `/拒绝 <id>` | Decide a specific pending approval. |
+| `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
+| `/help` | Show help. |
+
+Normal text starts a task. While the project is busy, normal text queues for the next turn. Tasks retain their original session and project even if you switch projects. Aliases pointing at the same directory share one execution queue.
+
+## Verification and operation
+
+```bash
+npm run check          # Type checking, behavior tests, production build
+npm run smoke:codex    # Actual local stdio handshake; no model inference
+```
+
+GitHub Actions runs the automated checks without live Codex or Feishu credentials. Protocol types are generated from the installed Codex executable; `npm run protocol:generate` regenerates them for an upgrade, which requires review and verification before use.
+
+See [operation](docs/operation.md) for macOS service setup and recovery, and [the implementation plan](docs/implementation-plan.md) for remaining live acceptance work.
+
+Limitations: only private text chat with one configured user is supported. Secret questions, multiple simultaneous questions in one RPC request, and unsupported tool permission interactions are declined. Known gateway/API secrets are redacted from outgoing text; arbitrary secrets in model output still require care. Persistent local state contains task inputs and replies and has no automatic retention policy yet.
+
+Sending results uses a stable Feishu idempotency key and never reruns the task. Delivery remains at least once across external deduplication-window expiry; rare duplicate replies are possible.
 
 Use topic branches and pull requests. Follow the repository guidance in [AGENTS.md](AGENTS.md).
 

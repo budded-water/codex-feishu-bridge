@@ -1,5 +1,7 @@
 # Architecture
 
+This MVP is implemented and covered by simulated behavior tests. Live Feishu and inference acceptance remain pending; see README.md and docs/implementation-plan.md for evidence boundaries.
+
 ## Goal and boundary
 
 Expose the Codex already installed on the owner's computer through a Feishu application bot. Keep project execution, Codex configuration, and local tools on that computer.
@@ -48,17 +50,19 @@ Receiving a task, completing execution, and delivering the result are separate s
 
 A session mapping uses the application tenant, user, private chat, project, and bridge session identifier. Each mapping records the Codex thread ID. SQLite is canonical for the bridge mapping; Codex's thread history is canonical for agent conversation history. The bridge must validate that the referenced thread remains available before resuming it.
 
-These commands are a proposed bridge contract, not built-in Codex commands:
+These commands belong to the bridge, not the Codex CLI:
 
 | Command | Behavior |
 | --- | --- |
 | `/project <alias>` | Select a registered project and its bridge session. |
-| `/new` | Create a new session for the selected project. |
+| `/new` | Create a new session when the selected session has no pending work. |
 | `/status` | Display active task, queued work, and pending approvals. |
 | `/补充 <text>` | Steer the selected active turn through `turn/steer`; reject if none is active. |
 | `/stop` | Interrupt the selected active turn through `turn/interrupt`. |
+| `/clear` | Cancel the selected session's queued tasks. |
 | `/批准 <id>` | Accept a live approval request from the configured user. |
 | `/拒绝 <id>` | Decline a live approval request from the configured user. |
+| `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
 
 When a session is idle, normal text starts another turn in the same thread. When busy, normal text queues for the next turn. Control commands bypass the queue. Bind queued tasks to their original session and project so a later project switch cannot reroute them.
 
@@ -68,11 +72,11 @@ Thread resumption can be added for existing local chats if the installed Codex v
 
 ## Approvals
 
-An approval response must target a specific pending request and match its authenticated user, chat, thread, turn, subprocess generation, and current available decisions. Show the requested action, applicable scope, and reason before asking for a decision. Initially offer acceptance for this request only and rejection.
+An approval response must match its authenticated user, chat, thread, turn, and subprocess generation. Show the action, scope, and reason. Offer request-level acceptance and rejection using the pinned protocol's decisions. Switching projects does not change request ownership.
 
 Never turn an approval timeout into acceptance. If the configured timeout expires, decline or cancel using a supported protocol decision and clearly report the result. Do not treat a text reply to an old request as approval for a new request.
 
-App-server command and file approvals have documented decision payloads. Other request families, including user questions and tool permission requests, require their own schema handling. Unsupported interactive requests must fail closed with a clear user-facing explanation; they must not hang indefinitely or be silently accepted.
+Command/file approvals and single non-sensitive questions are supported. Multi-question requests, secret questions, and permission grants are denied. Unknown interactive families receive a protocol error and user-facing explanation. Missing action previews are declined.
 
 Persist an approval summary for audit, but its live JSON-RPC request belongs to the current subprocess. On subprocess exit or turn interruption, invalidate affected approvals. A recovered session may generate fresh requests with fresh identifiers.
 
@@ -87,7 +91,7 @@ Retain Codex's sandbox and approval settings. The bridge must not enable unrestr
 | Codex subprocess exit | Reject outstanding RPC promises, invalidate approvals, and mark active tasks interrupted or outcome unknown. Restart with bounded backoff. |
 | Bridge restart | Restore mappings and pending delivery records. Mark interrupted tasks; ask the user to inspect or explicitly continue before replaying actions. |
 | Missing Codex thread | Explain that restoration failed and offer a new session; do not silently pretend history was restored. |
-| Host sleep or network loss | Execution is unavailable. Do not guarantee offline message replay. |
+| Host sleep or network loss | New message handling is unavailable. Running work may finish and queue its result. Do not guarantee offline replay. |
 
 Write-capable tasks must not be automatically replayed after an uncertain outcome. Reconciliation checks the project or external service's live state before continuing.
 
@@ -95,8 +99,8 @@ Write-capable tasks must not be automatically replayed after an uncertain outcom
 
 Publish source, placeholder examples, architecture, and tests. Keep credentials, actual user IDs, local project paths, database files, transcripts, and logs ignored and locally private. Runtime state should use restrictive filesystem permissions.
 
-Configuration values have two surfaces: the checked-in example contract and the private runtime configuration. The example documents field meanings; the future validator is canonical for accepted values. Keep both synchronized whenever the schema changes. External Feishu application scopes and event subscriptions must also match documented setup requirements.
+Configuration has two surfaces: checked-in examples and private runtime values. src/config.ts is canonical for accepted fields; keep examples synchronized. External application credentials, scopes, subscriptions, and availability must match docs/feishu-setup.md.
 
 ## Acceptance boundary
 
-The documentation in this initial repository defines planned behavior. It does not prove that a bot is provisioned, credentials are configured, the runtime is implemented, or a live message round trip succeeds. Update the README and implementation plan as each milestone gains executable evidence.
+Automated tests establish simulated routing, state, approvals, and transport behavior. The local smoke establishes a real stdio handshake without inference. Neither establishes application provisioning, inference access, or live round trips. Update the README, implementation plan, and PR when live acceptance gains evidence.

@@ -1,51 +1,36 @@
-# Implementation plan
+# Implementation and acceptance status
 
-All milestones below are planned. No runtime or live Feishu integration is implemented in the initial repository.
+The private-text-chat MVP is implemented. Automated checks and a real local Codex handshake pass. The owner will create the Feishu application after code delivery; live Feishu and inference acceptance are pending.
 
-## 1. Local Codex protocol adapter
+| Milestone | Code and automated evidence | Remaining acceptance |
+| --- | --- | --- |
+| Codex adapter | Version-matched types; stdio initialization, request correlation, events, interruption, timeout and exit coverage. Actual local handshake and model catalog smoke test without inference. | A bounded real turn and inference access. |
+| Feishu transport | SDK long connection, private text normalization, allowlist, deduplication, progress and result delivery. | Application provisioning, published permissions/availability, live round trip. |
+| Sessions and state | SQLite mappings, project queues, steering, stopping, clearing, restart recovery, and outbox retry coverage. | Live follow-up, disconnect, and restart exercises. |
+| Interactive requests | Correlated command/file approvals, timeout denial, stale invalidation, single-question replies, unsupported-request denial. | Live rejection and approval under the actual local policy. |
+| Host operation | Clean shutdown, heartbeat lock, bounded restart, doctor, challenge enrollment, and launchd generation. Generated plist validated locally. | Foreground acceptance, optional service installation and activation. |
 
-- Launch the installed `codex app-server` through stdio and complete initialization.
-- Create, resume, and interrupt threads and turns, and stream agent output.
-- Correlate concurrent request IDs, surface protocol errors, and clean up on process exit.
-- Generate version-matched protocol bindings and record the compatible Codex version.
+## Required checks
 
-Acceptance: local integration smoke test starts a bounded turn and distinguishes completion, interruption, and failure. Tests cover process termination and request correlation without using live paid inference by default.
+Run `npm run check` for type checking, behavior tests, and production build. GitHub Actions runs it without external credentials. For protocol changes, run `npm run smoke:codex` on compatible local Codex; it does not create a turn or perform inference.
 
-## 2. Feishu message transport
+The generated release constant is canonical for compatibility. Use `npm run protocol:generate` and review changes when upgrading Codex.
 
-- Connect a self-built application bot through the official SDK long connection.
-- Accept only an explicitly allowed user's private text messages.
-- Deduplicate event retries and separate handler acknowledgment from background task execution.
-- Deliver acknowledgment, throttled progress, and final results.
+## Live acceptance checklist
 
-Acceptance: unauthorized and duplicate events cannot start tasks. A live private message reaches the local Codex adapter and returns a result. Live validation requires the owner's application configuration and is recorded separately from automated tests.
+- Configure a dedicated self-built app and enroll the owner with `npm run identify`.
+- Verify private text reaches the correct project and returns a real result.
+- Verify context, project switching, and queued task isolation.
+- Verify steering, stopping, and queue clearing.
+- Verify rejected and explicitly accepted actions reach the correct task.
+- Verify process replacement and late responses cannot authorize an old request.
+- Verify delivery recovery does not repeat task execution.
+- Optionally activate the reviewed local service after foreground acceptance.
 
-## 3. Sessions and local state
+Follow docs/feishu-setup.md and record observed results before marking these complete.
 
-- Validate registered project directories and persist conversation mappings in SQLite.
-- Implement project selection, new sessions, status, steering, and stopping.
-- Serialize execution per project directory and bind queued work to its original session.
-- Persist delivery state so sending a result can be retried without rerunning a task.
+## Limitations and follow-up scope
 
-Acceptance: restart restores idle conversations, interrupted work is not replayed, queued work cannot move projects, and result delivery retries do not repeat execution.
+Group chats, card callbacks, attachments, arbitrary paths, task replay, cloud hosting, team access, secret questions, multi-question RPCs, and interactive permission grants are outside the initial scope.
 
-## 4. Interactive approvals
-
-- Render the actual requested action and a unique approval identifier.
-- Validate sender, chat, thread, turn, live request, and process generation.
-- Forward supported decisions, reject stale decisions, and decline or cancel on timeout.
-- Handle supported user input requests; explicitly reject unsupported request families.
-
-Acceptance: tests demonstrate that unauthorized, duplicate, expired, and prior-process replies cannot authorize actions. A live approval round trip works for a bounded local action.
-
-## 5. Personal host operation
-
-- Add a documented macOS service setup and clean shutdown behavior.
-- Add health diagnostics that omit credentials and chat contents.
-- Complete installation instructions, credential setup, retention controls, and troubleshooting.
-
-Acceptance: restart and disconnect exercises preserve correct task states. The README clearly separates automated checks, live integration evidence, and remaining limitations.
-
-## Initial scope exclusions
-
-Group chats, card callbacks, attachments, arbitrary project paths, automatic task replay, cloud hosting, and shared team access are deferred. Revisit them only after the personal private-chat workflow has live evidence.
+Automatic data retention and exported metrics are not implemented. Delivery is at least once across external deduplication-window expiry. Existing desktop chats and UI-only integrations are not automatically attached.

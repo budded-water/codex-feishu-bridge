@@ -1,0 +1,404 @@
+import { randomUUID } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import type { Config } from './config.js';
+import { State } from './state.js';
+import { ownerKey, record, string, type CodexPort, type IncomingMessage, type RpcEvent, type RpcRequest, type Session, type Task } from './types.js';
+import type { ThreadStartParams } from './codex/generated/v2/ThreadStartParams.js';
+import type { ThreadResumeParams } from './codex/generated/v2/ThreadResumeParams.js';
+import type { TurnStartParams } from './codex/generated/v2/TurnStartParams.js';
+import type { TurnSteerParams } from './codex/generated/v2/TurnSteerParams.js';
+import type { TurnInterruptParams } from './codex/generated/v2/TurnInterruptParams.js';
+import type { CommandExecutionRequestApprovalResponse } from './codex/generated/v2/CommandExecutionRequestApprovalResponse.js';
+import type { ToolRequestUserInputResponse } from './codex/generated/v2/ToolRequestUserInputResponse.js';
+import type { PermissionsRequestApprovalResponse } from './codex/generated/v2/PermissionsRequestApprovalResponse.js';
+
+interface Active {
+  session: Session;
+  task: Task;
+  thread: string;
+  turn: string;
+  generation: string;
+  done: boolean;
+  finish: () => void;
+  completion: Promise<void>;
+  messages: Map<string, { text: string; final: boolean }>;
+  changes: Map<string, string>;
+  progressAt: number;
+}
+
+interface Prompt {
+  token: string;
+  rpc: RpcRequest;
+  active: Active;
+  kind: 'approval' | 'question';
+  questions: string[];
+  timer: NodeJS.Timeout;
+  expires: number;
+}
+
+const HELP = '命令：/project 项目、/new、/status、/补充 内容、/stop、/clear、/批准 编号、/拒绝 编号、/回答 编号 问题ID 内容。普通消息开始任务，运行期间的普通消息排队。';
+
+export class Bridge {
+  private config: Config;
+  private state: State;
+  private codex: CodexPort;
+  private active = new Map<string, Active>();
+  private draining = new Map<string, Promise<void>>();
+  private prompts = new Map<string, Prompt>();
+  private unsubscribers: (() => void)[];
+  private closed = false;
+
+  constructor(config: Config, state: State, codex: CodexPort) {
+    this.config = config;
+    this.state = state;
+    this.codex = codex;
+    this.unsubscribers = [
+      codex.onNotification(event => this.notification(event)),
+      codex.onRequest(request => this.prompt(request)),
+      codex.onExit(() => this.exited()),
+    ];
+  }
+
+  receive(message: IncomingMessage): void {
+    if (this.closed || !this.config.allowedUsers.includes(message.user) ||
+        !message.tenant || !message.chat || !message.id || !message.text.trim()) return;
+    if (message.text.length > 30_000) return;
+    let after: (() => void) | undefined;
+    this.state.transaction(() => {
+      if (!this.state.remember(message)) return;
+      const text = message.text.trim();
+      const [command, ...parts] = text.split(/\s+/);
+      const argument = parts.join(' ');
+      let session = this.state.selected(message);
+      if (command === '/help') { this.state.send(message.chat, HELP); return; }
+      if (command === '/project') {
+        const directory = this.config.projects[argument];
+        if (!directory) {
+          this.state.send(message.chat, `请选择已登记项目：${Object.keys(this.config.projects).join('、')}`);
+        } else {
+          session = this.state.select(message, argument, directory);
+          this.state.send(message.chat, `当前项目：${session.project}。${HELP}`);
+        }
+        return;
+      }
+      if (!session && Object.keys(this.config.projects).length === 1) {
+        const alias = Object.keys(this.config.projects)[0]!;
+        session = this.state.select(message, alias, this.config.projects[alias]!);
+      }
+      if (!session || this.config.projects[session.project] !== session.directory) {
+        this.state.send(message.chat, `请先用 /project 选择已登记项目：${Object.keys(this.config.projects).join('、')}`);
+        return;
+      }
+      if (command === '/new') {
+        if (this.active.get(session.directory)?.session.id === session.id || this.state.status(session.id).some(row => ['queued', 'running'].includes(row.status))) {
+          this.state.send(message.chat, '当前会话仍有任务，请等待完成或停止并清理队列后再创建新会话。');
+          return;
+        }
+        const selected = this.state.select(message, session.project, session.directory, true);
+        this.state.send(message.chat, `已创建 ${selected.project} 的新会话。`);
+        return;
+      }
+      if (command === '/clear') {
+        const count = this.state.cancelSessionQueued(session.id);
+        this.state.send(message.chat, `已取消当前会话的 ${count} 个排队任务，运行任务不受影响。`);
+        return;
+      }
+      if (command === '/status') {
+        const statuses = this.state.status(session.id).map(row => `${row.status}: ${row.count}`).join('，') || '暂无任务';
+        const requests = [...this.prompts.values()].filter(prompt => prompt.active.session.id === session.id).map(prompt => prompt.token);
+        this.state.send(message.chat, `项目：${session.project}\nCodex：${this.codex.ready ? '在线' : '重连中'}\n${statuses}\n待回复：${requests.join('、') || '无'}`);
+        return;
+      }
+      if (['/stop', '/补充', '/批准', '/拒绝', '/回答'].includes(command!)) {
+        const selected = session;
+        after = () => { void this.control(message, selected, command!, argument).catch(() => {
+          if (!this.closed) this.state.send(message.chat, '控制请求未确认成功，请用 /status 查看状态。');
+        }); };
+        return;
+      }
+      if (text.startsWith('/')) { this.state.send(message.chat, HELP); return; }
+      if (!this.codex.ready) {
+        this.state.send(message.chat, 'Codex 当前不可用，请恢复本机进程后重新发送；这条消息不会自动执行。');
+        return;
+      }
+      const task = this.state.enqueue(session.id, text);
+      this.state.send(message.chat, `任务 ${task.id.slice(0, 8)} 已接收，项目 ${session.project}。同项目任务按顺序执行。`);
+      after = () => this.kick();
+    });
+    after?.();
+  }
+
+  kick(): void {
+    if (this.closed || !this.codex.ready) return;
+    for (const directory of this.state.directories()) {
+      if (this.draining.has(directory)) continue;
+      // Defer work until the ingress transaction has committed.
+      const work = Promise.resolve().then(() => this.drain(directory));
+      this.draining.set(directory, work);
+      void work.catch(() => {
+        if (!this.closed) this.state.cancelQueued(directory);
+      }).finally(() => {
+        this.draining.delete(directory);
+        if (!this.closed && this.codex.ready && this.state.queued(directory)) this.kick();
+      });
+    }
+  }
+
+  private async drain(directory: string): Promise<void> {
+    while (!this.closed && this.codex.ready) {
+      const task = this.state.queued(directory);
+      if (!task) break;
+      const session = this.state.session(task.session);
+      let validDirectory = false;
+      try { validDirectory = this.config.projects[session.project] === directory && realpathSync(directory) === directory; }
+      catch { /* A deleted or retargeted directory must not execute queued work. */ }
+      if (!validDirectory) {
+        this.state.taskStatus(task.id, 'failed');
+        this.state.send(session.chat, '项目目录已变化，请检查本机配置并重新选择项目。');
+        continue;
+      }
+      let resolve!: () => void;
+      const completion = new Promise<void>(done => { resolve = done; });
+      const active: Active = {
+        session, task, thread: session.thread ?? '', turn: '', generation: this.codex.generation,
+        done: false, finish: resolve, completion, messages: new Map(), changes: new Map(), progressAt: 0,
+      };
+      this.active.set(directory, active);
+      this.state.taskStatus(task.id, 'running');
+      try {
+        if (session.thread) {
+          const params: ThreadResumeParams = { threadId: session.thread, cwd: directory, excludeTurns: true };
+          await this.codex.request('thread/resume', params);
+        } else {
+          const params: ThreadStartParams = { cwd: directory, serviceName: 'codex_feishu_bridge' };
+          const response = await this.codex.request<{ thread: { id: string } }>('thread/start', params);
+          if (!response.thread?.id) throw new Error('Invalid thread response');
+          active.thread = response.thread.id;
+          this.state.setThread(session.id, active.thread);
+        }
+        if (active.done || this.closed) break;
+        const params: TurnStartParams = {
+          threadId: active.thread, cwd: directory, clientUserMessageId: task.id,
+          input: [{ type: 'text', text: task.input, text_elements: [] }],
+        };
+        const response = await this.codex.request<{ turn: { id: string; status: string } }>('turn/start', params);
+        if (!response.turn?.id) throw new Error('Invalid turn response');
+        if (!active.done) {
+          active.turn = response.turn.id;
+          this.state.taskStatus(task.id, 'running', active.turn);
+          await completion;
+        }
+      } catch {
+        if (!active.done) this.complete(active, this.codex.ready ? 'failed' : 'unknown', '任务未确认完成。请检查实际结果；恢复历史失败时可用 /new 创建会话。');
+      } finally {
+        if (this.active.get(directory) === active) this.active.delete(directory);
+      }
+    }
+  }
+
+  private find(params: Record<string, unknown>): Active | undefined {
+    return [...this.active.values()].find(active => !active.done && active.thread === params.threadId &&
+      (!active.turn || !params.turnId || active.turn === params.turnId) && active.generation === this.codex.generation);
+  }
+
+  private notification(event: RpcEvent): void {
+    const active = this.find(event.params);
+    if (event.method === 'serverRequest/resolved') {
+      for (const prompt of this.prompts.values()) {
+        if (prompt.rpc.id === event.params.requestId) this.forget(prompt);
+      }
+      return;
+    }
+    if (!active) return;
+    const params = event.params;
+    if (event.method === 'turn/started') {
+      active.turn = string(record(params.turn).id);
+      this.state.taskStatus(active.task.id, 'running', active.turn);
+      this.state.send(active.session.chat, `任务 ${active.task.id.slice(0, 8)} 开始执行。`);
+    } else if (event.method === 'item/agentMessage/delta') {
+      const id = string(params.itemId);
+      const previous = active.messages.get(id) ?? { text: '', final: false };
+      previous.text = (previous.text + string(params.delta)).slice(-200_000);
+      active.messages.set(id, previous);
+      if (Date.now() - active.progressAt > 5000 && previous.text.trim()) {
+        this.state.send(active.session.chat, `进度：${previous.text.slice(-600)}`);
+        active.progressAt = Date.now();
+      }
+    } else if (event.method === 'item/completed') {
+      const item = record(params.item);
+      if (item.type === 'agentMessage') {
+        active.messages.set(string(item.id), { text: string(item.text).slice(-200_000), final: item.phase === 'final_answer' });
+        if (item.phase !== 'final_answer' && Date.now() - active.progressAt > 3000) {
+          this.state.send(active.session.chat, `进度：${string(item.text).slice(0, 900)}`);
+          active.progressAt = Date.now();
+        }
+      }
+    } else if (event.method === 'item/started') {
+      const item = record(params.item);
+      const kind = item.type;
+      if (kind === 'fileChange' && Array.isArray(item.changes)) {
+        active.changes.set(string(item.id), item.changes.map(change => {
+          const file = record(change);
+          return `${string(file.path)}\n${string(file.diff)}`;
+        }).join('\n\n'));
+      }
+      if (['commandExecution', 'fileChange', 'mcpToolCall'].includes(string(kind)) && Date.now() - active.progressAt > 3000) {
+        this.state.send(active.session.chat, `任务 ${active.task.id.slice(0, 8)} 正在${kind === 'fileChange' ? '修改文件' : kind === 'mcpToolCall' ? '调用工具' : '执行命令'}。`);
+        active.progressAt = Date.now();
+      }
+    } else if (event.method === 'turn/completed') {
+      const turn = record(params.turn);
+      if (active.turn && turn.id !== active.turn) return;
+      const status = string(turn.status);
+      this.complete(active, ['completed', 'failed', 'interrupted'].includes(status) ? status : 'unknown');
+    }
+  }
+
+  private complete(active: Active, status: string, explanation?: string): void {
+    if (active.done) return;
+    active.done = true;
+    for (const prompt of [...this.prompts.values()]) if (prompt.active === active) this.forget(prompt);
+    const messages = [...active.messages.values()];
+    const final = messages.filter(message => message.final);
+    const answer = (final.length ? final : messages.slice(-1)).map(message => message.text).join('\n\n');
+    this.state.transaction(() => {
+      this.state.taskStatus(active.task.id, status, active.turn || null);
+      this.state.send(active.session.chat, `任务 ${active.task.id.slice(0, 8)}：${status === 'completed' ? '完成' : status === 'interrupted' ? '已中断' : status === 'failed' ? '失败' : '结果未确认'}\n${(explanation ?? answer) || '没有返回正文。'}`);
+      if (status === 'unknown') this.state.cancelQueued(active.session.directory);
+    });
+    active.finish();
+  }
+
+  private prompt(rpc: RpcRequest): void {
+    const active = this.find(rpc.params);
+    if (!active) { this.codex.reject(rpc.id, 'No authorized active bridge task'); return; }
+    const approval = ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(rpc.method);
+    const question = rpc.method === 'item/tool/requestUserInput';
+    if (!approval && !question) {
+      if (rpc.method === 'item/permissions/requestApproval') {
+        const denied: PermissionsRequestApprovalResponse = { permissions: {}, scope: 'turn' };
+        this.codex.reply(rpc.id, denied);
+      } else this.codex.reject(rpc.id, 'Unsupported interactive request');
+      this.state.send(active.session.chat, 'Codex 请求了当前桥接版本不支持的交互，已拒绝。请在本机处理或调整任务。');
+      return;
+    }
+    const questions = Array.isArray(rpc.params.questions) ? rpc.params.questions.map(record) : [];
+    if (question && (questions.length !== 1 || questions.some(item => item.isSecret === true))) {
+      const denied: ToolRequestUserInputResponse = { answers: {} };
+      this.codex.reply(rpc.id, denied);
+      this.state.send(active.session.chat, '这组问题需要在本机回答；桥接只支持单个非敏感问题。');
+      return;
+    }
+    const token = randomUUID().slice(0, 8);
+    const expires = Date.now() + this.config.approvalTimeoutSeconds * 1000;
+    const prompt: Prompt = {
+      token, rpc, active, kind: approval ? 'approval' : 'question',
+      questions: questions.map(item => string(item.id)), expires,
+      timer: setTimeout(() => {
+        if (!this.prompts.has(token)) return;
+        this.decide(prompt, false);
+        this.state.send(active.session.chat, `请求 ${token} 已超时，未授权执行。`);
+      }, this.config.approvalTimeoutSeconds * 1000),
+    };
+    this.prompts.set(token, prompt);
+    this.state.recordApproval(token, active.task.id, rpc.method);
+    if (approval) {
+      const network = record(rpc.params.networkApprovalContext);
+      const description = rpc.method.includes('commandExecution')
+        ? network.host ? `网络访问：${string(network.protocol)} ${string(network.host)}` : string(rpc.params.command)
+        : `${active.changes.get(string(rpc.params.itemId)) ?? ''}${rpc.params.grantRoot ? `\n会话写入根目录：${string(rpc.params.grantRoot)}` : ''}`;
+      if (!description.trim()) {
+        this.decide(prompt, false);
+        this.state.send(active.session.chat, '审批请求没有提供可核对的动作，已拒绝；请在本机处理。');
+        return;
+      }
+      this.state.send(active.session.chat, `请求 ${token}\n项目：${active.session.project}\n动作：${description}\n原因：${string(rpc.params.reason) || '未提供'}\n/批准 ${token} 或 /拒绝 ${token}。${this.config.approvalTimeoutSeconds} 秒后自动拒绝。`);
+    } else {
+      const item = questions[0]!;
+      const choices = Array.isArray(item.options) ? item.options.map(option => string(record(option).label)).join('、') : '';
+      this.state.send(active.session.chat, `问题 ${token}：${string(item.question)}\n选项：${choices || '自由回答'}\n/回答 ${token} ${string(item.id)} 你的回答`);
+    }
+  }
+
+  private forget(prompt: Prompt): void {
+    clearTimeout(prompt.timer);
+    this.prompts.delete(prompt.token);
+    this.state.approvalStatus(prompt.token, 'invalidated');
+  }
+
+  private decide(prompt: Prompt, accept: boolean, answer?: string): void {
+    this.forget(prompt);
+    if (prompt.active.done || prompt.active.generation !== this.codex.generation ||
+        prompt.rpc.params.threadId !== prompt.active.thread || prompt.rpc.params.turnId !== prompt.active.turn) return;
+    if (prompt.kind === 'approval') {
+      const result: CommandExecutionRequestApprovalResponse = { decision: accept ? 'accept' : 'decline' };
+      this.codex.reply(prompt.rpc.id, result);
+      this.state.approvalStatus(prompt.token, accept ? 'accept_sent' : 'decline_sent');
+    } else {
+      const result: ToolRequestUserInputResponse = { answers: answer ? { [prompt.questions[0]!]: { answers: [answer] } } : {} };
+      this.codex.reply(prompt.rpc.id, result);
+      this.state.approvalStatus(prompt.token, answer ? 'answer_sent' : 'decline_sent');
+    }
+  }
+
+  private async control(message: IncomingMessage, session: Session, command: string, argument: string): Promise<void> {
+    if (['/批准', '/拒绝', '/回答'].includes(command)) {
+      const [token, question, ...answer] = argument.split(/\s+/);
+      const prompt = this.prompts.get(token!);
+      if (!prompt || prompt.active.session.owner !== ownerKey(message) ||
+          prompt.active.done || prompt.active.generation !== this.codex.generation || Date.now() >= prompt.expires ||
+          prompt.rpc.params.threadId !== prompt.active.thread || prompt.rpc.params.turnId !== prompt.active.turn) {
+        this.state.send(message.chat, '请求已过期或不属于当前会话，未执行。');
+        return;
+      }
+      if (command === '/回答') {
+        if (prompt.kind !== 'question' || prompt.questions[0] !== question || !answer.length) {
+          this.state.send(message.chat, '请使用 /回答 编号 问题ID 内容，或 /拒绝 编号。'); return;
+        }
+        this.decide(prompt, false, answer.join(' '));
+      } else {
+        if (command === '/批准' && prompt.kind !== 'approval') {
+          this.state.send(message.chat, '这是提问，请用 /回答 回复。'); return;
+        }
+        this.decide(prompt, command === '/批准');
+      }
+      this.state.send(message.chat, `请求 ${token} 已回复。`);
+      return;
+    }
+    const active = this.active.get(session.directory);
+    if (!active || active.session.id !== session.id || !active.turn || active.done) {
+      this.state.send(message.chat, '当前会话暂无可控制的运行任务。'); return;
+    }
+    if (command === '/stop') {
+      const params: TurnInterruptParams = { threadId: active.thread, turnId: active.turn };
+      await this.codex.request('turn/interrupt', params);
+      if (!this.closed) this.state.send(message.chat, '已发送停止请求；排队任务保留。');
+    } else if (command === '/补充' && argument) {
+      const params: TurnSteerParams = {
+        threadId: active.thread, expectedTurnId: active.turn,
+        input: [{ type: 'text', text: argument, text_elements: [] }],
+      };
+      await this.codex.request('turn/steer', params);
+      if (!this.closed) this.state.send(message.chat, '补充要求已传给当前任务。');
+    } else this.state.send(message.chat, HELP);
+  }
+
+  private exited(): void {
+    for (const active of this.active.values()) {
+      this.complete(active, 'unknown', '本机 Codex 进程退出，任务结果未确认，请检查实际结果后继续。');
+    }
+    for (const directory of this.state.directories()) this.state.cancelQueued(directory);
+    for (const prompt of [...this.prompts.values()]) this.forget(prompt);
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    const controls = [...this.active.values()].filter(active => active.turn && !active.done).map(active =>
+      this.codex.request('turn/interrupt', { threadId: active.thread, turnId: active.turn } satisfies TurnInterruptParams).catch(() => {}),
+    );
+    await Promise.all(controls);
+    this.exited();
+    this.unsubscribers.forEach(unsubscribe => unsubscribe());
+    await Promise.allSettled(this.draining.values());
+  }
+}
