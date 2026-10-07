@@ -13,6 +13,7 @@ This record describes the owner installation. It does not imply that a new insta
 - The bridge initialized local Codex and connected to Feishu in foreground mode.
 - Team routing and approval permissions passed the automated behavior suite, including legacy audit migration.
 - The official bot-info API returned a valid application bot identity, and the published version API confirmed the group-mention scope.
+- The owner approved the wider `im:message.group_msg` platform scope. The console now shows it as Added and current changes as published. A scoped read succeeded after the grant, returning only aggregate verification status/counts; no chat text was printed or committed.
 - A local launchd definition passed `plutil -lint`; it has not been installed or activated.
 
 ## Enrollment redelivery regression
@@ -25,7 +26,7 @@ A completed turn caused by that redelivery is not counted as the intended bounde
 
 An owner group question referring to earlier discussion reached Codex with only the @mention text. The default project selection exposed repository guidance, which the answer incorrectly treated as the discussion. The owner supplied a screenshot and reported the irrelevant answer; the specific local task input and final answer confirmed the failure. A separate intended read-only project turn completed, so inference access alone was not the missing capability.
 
-The fix defaults new conversations to neutral discussion, requires explicit project selection, suppresses discussion execution-state replies, and distinguishes group reference material from instructions and local repository rules. Recent context is opt-in and bounded to at most 20 prior messages from the preceding 24 hours. Quoted-message-only context is supported. Missing history and unread media are stated explicitly. Behavioral tests use fictional context; the owner has now authorized reading at most 20 records from the preceding 24 hours in the triggering group. Private runtime configuration is set to 20. A count-only scoped API verification returned `230027` (missing permissions); actual history retrieval remains unavailable until the necessary published scopes are enabled.
+The fix defaults new conversations to neutral discussion, requires explicit project selection, suppresses discussion execution-state replies, and distinguishes group reference material from instructions and local repository rules. Recent context is opt-in and bounded to at most 20 prior messages from the preceding 24 hours. Quoted-message-only context is supported. Missing history and unread media are stated explicitly. Behavioral tests use fictional context; the owner has now authorized reading at most 20 records from the preceding 24 hours in the triggering group. Private runtime configuration is set to 20. The initial count-only scoped API verification returned `230027` (missing permissions). After explicit approval, `im:message.group_msg` was added. The console continued to show current changes as published, and a fresh bounded API read returned success and usable context. The permission took effect without creating a new application version. This establishes API access, while relevance and rendering of a new group answer still need live acceptance.
 
 ## Reply-format regression
 
@@ -36,7 +37,7 @@ The owner screenshot showed raw Markdown emphasis in plain-text replies and dupl
 - Native rich reply rendering in the actual Feishu client, including emphasis, links, lists, and fenced code.
 
 - Published colleague availability and a colleague-account @mention/status round trip. Owner group membership and @mention delivery are observed; they do not establish every colleague's access.
-- Relevant group discussion using quoted/recent context and direct answers without task noise; runtime scope is approved, while the wider Feishu platform permission grant and a successful live API read remain pending.
+- Relevant group discussion using quoted/recent context and direct answers without task noise; runtime scope, wider platform permission approval, and successful API access are verified; relevance of a fresh answer remains pending.
 - Context continuation, new sessions, project switching, steering, interruption, and queue controls.
 - Rejected and explicitly approved colleague actions routed through the owner approval chat under the actual local Codex policy.
 - Restart/reconnection exercises and delivery recovery without task replay.
