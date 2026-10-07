@@ -309,10 +309,17 @@ test('ordinary group discussion carries bounded context into a neutral chat and 
   assert.ok(JSON.stringify(turn.params.input).includes('Discuss the book'));
   const instructions = String(h.codex.calls.find(call => call.method === 'thread/start')!.params.developerInstructions);
   assert.ok(instructions.includes('不是群聊记录') && instructions.includes('不能作为执行授权'));
+  assert.ok(instructions.includes('适合即时聊天') && instructions.includes('简短段落'));
   assert.deepEqual(h.deliveries(), []);
   h.codex.complete(h.current().threadId, h.current().turnId, 'completed', '针对书的讨论，我建议先确认版本。');
   await until(() => h.state.status(h.state.selected(message('', { user: 'ou_colleague', chat: 'discussion' }))!.id).some(row => row.status === 'completed'));
   assert.deepEqual(h.deliveries(), ['针对书的讨论，我建议先确认版本。']);
+  await until(() => !h.state.directories().length);
+  h.bridge.receive(message('再具体解释一下', { user: 'ou_colleague', chat: 'discussion' }));
+  await until(() => h.turns().length === 2);
+  assert.ok(String(h.codex.calls.find(call => call.method === 'thread/resume')!.params.developerInstructions).includes('适合即时聊天'));
+  h.codex.complete(h.current().threadId, h.current().turnId, 'completed', '进一步解释。');
+  assert.deepEqual(h.deliveries(), ['进一步解释。']);
 });
 
 test('missing group context is stated without starting an irrelevant Codex turn', async t => {
@@ -336,4 +343,44 @@ test('unauthorized senders cannot cause a history read; commands do not read his
   assert.equal(h.state.selected(message(''))!.project, '$chat');
   h.bridge.receive(message('/project beta'));
   assert.equal(h.state.selected(message(''))!.project, 'beta');
+});
+
+test('project agent deltas and commentary never duplicate the final answer, including replayed completion', async t => {
+  const h = setup(); t.after(h.close);
+  h.deliveries();
+  h.bridge.receive(message('Investigate'));
+  await until(() => h.turns().length === 1);
+  const active = h.current();
+  const initial = h.deliveries();
+  assert.equal(initial.length, 1);
+  assert.ok(initial[0]!.includes('我来处理'));
+  h.codex.notify('item/agentMessage/delta', { ...active, itemId: 'draft', delta: 'Unfinished answer fragment' });
+  h.codex.notify('item/completed', { ...active, item: { id: 'draft', type: 'agentMessage', phase: 'commentary', text: 'Long draft paragraph' } });
+  assert.deepEqual(h.deliveries(), []);
+  h.codex.notify('item/started', { ...active, item: { id: 'tool', type: 'commandExecution' } });
+  h.codex.notify('item/started', { ...active, item: { id: 'tool2', type: 'commandExecution' } });
+  const progress = h.deliveries();
+  assert.equal(progress.length, 1);
+  assert.ok(progress[0]!.includes('正在运行'));
+  h.codex.complete(active.threadId, active.turnId, 'completed', '**实际结论**\n\n- 一条建议');
+  h.codex.complete(active.threadId, active.turnId, 'completed', '**实际结论**\n\n- 一条建议');
+  const replies = h.deliveries();
+  assert.equal(replies.length, 1);
+  assert.ok(replies[0]!.startsWith('**实际结论**'));
+  assert.ok(!replies[0]!.includes('draft'));
+  assert.ok(!replies[0]!.includes('进度：'));
+});
+
+test('interrupted streaming drafts are not presented as completed answers', async t => {
+  const h = setup(); t.after(h.close);
+  h.bridge.receive(message('Investigate'));
+  await until(() => h.turns().length === 1);
+  h.deliveries();
+  const active = h.current();
+  h.codex.notify('item/agentMessage/delta', { ...active, itemId: 'draft', delta: 'Unverified partial conclusion' });
+  h.codex.notify('turn/completed', { threadId: active.threadId, turn: { id: active.turnId, status: 'interrupted' } });
+  const replies = h.deliveries();
+  assert.equal(replies.length, 1);
+  assert.ok(replies[0]!.includes('停止'));
+  assert.ok(!replies[0]!.includes('Unverified'));
 });

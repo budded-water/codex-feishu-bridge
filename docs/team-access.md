@@ -27,7 +27,7 @@ Each user has a separate session per tenant, chat, and project. Two colleagues i
 
 Group commands also require @mentioning the bot, including `/status`, `/project`, and control commands. Ordinary group discussion, @all, other-bot mentions, and bot senders are ignored. Startup fetches the bot's own open ID; failure prevents group startup rather than guessing identity.
 
-The bridge sends group task output back to that group, where members can read it. Task IDs identify interleaved progress and results. A private task replies in its private chat. Session isolation does not isolate the shared filesystem, host credentials, or installed tools.
+The bridge sends group task output back to that group, where members can read it. Project replies use a small project/number footer to distinguish interleaved results; activity and approval notices retain the request number. Native rich posts render Markdown emphasis, lists, links, and code. Answer drafts are never forwarded as progress. A private task replies in its private chat. Session isolation does not isolate the shared filesystem, host credentials, or installed tools.
 
 ## Approval ownership
 

@@ -14,7 +14,7 @@ This is an independent project that can route work to multiple local repositorie
 
 | Component | Responsibility |
 | --- | --- |
-| Feishu adapter | Maintain the outbound SDK connection, normalize private text messages, and deliver replies. |
+| Feishu adapter | Maintain the outbound SDK connection, normalize private text messages, and deliver native rich-post replies. |
 | Codex adapter | Launch `codex app-server` as a child process, initialize JSON-RPC, correlate requests, and consume events. |
 | Session manager | Select allowed project directories, map conversations to Codex threads, and serialize turns. |
 | Approval manager | Forward requested actions and correlate authenticated decisions with live protocol requests. |
@@ -40,9 +40,9 @@ Use the local Codex identity and configuration. Pin and verify the installed pro
 3. Finish the event handler promptly. Do not wait for a Codex task inside the Feishu SDK handler.
 4. Route bridge commands or enqueue a normal task. Persist queued task input locally, with the same protections as transcripts.
 5. Default to a neutral discussion session, or use a project the user explicitly selected. Store trigger ID/time/type/reference with the queued request. After authorization, fetch only the configured bounded context in the originating chat before creating or restoring a Codex thread.
-6. Start the turn with developer instructions distinguishing chat reference material from execution authority and repository configuration. Discussion returns a direct final answer; explicitly selected project execution can forward meaningful progress. Merge text deltas into rate-limited replies; do not publish raw protocol events, secrets, or complete shell logs by default.
+6. Start the turn with developer instructions distinguishing chat reference material from execution authority and repository configuration. Instruct Codex to answer directly in short chat paragraphs, expanding when asked. Discussion returns a direct final answer. Project execution has one conversational acknowledgment and throttled short tool-activity notices. Accumulate agent text deltas internally; do not forward drafts or commentary as progress.
 7. Interpret `turn/completed` using the actual turn status. Report completion, failure, and interruption distinctly.
-8. Persist the outcome and enqueue the final reply for retryable delivery. A delivery retry must not rerun the agent task.
+8. Persist the outcome and enqueue the final reply once for retryable delivery. Render Markdown through native Feishu post elements with smaller headings and compact spacing outside code. Split long replies before persistence, preferring line boundaries and closing/reopening fenced code; unusually long lines split at Unicode boundaries. Each part has a stable UUID. A delivery retry must not rerun the agent task. Interrupted/failed turns do not publish unfinished agent drafts.
 
 Receiving a task, completing execution, and delivering the result are separate states. A successful initial acknowledgment does not prove task completion.
 

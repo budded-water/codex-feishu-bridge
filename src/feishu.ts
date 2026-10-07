@@ -1,4 +1,5 @@
 import * as lark from '@larksuiteoapi/node-sdk';
+import { markdownPost } from './reply.js';
 import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext } from './types.js';
 
 export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMessage | undefined {
@@ -71,7 +72,7 @@ export class Feishu implements ContextPort {
   async send(chat: string, text: string, idempotencyKey: string): Promise<void> {
     const result = await this.client.im.v1.message.create({
       params: { receive_id_type: 'chat_id' },
-      data: { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text }), uuid: idempotencyKey },
+      data: { receive_id: chat, msg_type: 'post', content: JSON.stringify(markdownPost(text)), uuid: idempotencyKey },
     });
     if (result.code !== 0) throw new Error('Feishu rejected message delivery');
   }
@@ -120,6 +121,6 @@ function postText(body: Record<string, unknown>): string {
   const post = Array.isArray(body.content) ? body : record(body.zh_cn ?? body.en_us);
   const rows = Array.isArray(post.content) ? post.content : [];
   return [string(post.title), ...rows.map(row => Array.isArray(row) ? row.map(value => {
-    const part = record(value); return ['text', 'a'].includes(string(part.tag)) ? string(part.text) + (part.href ? ` (${string(part.href)})` : '') : `[${string(part.tag) || '非文本'}：尚未读取]`;
+    const part = record(value); return ['text', 'a', 'md', 'code_block'].includes(string(part.tag)) ? string(part.text) + (part.href ? ` (${string(part.href)})` : '') : `[${string(part.tag) || '非文本'}：尚未读取]`;
   }).join('') : '')].filter(Boolean).join('\n');
 }

@@ -4,7 +4,7 @@ A local bridge that lets your Feishu colleagues submit tasks to the Codex instal
 
 ## Status
 
-The team text-chat bridge is implemented, including default discussion mode, optional bounded context, direct discussion replies, tenant access, verified group @mentions, per-user conversations, administrator approval routing, and Codex stdio control, default discussion sessions, explicit project execution, optional bounded group context, SQLite state, text approvals, steering, interruption, and retryable result delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes and subscription are verified, the SDK long connection is connected, and private-chat challenge enrollment has succeeded. Owner group delivery and a bounded read-only project turn are observed. Relevant context-grounded discussion, colleague-account access, and administrator approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for observed evidence.
+The team chat bridge is implemented, including default discussion sessions, explicit project execution, optional bounded group context, tenant access, verified group @mentions, per-user conversations, native rich replies, administrator approval routing, SQLite state, steering, interruption, and retryable delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes/subscription and SDK connection are verified, and private-chat enrollment succeeded. Owner group delivery and a bounded read-only project turn are observed. Rich reply rendering in the actual Feishu client, context-grounded discussion, colleague-account access, and administrator approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for evidence.
 
 ## Design
 
@@ -32,7 +32,8 @@ See [the architecture](docs/architecture.md) for lifecycle, session, and recover
 - Discussion mode by default; `/project` explicitly selects project execution and `/chat` returns to discussion.
 - Optional recent group context, limited to at most 20 messages; disabled by default. Quoted-message-only context is supported.
 - Persistent Codex conversation mapping.
-- Progress and final results, text-based approvals, steering, and interruption.
+- Native Feishu rich-post replies for emphasis, lists, links, and code. Short tool activity notices for project execution; answer drafts stay private until the final result.
+- Text-based approvals, steering, and interruption.
 - Local operation without a public HTTP listener.
 
 The host computer must be awake and connected to the network. Messages sent while it is offline are not guaranteed to be recovered. Existing desktop conversations are not automatically attached to the bridge.
@@ -94,7 +95,7 @@ Recent history is off by default (`groupContextMessages: 0`); opt in to 1–20 o
 
 Limitations: text chats are supported within the configured tenant/user policy. Group output is visible to group members; private-chat output stays in that private chat. Sessions isolate conversation history, while project files, Codex credentials, and installed tools remain shared on the host. Approvals apply to requests raised by the existing Codex policy, not every action. Secret questions, multiple simultaneous questions in one RPC request, and unsupported tool permission interactions are declined. Known gateway/API secrets are redacted from outgoing text; arbitrary secrets in model output still require care. Persistent local state contains task inputs and replies and has no automatic retention policy yet.
 
-Sending results uses a stable Feishu idempotency key and never reruns the task. Delivery remains at least once across external deduplication-window expiry; rare duplicate replies are possible.
+Replies use native `post` messages with Markdown elements, compact headings, and reduced empty spacing outside code. Long replies prefer line boundaries and reopen fenced code between parts; exceptionally long lines are split at Unicode character boundaries. Each part uses a stable Feishu idempotency key and never reruns the task. Successful project replies have a small project/number footer; failed or interrupted work is labelled and unfinished drafts are not presented as answers. Delivery remains at least once across external deduplication-window expiry; rare duplicate replies are possible.
 
 Use topic branches and pull requests. Follow the repository guidance in [AGENTS.md](AGENTS.md).
 
@@ -102,4 +103,5 @@ Use topic branches and pull requests. Follow the repository guidance in [AGENTS.
 
 - [Codex app-server](https://learn.chatgpt.com/docs/app-server)
 - [Official Feishu Node SDK](https://github.com/larksuite/node-sdk)
+- [Feishu message content](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json)
 - [Feishu message events](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)

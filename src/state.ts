@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, realpathSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { splitReply } from './reply.js';
 import { ownerKey, type IncomingMessage, type Session, type Task } from './types.js';
 
 export interface Delivery {
@@ -159,10 +160,9 @@ export class State {
   }
 
   send(chat: string, body: string): void {
-    // Keep each text payload well under Feishu's byte limit, including UTF-8.
-    const points = Array.from(body);
-    for (let offset = 0; offset < points.length; offset += 3000) {
-      this.db.prepare('INSERT INTO outbox (id, chat, body) VALUES (?, ?, ?)').run(randomUUID(), chat, points.slice(offset, offset + 3000).join(''));
+    // Split before persistence so each part retains its UUID across delivery retries.
+    for (const part of splitReply(body)) {
+      this.db.prepare('INSERT INTO outbox (id, chat, body) VALUES (?, ?, ?)').run(randomUUID(), chat, part);
     }
   }
 

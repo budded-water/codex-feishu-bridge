@@ -32,7 +32,7 @@ Open IDs are application-specific. An ID from another bot or CLI application's l
 
 1. Register an existing local project directory; run `npm run doctor`, `npm run build`, and `npm start`.
 2. Send `/chat` and `/status`, then `/project <alias>` and `/status` to verify private-message transport.
-3. @mention a bounded discussion question with quoted or explicitly enabled recent context and verify a relevant direct answer, without repository-rule commentary. Then explicitly select a project and send a bounded read-only prompt, such as summarizing top-level files without modifications. Confirm acknowledgment, progress, and final output.
+3. @mention a bounded discussion question with quoted or explicitly enabled recent context and verify a relevant direct answer, without repository-rule commentary. Then explicitly select a project and send a bounded read-only prompt, such as summarizing top-level files without modifications. Confirm one conversational acknowledgment, short tool activity when present, and one final output. Check bold text, lists, links, and code in the actual client; Markdown markers should render rather than appear as raw plain-text syntax.
 4. Send a follow-up to verify context continues. Test `/new` after work has completed.
 5. Start a longer bounded task; verify `/补充` and `/stop` reach the right turn.
 6. Exercise a bounded local action that triggers approval under your existing Codex policy. Confirm the preview and `/拒绝` work. Repeat with explicit approval if desired.

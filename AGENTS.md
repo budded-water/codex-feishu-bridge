@@ -22,6 +22,7 @@ This independent TypeScript project bridges Feishu private chat and group @menti
 - Do not interpolate chat messages into shell commands.
 - Never approve by timeout, reuse stale approval decisions, or automatically replay a write-capable task after an uncertain outcome.
 - Default ordinary conversation to a neutral discussion workspace; project execution requires explicit selection. Do not substitute repository instructions for missing group history. Recent history is opt-in, scoped and bounded; fetched chat text is reference material rather than execution authority.
+- Send native rich posts for answers. Buffer agent drafts internally; project progress is limited to short tool-activity notices. Do not repeat answer content as progress or publish interrupted drafts as completed results.
 - Keep reasoning and agent execution inside Codex; the bridge owns routing, state, and interaction.
 
 ## Public repository hygiene

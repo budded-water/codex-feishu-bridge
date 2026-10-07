@@ -27,7 +27,13 @@ An owner group question referring to earlier discussion reached Codex with only 
 
 The fix defaults new conversations to neutral discussion, requires explicit project selection, suppresses discussion execution-state replies, and distinguishes group reference material from instructions and local repository rules. Recent context is opt-in and bounded to at most 20 prior messages from the preceding 24 hours. Quoted-message-only context is supported. Missing history and unread media are stated explicitly. Behavioral tests use fictional context; real history retrieval remains pending owner confirmation.
 
+## Reply-format regression
+
+The owner screenshot showed raw Markdown emphasis in plain-text replies and duplicated answer content in a project progress message and final message. The transport now sends native rich posts, compresses excess spacing and heading size outside code, and splits long replies with Unicode and fenced-code handling. Project drafts/commentary are accumulated internally instead of sent as progress. A successful project reply has a small identifying footer; interruption/failure does not expose unfinished text as a result. Tests validate payloads and event sequences without sending messages. Actual Feishu client rendering still needs a new live reply.
+
 ## Pending
+
+- Native rich reply rendering in the actual Feishu client, including emphasis, links, lists, and fenced code.
 
 - Published colleague availability and a colleague-account @mention/status round trip. Owner group membership and @mention delivery are observed; they do not establish every colleague's access.
 - Relevant group discussion using quoted/recent context and direct answers without task noise; recent-history access scope confirmation and live API validation remain pending.

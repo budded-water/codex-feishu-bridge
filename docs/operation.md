@@ -41,7 +41,7 @@ Regenerate after moving the checkout or changing executable paths. Logs remain i
 
 ## Data and diagnostics
 
-SQLite holds deduplication keys, thread mappings, task inputs/statuses, pending outbound text, and a minimal approval audit. The directory uses 0700, the database 0600, and the process a restrictive umask. Gateway credentials are excluded from the Codex subprocess environment.
+SQLite holds deduplication keys, thread mappings, task inputs/statuses, pending outbound Markdown, and a minimal approval audit. The directory uses 0700, the database 0600, and the process a restrictive umask. Gateway credentials are excluded from the Codex subprocess environment.
 
 Approval audits store request IDs, task IDs, methods, deciding actor IDs, and decision-sent or invalidated statuses. Queued tasks also retain trigger ID, chat type, timestamp, and quoted parent ID for bounded context preparation. Existing task tables gain a nullable source column without changing prior inputs. Existing audit tables are migrated in place to add nullable actor IDs; existing rows and session mappings are retained. They do not prove action execution. Pending RPC requests are in-memory and cannot survive process replacement.
 
@@ -51,7 +51,7 @@ Logs cover connection, restart, and delivery state. Raw SDK responses, Codex std
 
 ## Delivery and recovery
 
-The outbox preserves chat order and retries with backoff and a stable Feishu UUID. A reply failure never starts another Codex turn. External deduplication is time-limited; long outages can still yield duplicate replies. Exactly-once delivery is not promised.
+The outbox stores Markdown chunks, preserves chat order, and retries each chunk with backoff and a stable Feishu UUID. The transport converts each stored chunk to a native rich post only when sending; old unsent text records use the same conversion without losing their IDs. Code fences are closed and reopened across newly queued parts. Exceptionally long individual lines split at Unicode character boundaries, so complex inline formatting spanning such a boundary may not render intact. A reply failure never starts another Codex turn. External deduplication is time-limited; long outages can still yield duplicate replies. Exactly-once delivery is not promised.
 
 On restart, queued and running tasks are interrupted rather than replayed. Check actual project or external service state before explicitly continuing possible writes.
 
