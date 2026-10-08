@@ -26,7 +26,7 @@ export interface Task {
   input: string;
   status: string;
   turn: string | null;
-  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string };
+  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string; clarification?: { id: string; createTime?: string; parentId: string } };
   routed?: boolean;
   routingOrigin?: string | null;
   routingRevision?: number | null;

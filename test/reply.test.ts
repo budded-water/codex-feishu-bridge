@@ -170,3 +170,24 @@ test('quote and history failures are isolated and mismatched quote records canno
     assert.ok(!context.messages.some(x => x.quoted));
   }
 });
+
+
+test('latest clarification quote has its own cutoff while original history and combined record budget remain unchanged', async t => {
+  const adapter = new Feishu({ appId: 'test-app', appSecret: 'test-secret' }); t.after(() => adapter.close());
+  const session = { id: 'session', owner: 'owner', tenant: 'tenant', user: 'user', chat: 'group', project: '$chat', directory: 'directory', thread: null };
+  const source = { id: 'original', chatType: 'group' as const, createTime: '2000', parentId: 'old-quote', clarification: { id: 'reply', createTime: '4000', parentId: 'new-quote' } };
+  const row = (id: string, time: string) => ({ message_id: id, chat_id: 'group', create_time: time, sender: { sender_type: 'user' }, msg_type: 'text', body: { content: JSON.stringify({ text: id }) } });
+  const historyRequests: { params: { end_time: string } }[] = [];
+  Object.assign(adapter, { client: { im: { v1: { message: {
+    get: async ({ path }: { path: { message_id: string } }) => ({ code: 0, data: { items: [row(path.message_id, path.message_id === 'new-quote' ? '3000' : '1000')] } }),
+    list: async (request: { params: { end_time: string } }) => { historyRequests.push(request); return { code: 0, data: { items: [row('history', '1500'), row('after-original', '3500')] } }; },
+  } } } } });
+  const both = await adapter.context(session, source, 0);
+  assert.deepEqual(both.messages.map(x => [x.text, x.quoted]), [['new-quote', true], ['old-quote', true]]);
+  assert.equal(historyRequests.length, 0);
+  const one = await adapter.context(session, source, 1);
+  assert.deepEqual(one.messages.map(x => x.text), ['new-quote']);
+  const full = await adapter.context(session, source, 3);
+  assert.deepEqual(full.messages.map(x => x.text), ['new-quote', 'old-quote', 'history']);
+  assert.ok(historyRequests.every(x => x.params.end_time === '3'));
+});

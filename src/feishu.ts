@@ -158,17 +158,21 @@ export class Feishu implements ContextPort, ReactionPort {
   }
 
   async context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext> {
-    if (limit < 0 || limit > MAX_CONTEXT_MESSAGES || (!limit && !source.parentId) || !/^\d+$/.test(source.createTime ?? '')) return { status: 'unavailable', messages: [], note: '没有可用的消息时间或未启用群上下文。' };
+    if (limit < 0 || limit > MAX_CONTEXT_MESSAGES || (!limit && !source.parentId && !source.clarification?.parentId) || !/^\d+$/.test(source.createTime ?? '')) return { status: 'unavailable', messages: [], note: '没有可用的消息时间或未启用群上下文。' };
     const cutoff = Number(source.createTime);
     const notes: string[] = [];
     let quoted: Record<string, unknown>[] = [], history: Record<string, unknown>[] = [];
-    if (source.parentId) {
+    const references = [source.clarification, source].filter(value => value?.parentId && /^\d+$/.test(value.createTime ?? ''));
+    const quoteSources = references.filter((value, index) => references.findIndex(other => other?.parentId === value?.parentId) === index);
+    for (const reference of quoteSources) {
+      if (!reference?.parentId) continue;
       try {
-        const result = await this.client.im.v1.message.get({ path: { message_id: source.parentId } });
+        const result = await this.client.im.v1.message.get({ path: { message_id: reference.parentId } });
         if (result.code !== 0) throw new Error('Quoted message access denied');
-        quoted = contextItems(result.data?.items ?? [], session.chat, source.id, cutoff, 1, true)
-          .filter(item => item.message_id === source.parentId);
-        if (!quoted.length) notes.push('用户引用的消息不可用，请粘贴原文；不要猜测引用内容。');
+        const admitted = contextItems(result.data?.items ?? [], session.chat, reference.id, Number(reference.createTime), 1, true)
+          .filter(item => item.message_id === reference.parentId);
+        quoted.push(...admitted);
+        if (!admitted.length) notes.push('用户引用的消息不可用，请粘贴原文；不要猜测引用内容。');
       } catch { notes.push('未能读取用户引用的消息，请粘贴原文；不要用其他历史代替该引用。'); }
     }
     if (limit) {
@@ -186,13 +190,15 @@ export class Feishu implements ContextPort, ReactionPort {
           : '当前机器人未能读取群聊前文；请引用相关消息或粘贴要讨论的内容。');
       }
     }
-    // Reserve one slot for the explicit quote, including quoted bot replies.
-    const budget = Math.max(1, limit);
+    // Keep at most original + latest clarification quotes, prioritizing the latter.
+    const budget = limit || Math.max(1, quoteSources.length);
+    quoted = quoted.slice(0, budget);
+    const quoteIds = new Set(quoted.map(item => string(item.message_id)));
     const remaining = budget - quoted.length;
-    const recent = remaining ? history.filter(item => item.message_id !== quoted[0]?.message_id).slice(-remaining) : [];
+    const recent = remaining ? history.filter(item => !quoteIds.has(string(item.message_id))).slice(-remaining) : [];
     const items = [...quoted, ...recent];
-    const context = formatItems(items, source.parentId);
-    if (!limit && quoted.length) context.note = '只包含用户明确引用的那一条消息；未读取群前文，附件未展开。';
+    const context = formatItems(items, quoteIds);
+    if (!limit && quoted.length) context.note = '只包含用户明确引用的消息；未读取群前文，附件未展开。';
     if (quoted.length) context.note += ' 标记 quoted 的消息是用户本次明确引用的对象，应优先用于理解追问。';
     context.note += notes.length ? ' ' + notes.join(' ') : '';
     return await attachImages(context, items, this.imageLimit, (message_id, file_key) => this.client.im.v1.messageResource.get({ path: { message_id, file_key }, params: { type: 'image' } }));
@@ -214,11 +220,11 @@ export class Feishu implements ContextPort, ReactionPort {
 export function formatContext(items: unknown[], chat: string, trigger: string, cutoff: number, limit: number, includeQuotedBot = false): ChatContext {
   return formatItems(contextItems(items, chat, trigger, cutoff, limit, includeQuotedBot));
 }
-function formatItems(items: Record<string, unknown>[], quotedId?: string): ChatContext {
+function formatItems(items: Record<string, unknown>[], quotedIds?: Set<string>): ChatContext {
   const messages = items.map(item => ({
     sender: string(record(item.sender).sender_name) || (record(item.sender).sender_type === 'app' ? '机器人' : '群成员'),
     type: string(item.msg_type), text: contextText(item),
-    ...(quotedId && item.message_id === quotedId ? { quoted: true } : {}),
+    ...(quotedIds?.has(string(item.message_id)) ? { quoted: true } : {}),
   }));
   return { status: messages.length ? 'available' : 'unavailable', messages, note: messages.length ? '仅包含当前群触发消息之前的有限前文；图片需以附图编号确认是否提供，附件、卡片和置顶文档未展开。' : '未读到可用的群聊前文；请引用或粘贴相关内容。' };
 }

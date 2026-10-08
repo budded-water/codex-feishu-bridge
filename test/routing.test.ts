@@ -470,3 +470,21 @@ test('routing uses the latest final decision and ignores unphased preambles or s
   await until(()=>h.turns().length===2);
   assert.equal(h.turns()[1]!.params.cwd,h.config.projects.beta);assert.deepEqual(h.deliveries(),[]);
 });
+
+
+test('a quoted clarification retains its own trigger alongside the original history cutoff with history disabled', async t => {
+  const sources: { id: string; createTime?: string; clarification?: { id: string; createTime?: string; parentId: string } }[] = [];
+  const h = setup({ async context(_session, source) { sources.push(source); return { status: 'available', messages: [{ sender: 'Owner', type: 'text', text: 'new referenced logs', quoted: true }], note: '' }; } });
+  t.after(h.close); h.config.projectRouting = 'automatic'; h.config.groupContextMessages = 0; h.deliveries();
+  const original = message('Fix this bug', { chatType: 'group', createTime: '1000' });
+  h.bridge.receive(original); await until(() => h.turns().length === 1); const first = h.current();
+  h.codex.complete(first.threadId, first.turnId, 'completed', decision('question', null, 'Which project?'));
+  await until(() => !h.state.directories().length);
+  const reply = message('beta, use these logs', { chatType: 'group', parentId: 'new-logs', createTime: '2000' });
+  h.bridge.receive(reply); await until(() => h.turns().length === 2); const second = h.current();
+  h.codex.complete(second.threadId, second.turnId, 'completed', decision('project', 'beta', '', true));
+  await until(() => h.turns().length === 3);
+  assert.equal(sources[0]!.id, original.id); assert.equal(sources[0]!.createTime, '1000');
+  assert.deepEqual(sources[0]!.clarification, { id: reply.id, createTime: '2000', parentId: 'new-logs' });
+  assert.ok(JSON.stringify(h.turns()[2]!.params.input).includes('new referenced logs'));
+});

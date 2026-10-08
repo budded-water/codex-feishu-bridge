@@ -264,7 +264,10 @@ export class Bridge {
       const stillSelected = active.task.routingRevision == null
         ? this.state.selected(actor)?.id === (active.task.routingOrigin ?? active.session.id)
         : this.state.selectionRevision(active.session.owner) === active.task.routingRevision;
-      const source = decision.continuePending && active.routePending ? active.routePendingSource ?? active.task.source : active.task.source;
+      let source = decision.continuePending && active.routePending ? active.routePendingSource ?? active.task.source : active.task.source;
+      if (decision.continuePending && active.routePending && source && active.task.source?.parentId) {
+        source = { ...source, clarification: { id: active.task.source.id, createTime: active.task.source.createTime, parentId: active.task.source.parentId } };
+      }
       if (decision.kind === 'question') {
         active.replyFromRouter = true;
         this.state.setRouting(active.session.owner, active.thread, decision.kind === 'question' && stillSelected ? input : null, source);
@@ -337,7 +340,7 @@ export class Bridge {
         let context: ChatContext | undefined;
         if (task.source?.chatType === 'group') {
           active.stage = '正在读取群聊前文和参考图片';
-          context = (this.config.groupContextMessages || task.source.parentId) && this.contextPort
+          context = (this.config.groupContextMessages || task.source.parentId || task.source.clarification?.parentId) && this.contextPort
             ? await this.contextPort.context(session, task.source, this.config.groupContextMessages)
             : { status: 'unavailable', messages: [], note: '尚未启用群聊前文读取；请引用或粘贴要讨论的内容。' };
           if (active.done || this.closed) break;
