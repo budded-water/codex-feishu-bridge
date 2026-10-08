@@ -72,8 +72,8 @@ export function loadConfig(filename = 'bridge.config.json'): Config {
 export function credentials(): { appId: string; appSecret: string } {
   const appId = process.env.FEISHU_APP_ID;
   const appSecret = process.env.FEISHU_APP_SECRET;
-  if (!appId || !appSecret || appId === 'your_app_id' || appSecret === 'your_app_secret') {
-    throw new Error('Set real FEISHU_APP_ID and FEISHU_APP_SECRET in the local environment');
+  if (!appId || !/^cli_[0-9a-fA-F]{16}$/.test(appId) || !appSecret || appSecret === 'your_app_secret') {
+    throw new Error('Set valid FEISHU_APP_ID (cli_ plus 16 hex digits) and FEISHU_APP_SECRET in the local environment');
   }
   return { appId, appSecret };
 }

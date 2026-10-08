@@ -20,8 +20,10 @@ export interface FeedbackRecord {
 
 export class State {
   private db: DatabaseSync;
+  private secrets: string[];
 
-  constructor(directory: string) {
+  constructor(directory: string, secrets: string[] = []) {
+    this.secrets = secrets.filter(secret => secret.length > 4).sort((a, b) => b.length - a.length);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     if (lstatSync(directory).isSymbolicLink()) throw new Error('State directory must not be a symlink');
     chmodSync(realpathSync(directory), 0o700);
@@ -174,13 +176,18 @@ export class State {
 
   send(chat: string, body: string): void {
     // Split before persistence so each part retains its UUID across delivery retries.
-    for (const part of splitReply(body)) {
+    for (const part of splitReply(this.redact(body))) {
       this.db.prepare('INSERT INTO outbox (id, chat, body) VALUES (?, ?, ?)').run(randomUUID(), chat, part);
     }
   }
 
+  private redact(body: string): string {
+    for (const secret of this.secrets) body = body.split(secret).join('[redacted]');
+    return body;
+  }
+
   sendStatus(task: string, chat: string, body: string): void {
-    this.db.prepare('INSERT INTO outbox (id, chat, body, task) VALUES (?, ?, ?, ?)').run(randomUUID(), chat, body, task);
+    this.db.prepare('INSERT INTO outbox (id, chat, body, task) VALUES (?, ?, ?, ?)').run(randomUUID(), chat, this.redact(body), task);
   }
 
   feedback(task: string): FeedbackRecord | undefined {
@@ -226,6 +233,15 @@ export class State {
     return this.db.prepare(`SELECT id, chat, body, attempts, next FROM outbox AS current WHERE next<=?
       AND NOT EXISTS (SELECT 1 FROM outbox AS previous WHERE previous.chat=current.chat AND previous.sequence<current.sequence)
       ORDER BY sequence LIMIT 20`).all(now) as unknown as Delivery[];
+  }
+
+  deliveryReady(id: string): boolean {
+    // Recheck each selected status just before HTTP; another chat may have
+    // blocked delivery while this task finished. In-flight requests cannot be recalled.
+    const current = this.db.prepare(`SELECT 1 FROM outbox WHERE id=? AND (task IS NULL OR EXISTS
+      (SELECT 1 FROM tasks WHERE tasks.id=outbox.task AND tasks.status IN ('queued','running')))`).get(id);
+    if (!current) this.delivered(id);
+    return Boolean(current);
   }
 
   delivered(id: string): void {

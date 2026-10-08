@@ -382,3 +382,27 @@ test('interrupted streaming drafts are not presented as completed answers', asyn
   assert.ok(replies[0]!.includes('停止'));
   assert.ok(!replies[0]!.includes('Unverified'));
 });
+
+
+for (const kind of ['commentary', 'delta', 'legacy'] as const) {
+  test(kind === 'legacy' ? 'completed unphased messages remain supported as answers' : `completed turns never publish ${kind} drafts as answers`, async t => {
+    const h = setup(); t.after(h.close); h.deliveries();
+    h.bridge.receive(message('Investigate'));
+    await until(() => h.turns().length === 1);
+    const active = h.current();
+    if (kind === 'delta') {
+      h.codex.notify('item/agentMessage/delta', { ...active, itemId: 'partial', delta: 'Unverified partial text' });
+    } else {
+      h.codex.notify('item/completed', { ...active, item: {
+        id: 'message', type: 'agentMessage', text: kind === 'legacy' ? 'Compatible finished answer' : 'Unverified commentary',
+        ...(kind === 'commentary' ? { phase: 'commentary' } : {}),
+      } });
+    }
+    h.codex.notify('turn/completed', { threadId: active.threadId, turn: { id: active.turnId, status: 'completed' } });
+    const reply = h.deliveries().join('\n');
+    assert.ok(!reply.includes('Unverified'));
+    if (kind === 'legacy') assert.ok(reply.includes('Compatible finished answer'));
+    else assert.ok(reply.includes('未能得到回答'));
+    assert.ok(h.state.status(h.session.id).some(row => row.status === 'completed'));
+  });
+}

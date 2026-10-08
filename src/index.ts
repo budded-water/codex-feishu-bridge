@@ -30,9 +30,10 @@ async function main(): Promise<void> {
       void shutdown?.();
     },
   });
+  const secrets = [auth.appSecret, process.env.OPENAI_API_KEY ?? ''];
   let state: State;
   try {
-    state = new State(config.stateDirectory);
+    state = new State(config.stateDirectory, secrets);
     state.recover();
   } catch {
     await release();
@@ -41,7 +42,7 @@ async function main(): Promise<void> {
   const codex = new CodexClient(config.codexExecutable);
   const feishu = new Feishu(auth, config.enableGroups, config.groupContextImages);
   const bridge = new Bridge(config, state, codex, feishu);
-  const outbox = new Outbox(state, feishu, [auth.appSecret, process.env.OPENAI_API_KEY ?? '']);
+  const outbox = new Outbox(state, feishu, secrets);
   const feedback = new Feedback(state, feishu);
   let closing: Promise<void> | undefined;
   let stopping = false;

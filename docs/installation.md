@@ -113,7 +113,7 @@ npm start
 
 | 命令 | 能验证什么 | 不能证明什么 |
 | --- | --- | --- |
-| `doctor` | 私有 JSON、凭据存在、项目目录、Codex 版本 | 飞书权限、OAuth、模型能完成推理 |
+| `doctor` | 私有 JSON、凭据存在及 App ID 格式、项目目录、Codex 版本 | 飞书权限、OAuth、模型能完成推理 |
 | `check` | 类型检查、模拟行为测试、编译产物 | 新应用的真实收消息和授权配置 |
 | `smoke:codex` | 本机 app-server 初始化和模型目录 | 实际推理 / 工具执行能力 |
 | `start` | 启动实际 bridge、Codex 与飞书连接 | 仍需聊天任务完成真实验收 |

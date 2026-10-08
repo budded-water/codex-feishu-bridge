@@ -131,3 +131,53 @@ test('queued trigger metadata survives reopen without fetching or changing the o
   assert.deepEqual(state.queued(directory)!.source, source);
   assert.equal(state.queued(directory)!.input, 'What do you think?');
 });
+
+
+test('a selected status is discarded if its task completes while another chat delivery waits', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'codex-stale-status-test-'));
+  const state = new State(directory);
+  t.after(() => { state.close(); rmSync(directory, { recursive: true, force: true }); });
+  const session = state.select(message('Work'), 'project', directory);
+  const task = state.enqueue(session.id, 'Work');
+  state.send('other-chat', 'Other delivery');
+  state.sendStatus(task.id, 'chat', 'Stale waiting notice');
+  let release!: () => void;
+  const sent: string[] = [];
+  const outbox = new Outbox(state, { async send(chat, body) {
+    if (chat === 'other-chat') await new Promise<void>(done => { release = done; });
+    sent.push(body);
+  } });
+  const pending = outbox.flush();
+  state.taskStatus(task.id, 'completed');
+  state.send('chat', 'Final answer');
+  release(); await pending; await outbox.flush();
+  assert.deepEqual(sent, ['Other delivery', 'Final answer']);
+  assert.deepEqual(state.pending(), []);
+});
+
+
+test('known secrets crossing reply boundaries are redacted before persistence and delivery', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'codex-redaction-boundary-test-'));
+  const secret = 'fictional-known-gateway-secret';
+  const state = new State(directory, [secret]);
+  t.after(() => { state.close(); rmSync(directory, { recursive: true, force: true }); });
+  const session = state.select(message('Work'), 'project', directory);
+  const task = state.enqueue(session.id, 'Work');
+  const body = 'a'.repeat(2470) + secret + 'z'.repeat(100);
+  state.send('chat', body);
+  state.sendStatus(task.id, 'status-chat', `Received ${secret}`);
+  const stored = state.pending().map(row => row.body).join('');
+  assert.ok(!stored.includes(secret));
+  const db = new DatabaseSync(join(directory, 'bridge.db'));
+  try {
+    const persisted = (db.prepare('SELECT body FROM outbox ORDER BY sequence').all() as { body: string }[]).map(row => row.body).join('');
+    assert.ok(!persisted.includes(secret));
+    assert.ok(persisted.includes('[redacted]'));
+  } finally { db.close(); }
+  const sent: string[] = [];
+  const outbox = new Outbox(state, { async send(_chat, text) { sent.push(text); } }, [secret]);
+  while (state.pending().length) await outbox.flush();
+  assert.equal(sent.filter(text => text.startsWith('a') || text.startsWith('z')).join(''), 'a'.repeat(2470) + '[redacted]' + 'z'.repeat(100));
+  assert.ok(!sent.join('').includes(secret));
+  assert.ok(sent.includes('Received [redacted]'));
+});

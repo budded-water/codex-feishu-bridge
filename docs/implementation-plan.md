@@ -18,6 +18,10 @@ The public README and Chinese deployment/usage guides describe independent insta
 
 Normal tasks receive a native `OnIt` reaction on their original message. If adding the reaction fails, one short acknowledgment is queued instead. Queued work is identified as not yet started. After 30 seconds, at most one truthful stage notice is queued; `/status` shows elapsed time, the current stage, and the age of the last correlated Codex event. Process readiness is not model/network health. These are feedback signals, not proof of completion. Draft answers remain internal. Terminal tasks remove only the bot's own reaction, with persisted reconciliation and cleanup retries; delayed statuses are discarded after task completion. HTTP outages can delay feedback or cleanup, and host sleep cannot be reported through an offline channel. A long wait does not automatically interrupt or replay work. Real add/own-lookup/delete/absence API verification succeeded; fresh bot-message UX acceptance is tracked in live-acceptance.md.
 
+## Review follow-up
+
+Review reproduced and fixed two result-delivery edges: completed turns with only commentary or incomplete deltas no longer publish those drafts, while completed unphased answers remain supported; selected task-status notices are revalidated before HTTP after other chats wait. Known gateway/API secrets are also redacted before new reply chunks are split/persisted, and application IDs fail local validation unless they match the pinned SDK format. Behavioral regressions cover all four defects. Standard installation now uses the merged main implementation. These changes do not add live acceptance evidence or change private deployment settings.
+
 ## Required checks
 
 Run `npm run check` for type checking, behavior tests, and production build. GitHub Actions runs it without external credentials. For protocol changes, run `npm run smoke:codex` on compatible local Codex; it does not create a turn or perform inference.

@@ -30,6 +30,7 @@ export class Outbox {
 
   private async deliver(): Promise<void> {
     for (const delivery of this.state.pending()) {
+      if (!this.state.deliveryReady(delivery.id)) continue;
       let text = delivery.body;
       for (const secret of this.secrets) text = text.split(secret).join('[redacted]');
       try {

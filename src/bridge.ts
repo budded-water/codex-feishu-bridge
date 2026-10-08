@@ -23,7 +23,7 @@ interface Active {
   done: boolean;
   finish: () => void;
   completion: Promise<void>;
-  messages: Map<string, { text: string; final: boolean }>;
+  messages: Map<string, { text: string; final: boolean; completed: boolean }>;
   changes: Map<string, string>;
   stage: string;
   started: number;
@@ -288,14 +288,14 @@ export class Bridge {
     } else if (event.method === 'item/agentMessage/delta') {
       active.stage = 'Codex 已返回内容，正在等待完整答案';
       const id = string(params.itemId);
-      const previous = active.messages.get(id) ?? { text: '', final: false };
+      const previous = active.messages.get(id) ?? { text: '', final: false, completed: false };
       previous.text = (previous.text + string(params.delta)).slice(-200_000);
       active.messages.set(id, previous);
     } else if (event.method === 'item/completed') {
       const item = record(params.item);
       active.stage = '正在等待 Codex 的最终回复';
       if (item.type === 'agentMessage') {
-        active.messages.set(string(item.id), { text: string(item.text).slice(-200_000), final: item.phase === 'final_answer' });
+        active.messages.set(string(item.id), { text: string(item.text).slice(-200_000), final: item.phase === 'final_answer', completed: item.phase == null || item.phase === 'final_answer' });
       }
     } else if (event.method === 'item/started') {
       const item = record(params.item);
@@ -324,7 +324,9 @@ export class Bridge {
     for (const prompt of [...this.prompts.values()]) if (prompt.active === active) this.forget(prompt);
     const messages = [...active.messages.values()];
     const final = messages.filter(message => message.final);
-    const answer = status === 'completed' ? (final.length ? final : messages.slice(-1)).map(message => message.text).join('\n\n') : '';
+    // Only completed messages can be answers. Unphased completed messages remain
+    // compatible, but commentary and partial deltas are never fallback results.
+    const answer = status === 'completed' ? (final.length ? final : messages.filter(message => message.completed).slice(-1)).map(message => message.text).join('\n\n') : '';
     this.state.transaction(() => {
       this.state.taskStatus(active.task.id, status, active.turn || null);
       const body = (explanation ?? answer) || (status === 'interrupted' ? '这次回答已停止。' : '未能得到回答，请重试或补充相关内容。');

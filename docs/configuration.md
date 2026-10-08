@@ -8,7 +8,7 @@
 
 | 环境变量 | 必填 | 作用 |
 | --- | --- | --- |
-| `FEISHU_APP_ID` | 是 | 本部署的应用 ID |
+| `FEISHU_APP_ID` | 是 | 本部署的应用 ID；必须为 cli_ 后接 16 位十六进制字符，与 SDK 接受格式一致 |
 | `FEISHU_APP_SECRET` | 是 | 同一应用的密钥 |
 | `BRIDGE_CONFIG` | 否 | bridge JSON 路径；默认 bridge.config.json；相对路径从启动目录解析 |
 
