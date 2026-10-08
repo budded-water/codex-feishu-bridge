@@ -14,7 +14,11 @@ This record describes the owner installation. It does not imply that a new insta
 - Team routing and approval permissions passed the automated behavior suite, including legacy audit migration.
 - The official bot-info API returned a valid application bot identity, and the published version API confirmed the group-mention scope.
 - The owner approved the wider `im:message.group_msg` platform scope. The console now shows it as Added and current changes as published. A scoped read succeeded after the grant, returning only aggregate verification status/counts; no chat text was printed or committed.
-- A local launchd definition passed `plutil -lint`; it has not been installed or activated.
+- The owner authorized installing and activating the local macOS launchd service. The installed definition passed `plutil -lint`; launchd reported it running, the state-lock heartbeat resumed, and startup logged Feishu connection readiness after Codex initialization. Login startup and process restart are configured; an actual subsequent login or process-restart exercise remains pending.
+
+## Background service recovery
+
+After a host restart, the previous foreground bridge was absent and no launchd service was loaded. A later owner request did not appear in local task records. The unused service definition also referenced a removed version-specific Node executable. Recovery regenerated the private definition with the stable Homebrew Node entry point and a PATH containing the installed Codex executable, then installed and loaded the service with owner authorization. The background Node initially waited for macOS Documents-folder access; after the permission wait cleared, the bridge initialized and connected to Feishu. There were no queued/running tasks or pending answers before activation. This verifies background startup and connection, not a fresh model-task round trip or offline message replay.
 
 ## Enrollment redelivery regression
 
@@ -45,7 +49,7 @@ The owner screenshot showed relevant text context but an explicit unread-image l
 - Context continuation, new sessions, project switching, steering, interruption, and queue controls.
 - Rejected and explicitly approved colleague actions routed through the owner approval chat under the actual local Codex policy.
 - Restart/reconnection exercises and delivery recovery without task replay.
-- Optional service installation and activation after foreground acceptance.
+- A subsequent login and process-restart exercise for the installed service, plus a fresh task round trip through the background instance.
 
 Automated behavior checks and the no-inference protocol smoke test are separate evidence. A connected socket and enrollment message do not prove model access or outbound result delivery.
 
