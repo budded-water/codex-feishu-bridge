@@ -113,3 +113,5 @@ Codex 在创建和恢复会话时能看到已登记项目别名与当前选择�
 - [Codex CLI](https://developers.openai.com/codex/cli/) / [app-server](https://learn.chatgpt.com/docs/app-server)
 - [飞书 Node SDK](https://github.com/larksuite/node-sdk) / [消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)
 - [飞书 CLI](https://github.com/larksuite/cli)
+
+群内成员提及使用消息提供的姓名；身份未知时明确说明。用户引用的原回复会独立读取、优先传入，并与有限群历史去重；引用不构成执行或审批授权。

@@ -70,3 +70,7 @@ The natural-routing build was loaded after confirming no running/queued tasks, p
 ## Bot reasoning effort deployment
 
 On 2026-10-08 (Asia/Shanghai), the owner requested low reasoning effort for this bot independently of other Codex sessions. The private deployment configuration was set to low, the current routing checkout was built with the adapter override, and an idle-service graceful restart was performed. The host Codex configuration remained high. Config/protocol doctor and local behavior checks passed; the real stdio/model-catalog smoke passed outside the sandbox without inference. No Feishu test message or low-effort inference was initiated, so an end-to-end low-effort turn remains unverified. Public templates remain null and do not encode this private deployment preference.
+
+## Mention and quote diagnosis
+
+The owner supplied a reply containing unresolved mention placeholders and a quoted follow-up that was interpreted as an unrelated tool error. Private task metadata confirmed placeholder input, an explicit parent reference and enabled recent history. The previous history path omitted parent-message retrieval and filtered bot replies. The fix resolves supplied mention names and independently admits the exact quoted message, with bounded tests. No new Feishu test message was sent; fresh corrected-reply acceptance remains pending.

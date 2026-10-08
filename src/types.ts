@@ -67,7 +67,7 @@ export function ownerKey(message: Pick<IncomingMessage, 'tenant' | 'user' | 'cha
 
 export interface ChatContext {
   status: 'available' | 'unavailable';
-  messages: { sender: string; type: string; text: string }[];
+  messages: { sender: string; type: string; text: string; quoted?: boolean }[];
   note: string;
   images?: { messageIndex: number; label: string; url: string }[];
 }

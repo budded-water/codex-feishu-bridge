@@ -56,3 +56,7 @@ Automatic data retention and exported metrics are not implemented. Delivery is a
 ## Bot reasoning effort
 
 Optional `codexReasoningEffort` overrides this deployment's new turns in the stdio adapter, including resumed and routing threads, while preserving host configuration. Omitted/null retains Codex inheritance. Config validation and subprocess protocol tests cover turn parameters, caller-input preservation, non-turn requests, process restarts and legacy settings. Public configuration and both templates use null for compatibility. A deployment restart is required; real inference with the override is separate live acceptance.
+
+## Mention and explicit-quote grounding
+
+Incoming text and historical text/native post mentions resolve supplied display names without contact lookups or guessing unknown identities. Explicit same-chat parent quotes are independently fetched and marked with recent history enabled or disabled, including quoted bot replies; the combined context remains bounded and deduplicated. Quote/history failures remain separate. Behavioral tests cover mention identity, exact-quote admission, bot filtering, budgets and partial failures. Fresh user-facing grounding acceptance remains pending.
