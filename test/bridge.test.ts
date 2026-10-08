@@ -179,6 +179,48 @@ test('process loss stops queued work instead of replaying and records an uncerta
   assert.equal(h.turns().length, 1);
 });
 
+test('unsupported interactions identify bridge rejection without exposing request contents', async t => {
+  const h = setup(); t.after(h.close);
+  h.deliveries();
+  h.bridge.receive(message('Read product metrics'));
+  await until(() => h.turns().length === 1);
+  const active = h.current();
+  h.codex.ask(501, 'unsupported/toolApproval', { ...active, arguments: { secret: 'private-argument' }, url: 'https://private.example' });
+  const notice = h.deliveries().join('\n');
+  assert.deepEqual(h.codex.rejected, [501]);
+  assert.match(h.codex.rejectedMessages[0]!, /rejected by the bridge, not by the user/);
+  assert.match(notice, /unsupported\/toolApproval/);
+  assert.match(notice, /并非用户手动拒绝/);
+  assert.ok(!notice.includes('private-argument') && !notice.includes('private.example'));
+  assert.equal(h.codex.replies.length, 0);
+  h.codex.ask(502, 'secret\nhttps://private.example', active);
+  assert.match(h.deliveries().join('\n'), /不支持交互 unknown/);
+  assert.ok(!h.codex.rejectedMessages[1]!.includes('private.example'));
+  h.codex.complete(active.threadId, active.turnId, 'completed', 'The tool query was blocked; no data available.');
+  assert.equal(h.state.status(h.session.id).find(row => row.status === 'completed')?.count, 1);
+});
+
+test('project catalog guides discussion and refreshes on resume without selecting a project or leaking paths', async t => {
+  const h = setup(); t.after(h.close);
+  h.bridge.receive(message('/chat'));
+  h.bridge.receive(message('How many users does the product have?'));
+  await until(() => h.turns().length === 1);
+  const instructions = String(h.codex.calls.find(call => call.method === 'thread/start')!.params.developerInstructions);
+  assert.ok(instructions.includes('"availableProjects":["alpha","beta"]') && instructions.includes('"selectedProject":null'));
+  assert.ok(!instructions.includes(h.config.projects.alpha!) && !instructions.includes(h.config.projects.beta!));
+  assert.ok(instructions.includes('不要枚举外部账号寻找目标'));
+  assert.equal(h.state.selected(message(''))!.project, '$chat');
+  assert.notEqual(h.turns()[0]!.params.cwd, h.config.projects.alpha);
+  const active = h.current(); h.codex.complete(active.threadId, active.turnId);
+  await until(() => !h.state.directories().length);
+  h.config.projects.gamma = h.config.projects.beta!;
+  h.bridge.receive(message('Continue discussing'));
+  await until(() => h.turns().length === 2);
+  const resumed = String(h.codex.calls.find(call => call.method === 'thread/resume')!.params.developerInstructions);
+  assert.ok(resumed.includes('"availableProjects":["alpha","beta","gamma"]'));
+  assert.equal(h.state.selected(message(''))!.project, '$chat');
+});
+
 test('queue clearing cancels waiting tasks without interrupting the active turn', async t => {
   const h = setup(); t.after(h.close);
   h.bridge.receive(message('First'));

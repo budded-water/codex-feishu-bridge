@@ -40,6 +40,10 @@ The owner screenshot showed raw Markdown emphasis in plain-text replies and dupl
 
 The owner screenshot showed relevant text context but an explicit unread-image limitation. That limitation reflected the previous implementation: resource markers were never downloaded or passed as image input. The owner requested image reading and increased history to 50 records. The bridge now supports separately enabled image downloads, numbered message associations, inline Codex image inputs, and count/byte/time bounds. Public examples and legacy configurations keep downloads disabled. Automated tests use synthetic bytes; a real 50-record scoped read succeeded and returned an admitted image, and a separate ephemeral Codex vision turn accepted that image and correctly described its visible title/page. The image and generated verification answer remain private. No group test message was sent. This validates image download and model input; a fresh bot reply using combined chat/image context still needs live acceptance.
 
+## Business-data query context
+
+An owner product-statistics request reached a neutral discussion thread. Codex attempted an analytics-account listing without a verified product data source; the tool returned a rejection while the bridge reported an unsupported interaction. The deployment had no registered alias for the requested product. The follow-up registers that project privately and adds project-specific query guidance referencing its live infrastructure and data model. A separate bounded read-only AWS verification completed registration and recorded-activity aggregation with full pagination, returning only aggregate results. It did not read conversation, image or health content. Private credentials, target preferences, resource mappings and numeric results are excluded from this public record. This verifies the data-query path directly; a fresh project-selected bot query remains pending.
+
 ## Pending
 
 - Links, lists, and fenced-code rendering in the actual Feishu client; paragraphs and bold are observed.

@@ -14,6 +14,7 @@ export class FakeCodex implements CodexPort {
   calls: { method: string; params: Record<string, unknown> }[] = [];
   replies: { id: string | number; result: unknown }[] = [];
   rejected: (string | number)[] = [];
+  rejectedMessages: string[] = [];
   private events = new EventEmitter();
   private sequence = 0;
 
@@ -41,7 +42,7 @@ export class FakeCodex implements CodexPort {
   }
   exit(): void { this.ready = false; this.events.emit('exit'); }
   reply(id: string | number, result: unknown): void { this.replies.push({ id, result }); }
-  reject(id: string | number): void { this.rejected.push(id); }
+  reject(id: string | number, message = ''): void { this.rejected.push(id); this.rejectedMessages.push(message); }
   private listen<T>(name: string, listener: (event: T) => void): () => void {
     this.events.on(name, listener);
     return () => { this.events.off(name, listener); };

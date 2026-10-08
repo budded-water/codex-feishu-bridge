@@ -22,6 +22,10 @@ Normal tasks receive a native `OnIt` reaction on their original message. If addi
 
 Review reproduced and fixed two result-delivery edges: completed turns with only commentary or incomplete deltas no longer publish those drafts, while completed unphased answers remain supported; selected task-status notices are revalidated before HTTP after other chats wait. Known gateway/API secrets are also redacted before new reply chunks are split/persisted, and application IDs fail local validation unless they match the pinned SDK format. Review also corrected terminal SDK connection failure propagation, overly broad missing-history routing, and whitespace loss in steering/question answers. The SDK also has a bounded underlying handshake, and closing during Codex version validation cannot resurrect a subprocess. Behavioral regressions cover the review defects and shutdown races. Standard installation now uses the merged main implementation. These changes do not add live acceptance evidence or change private deployment settings.
 
+## Project query context
+
+Thread start and resume receive the registered alias catalog and current selection without host directory listings. The catalog does not select a project or grant authority. Developer instructions direct business-data queries to establish project context and the real data source before choosing a connector. Unsupported interactive requests remain denied, but identify bridge rejection and expose only a bounded method identifier in notices/logs. Behavioral regressions cover catalog refresh, neutral-session ownership and unsupported-request redaction. Live business-data querying still requires project-specific registration, credentials and acceptance.
+
 ## Required checks
 
 Run `npm run check` for type checking, behavior tests, and production build. GitHub Actions runs it without external credentials. For protocol changes, run `npm run smoke:codex` on compatible local Codex; it does not create a turn or perform inference.
