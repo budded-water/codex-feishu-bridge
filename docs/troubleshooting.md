@@ -6,7 +6,7 @@
 
 | 现象 | 检查与处理 |
 | --- | --- |
-| clone 后只有 README，没有 package.json | 当前实现尚未合并 main；按 [安装说明](installation.md) 下载 docs/initial-architecture 分支 |
+| clone 后只有 README，没有 package.json | 确认下载的是本仓库最新 main；旧 bootstrap checkout 需要 git pull --ff-only；试用未合并 PR 时选对应分支，见 [安装说明](installation.md) |
 | Node SQLite、env-file 或执行时报错 | 用 Node.js 24 或更高版本，核对终端 / 后台实际 Node 路径；更新后 npm ci、check |
 | 提示 Codex protocol requires 某版本 | 对照 [协议版本](../src/codex/generated/version.ts) 和 codex --version；安装兼容版本或维护协议升级，不跳过校验 |
 | doctor 提示 ID / 项目 / 字段非法 | 模板不是即用配置；替换占位 ID 和目录，不用 `~`、相对项目路径、通配符或额外字段 |

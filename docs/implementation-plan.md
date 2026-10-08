@@ -12,7 +12,7 @@ The team text-chat bridge is implemented. Automated checks and a real local Code
 
 ## Sharing and onboarding
 
-The public README and Chinese deployment/usage guides describe independent installations and colleagues using an existing host separately. All config fields/defaults, personal/team examples, protocol-version installation, enrollment/subscription order, feature/tool boundaries, identities, troubleshooting and update/service paths are documented. Download instructions explicitly select the implementation branch while PR #1 remains open and main is only a bootstrap. No runtime behavior or private deployment configuration is changed by this documentation work. New hosts still need their own real acceptance.
+The public README and Chinese deployment/usage guides describe independent installations and colleagues using an existing host separately. All config fields/defaults, personal/team examples, protocol-version installation, enrollment/subscription order, feature/tool boundaries, identities, troubleshooting and update/service paths are documented. The initial implementation was merged through PR #1. Standard download instructions now use main; testing an unmerged follow-up PR requires selecting that PR branch. No runtime behavior or private deployment configuration is changed by this documentation work. New hosts still need their own real acceptance.
 
 ## Feedback acceptance
 
