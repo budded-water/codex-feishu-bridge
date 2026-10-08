@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { EventEmitter } from 'node:events';
 import { record, type CodexPort, type RpcEvent, type RpcRequest } from '../types.js';
 import type { InitializeParams } from './generated/InitializeParams.js';
+import type { Config } from '../config.js';
 import { CODEX_VERSION } from './generated/version.js';
 
 interface Pending {
@@ -34,11 +35,13 @@ export class CodexClient implements CodexPort {
   private executable: string;
   private prefix: string[];
   private timeout: number;
+  private reasoningEffort: Config['codexReasoningEffort'];
 
-  constructor(executable = 'codex', prefix: string[] = [], timeout = 30_000) {
+  constructor(executable = 'codex', prefix: string[] = [], timeout = 30_000, reasoningEffort: Config['codexReasoningEffort'] = null) {
     this.executable = executable;
     this.prefix = prefix;
     this.timeout = timeout;
+    this.reasoningEffort = reasoningEffort;
   }
 
   async start(): Promise<void> {
@@ -84,6 +87,8 @@ export class CodexClient implements CodexPort {
 
   request<T = unknown>(method: string, params: unknown): Promise<T> {
     if (this.closed) return Promise.reject(new Error('Codex is unavailable'));
+    // Apply the deployment setting to every new turn, including resumed and routing threads.
+    if (method === 'turn/start' && this.reasoningEffort != null) params = { ...record(params), effort: this.reasoningEffort };
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {

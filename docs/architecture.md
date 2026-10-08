@@ -8,7 +8,7 @@ User-facing onboarding: [installation](installation.md), [configuration](configu
 
 Expose the Codex already installed on the owner's computer through a Feishu application bot for colleagues using private text or group @mentions. Keep project execution, Codex configuration, and local tools on that computer.
 
-The bridge owns the transport and user interaction. Codex owns task reasoning, its tool loop, and execution under its configured permissions. Model inference continues to use Codex's configured provider.
+The bridge owns the transport and user interaction. Codex owns task reasoning, its tool loop, and execution under its configured permissions. Model inference continues to use Codex's configured provider. Optional `codexReasoningEffort` is deployment-scoped: the Codex adapter supplies `effort` on every `turn/start`, including resumed and routing threads, without changing the host configuration or any other request. Null/omitted leaves inheritance to Codex; a previously overridden thread may retain its effort. A restart applies changes to subsequent requests; in-flight turns are unchanged. Supported levels depend on the selected model and unsupported values fail rather than silently falling back.
 
 This is an independent project that can route work to multiple local repositories. Do not embed it inside a target application repository.
 

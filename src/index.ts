@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     await release();
     throw new Error('Cannot initialize local state');
   }
-  const codex = new CodexClient(config.codexExecutable);
+  const codex = new CodexClient(config.codexExecutable, [], 30_000, config.codexReasoningEffort);
   const feishu = new Feishu(auth, config.enableGroups, config.groupContextImages);
   const bridge = new Bridge(config, state, codex, feishu);
   const outbox = new Outbox(state, feishu, secrets);

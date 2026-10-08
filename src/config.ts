@@ -13,6 +13,7 @@ export interface Config {
   approvalUsers: string[];
   approvalChat: string | null;
   codexExecutable: string;
+  codexReasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null;
   stateDirectory: string;
   approvalTimeoutSeconds: number;
   projects: Record<string, string>;
@@ -21,7 +22,7 @@ export interface Config {
 export function loadConfig(filename = 'bridge.config.json'): Config {
   const path = resolve(filename);
   const value = record(JSON.parse(readFileSync(path, 'utf8')));
-  const fields = ['allowedUsers', 'accessMode', 'allowedTenant', 'enableGroups', 'groupContextMessages', 'groupContextImages', 'approvalUsers', 'approvalChat', 'codexExecutable', 'stateDirectory', 'approvalTimeoutSeconds', 'projects'];
+  const fields = ['allowedUsers', 'accessMode', 'allowedTenant', 'enableGroups', 'groupContextMessages', 'groupContextImages', 'approvalUsers', 'approvalChat', 'codexExecutable', 'codexReasoningEffort', 'stateDirectory', 'approvalTimeoutSeconds', 'projects'];
   if (Object.keys(value).some(key => !fields.includes(key))) throw new Error('Unknown bridge configuration field');
   const accessMode = value.accessMode ?? 'allowlist';
   if (accessMode !== 'allowlist' && accessMode !== 'tenant') throw new Error('Invalid accessMode');
@@ -47,6 +48,8 @@ export function loadConfig(filename = 'bridge.config.json'): Config {
   if (approvalChat !== null && (typeof approvalChat !== 'string' || !/^oc_[\w-]+$/.test(approvalChat))) throw new Error('Invalid approvalChat');
   const executable = value.codexExecutable ?? 'codex';
   if (typeof executable !== 'string' || !executable.trim()) throw new Error('Invalid codexExecutable');
+  const codexReasoningEffort = value.codexReasoningEffort ?? null;
+  if (codexReasoningEffort !== null && (typeof codexReasoningEffort !== 'string' || !['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(codexReasoningEffort))) throw new Error('Invalid codexReasoningEffort');
   const state = value.stateDirectory ?? '.local/state';
   if (typeof state !== 'string' || !state.trim()) throw new Error('Invalid stateDirectory');
   const timeout = value.approvalTimeoutSeconds ?? 300;
@@ -64,7 +67,7 @@ export function loadConfig(filename = 'bridge.config.json'): Config {
   }
   if (!Object.keys(projects).length) throw new Error('Register at least one project');
   return {
-    allowedUsers, accessMode, allowedTenant, enableGroups, groupContextMessages, groupContextImages, approvalUsers, approvalChat, codexExecutable: executable,
+    allowedUsers, accessMode, allowedTenant, enableGroups, groupContextMessages, groupContextImages, approvalUsers, approvalChat, codexExecutable: executable, codexReasoningEffort: codexReasoningEffort as Config['codexReasoningEffort'],
     stateDirectory: resolve(dirname(path), state), approvalTimeoutSeconds: timeout, projects,
   };
 }

@@ -46,3 +46,7 @@ Follow docs/feishu-setup.md and record observed results before marking these com
 Card callbacks, non-image attachments, arbitrary paths, task replay, cloud hosting, external tenant access, secret questions, multi-question RPCs, and interactive permission grants are outside the initial scope.
 
 Automatic data retention and exported metrics are not implemented. Delivery is at least once across external deduplication-window expiry. Existing desktop chats and UI-only integrations are not automatically attached.
+
+## Bot reasoning effort
+
+Optional `codexReasoningEffort` overrides this deployment's new turns in the stdio adapter, including resumed and routing threads, while preserving host configuration. Omitted/null retains Codex inheritance. Config validation and subprocess protocol tests cover turn parameters, caller-input preservation, non-turn requests, process restarts and legacy settings. Public configuration and both templates use null for compatibility. A deployment restart is required; real inference with the override is separate live acceptance.
