@@ -1,54 +1,58 @@
-# Feishu setup
+# 飞书应用设置
 
-The owner installation has completed application setup, SDK connection, and challenge enrollment. A full team task and administrator approval round trip is still pending; see [live acceptance](live-acceptance.md). New installations must complete the steps below with their own application.
+面向每位新部署者。使用自己的应用、租户和用户 IDs；已有实例的验收记录不替你完成授权。安装顺序见 [安装说明](installation.md)。
 
-## Create and configure the application
+## 应用与机器人
 
-1. In the [Feishu developer console](https://open.feishu.cn/app), create an enterprise self-built application and enable its bot capability.
-2. Copy its App ID and App Secret into the private `.env` file. Keep the secret off chat and out of git.
-3. Enable `im:message.reactions:write_only` for native received reactions (the broader `im:message` is also accepted by the API). Recovery reconciliation uses the existing message-read grant or `im:message.reactions:read`. Reaction failures fall back to one text acknowledgment; final-answer delivery remains independent. Enable reading private messages sent to the bot, receiving users' group @mentions, and sending messages as the application bot. The developer console and [message event documentation](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive) show the required scopes for your application.
-4. Subscribe to `im.message.receive_v1` and choose SDK long connection mode. The local SDK client must be connected when saving this subscription mode.
-5. Publish the application version and make it available to the intended colleagues. Add the bot to the group where colleagues will @mention it. Enable group mentions for team use; the @mention transport does not require reading every group message. Optional group-history context requires bot membership, a message-read scope (`im:message:readonly` or an equivalent accepted by the API), and `im:message.group_msg`. Receiving @mentions alone is insufficient. Follow the console publication/approval requirements when applicable, then verify access with the application identity. In the owner installation this added scope took effect immediately: current changes remained published and the bounded read succeeded without a new version. The platform group scope grants access to all messages in associated groups; the bridge enforces the agreed trigger/chat/24-hour/50-record limits in code. Confirm this wider platform scope before granting it. Image resources use the existing message-read scope. Enable `groupContextImages` only for agreed image-context use; document permissions are not required. When group mode is enabled, startup also verifies the bot's own open ID through the bot-info API.
+在 [飞书开发者后台](https://open.feishu.cn/app) 创建企业自建应用，启用机器人能力。应用名称和图标自行选择；App ID 与 App Secret 填本机 `.env`。不要把真实凭据复制到 public 配置模板。
 
-The application bot is the chat interface. Local Codex continues to use its own separately configured tools and identities.
+应用可用范围必须包含实际使用者；群聊使用时还要把机器人加入目标群。机器人能被谁发现、飞书 API 能访问什么、bridge 允许谁提交任务，是不同配置层，都需要匹配。
 
-## Obtain your application-specific open ID
+## 按功能开权限
 
-After supplying application credentials, run:
+下面列出当前 bridge 使用的权限，后台名称可能本地化；以接口文档和控制台要求为准。选取对应的**应用身份**权限，不用 CLI 的 user OAuth 来替代机器人权限。
 
-```bash
-npm run identify
-```
+| 功能 | 对应 scope / 条件 |
+| --- | --- |
+| 私聊收到文本 | `im:message.p2p_msg:readonly` 与消息接收事件 |
+| 群里用户 @此机器人 | `im:message.group_at_msg:readonly`；机器人在群内；enableGroups=true |
+| 机器人发送最终答案 | `im:message:send_as_bot`（或发送接口接受的等效 grant） |
+| 添加、删除接收表情 | `im:message.reactions:write_only`，或接口接受的 `im:message` |
+| 表情重试 / 重启时查本应用记录 | `im:message.reactions:read`，或接口接受的 message-read grant |
+| 可选群历史 / 引用 / 图片资源 | `im:message:readonly` 或接口支持的等效读取 grant；群前文还要求 `im:message.group_msg` 及群成员身份 |
 
-Enrollment connects the Feishu SDK and prints a random `pair ...` challenge locally. Keep it running while saving long connection settings in the developer console.
+群模式启动时通过 bot-info API 验证机器人的 open ID。bridge 只接受核对后的真实 @mention，不依赖机器人名字，也不需要开启其他机器人发来的 @消息。
 
-Send the exact challenge in a private chat with the application bot from your own account. The command prints that sender's open ID, then disconnects. Put that ID in `allowedUsers` and `approvalUsers` in the private `bridge.config.json`. Enrollment also prints the tenant key and owner private chat for `allowedTenant` and `approvalChat`; see [team access](team-access.md).
+**群前文权限是可选的敏感范围。** `im:message.group_msg` 的平台授权可读取关联群消息，比程序约束的“触发群、触发前 24 小时、最多 50 条记录”宽。部署者同意这个平台范围后再申请；只用 @接收不要求开启它。模板保持前文 / 图片关闭。
 
-Enrollment never starts Codex, accepts tasks, or sends a reply. The running bridge also ignores exact `pair <UUID>` messages, including redelivery after enrollment closes. It ignores nonmatching messages and expires after 15 minutes. Do not share the challenge: the account that sends it is the account you will allow.
+引用单条消息与图片资源也需要所调用读取接口的权限，不要从“关闭自动历史”推断完全不读取被明确引用的资料。图片参考不需要额外云文档授权。
 
-Open IDs are application-specific. An ID from another bot or CLI application's login may not identify you for this application.
+[消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)、[历史消息](https://open.feishu.cn/document/server-docs/im-v1/message/list)、[表情添加](https://open.feishu.cn/document/server-docs/im-v1/message-reaction/create)、[官方 Node SDK](https://github.com/larksuite/node-sdk)。
 
-## First live acceptance run
+## SDK 长连接与发布
 
-1. Register an existing local project directory; run `npm run doctor`, `npm run build`, and `npm start`.
-2. Send `/chat` and `/status`, then `/project <alias>` and `/status` to verify private-message transport.
-3. @mention a bounded discussion question with quoted or explicitly enabled recent context and verify a relevant direct answer, without repository-rule commentary. Then explicitly select a project and send a bounded read-only prompt, such as summarizing top-level files without modifications. Confirm the native received reaction on the original message, its removal after completion, and one final output. Longer tasks should get only one stage notice after 30 seconds; `/status` should show the active stage. Send an image before a group @mention and confirm the reply refers to actual image content when image reading is enabled. Check bold text, lists, links, and code in the actual client; Markdown markers should render rather than appear as raw plain-text syntax.
-4. Send a follow-up to verify context continues. Test `/new` after work has completed.
-5. Start a longer bounded task; verify `/补充` and `/stop` reach the right turn.
-6. Exercise a bounded local action that triggers approval under your existing Codex policy. Confirm the preview and `/拒绝` work. Repeat with explicit approval if desired.
-7. Restart the bridge. Confirm conversation mappings persist and uncertain tasks are not automatically replayed.
+1. 填 `.env`，在本机保持 `npm run identify` 运行；它会连接 SDK 并打印登记挑战。
+2. 进入事件 / 回调设置，选择 **SDK 长连接**接收模式，订阅 `im.message.receive_v1`。保存时平台可能要求已有 SDK 连接。
+3. 创建应用版本，配置目标使用者的可用范围，按企业流程提交发布 / 审批。
+4. 自己私聊机器人发送完整 `pair ...` 挑战；终端打印此应用下的 open ID、tenant key 和审批私聊 ID。挑战过期时重新运行 identify。
+5. 用打印值填好本部署 JSON，再运行 doctor / check / start，验证任务。
 
-Only claim live acceptance after observing these results. Automated tests and the local handshake do not validate external scopes, account availability, model inference, or live delivery.
+identify 不运行 Codex、不自动回复其他消息，也不自动把所有人登记为审批人。不要把另一个应用的 CLI 用户 open ID 直接填到当前机器人配置。登记成功后身份记录仍需写进本机配置。
 
-## Troubleshooting
+新增权限后按控制台所需的发布 / 审批流程操作，并通过实际 API / 聊天验证；不假定“已保存”就对线上生效。某个已观察部署曾出现权限即时生效，这不是所有新部署的通用承诺。可用范围与 bridge 的 tenant / allowlist / approvalUsers 也要同步。
 
-- No connection: verify credentials, self-built app type, network access, and long connection mode.
-- No incoming messages: verify published permissions, subscription, bot availability, and private text chat.
-- Ignored messages: verify tenant/user access and an actual @mention of this bot in groups; `allowedUsers` IDs must belong to this application; repeat enrollment from your own account.
-- History unavailable with API error `230027`: check published message-read and `im:message.group_msg` scopes; runtime configuration alone cannot grant platform permissions.
-- Reaction unavailable: verify published `im:message.reactions:write_only` (or `im:message`); cleanup/reconciliation also needs the existing message-read scope or reaction-read scope.
-- Codex unavailable: run `npm run doctor`, verify local Codex authentication separately, and restart after correcting installation or configuration.
+## 名称与头像
 
-The [official Feishu Node SDK](https://github.com/larksuite/node-sdk) is the transport reference. Changes to external credentials, scopes, subscriptions, or availability must stay consistent with local configuration and these requirements.
+在“凭证与基础信息 → 综合信息”编辑应用名称 / 图标。按控制台提示创建并发布新版本后核对机器人信息；应用列表中的新图标不代表线上聊天头像已更新。线上信息已经更新、客户端仍旧时再刷新或重新打开客户端。[官方机器人配置说明](https://www.feishu.cn/hc/zh-CN/articles/360024984973-在群组中使用机器人)
 
-[Official chat-history API and permission requirements](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/list)
+更改头像不需要改 bridge 代码；应用凭据或 JSON 配置变化则需要正常重启本地 bridge。
+
+## 与飞书 CLI 的关系
+
+CLI 是 Codex 可以另行使用的工具，不是这个 SDK 连接的必需依赖。CLI 可以使用同一个应用或另一个应用；bot 身份和本人 OAuth 身份各有权限、资源范围和授权条件。bridge 最终答案保持机器人身份，主动本人发送需要另配工具能力。见 [工具与身份](integrations.md)。
+
+## 验收与排查
+
+私聊先测 /status、讨论、项目只读任务、表情和审批；群里再验证真实 @、前文和图片。完整清单在 [安装说明](installation.md)，故障对应表在 [常见问题](troubleshooting.md)。
+
+自动化测试、doctor 和协议 smoke 都不能证明企业后台授权、用户可用范围和真实模型任务已通过。每位新部署者完成自己的验收，保留脱敏记录。

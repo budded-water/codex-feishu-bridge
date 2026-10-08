@@ -1,5 +1,7 @@
 # Local operation
 
+First-time setup: [installation](installation.md). Field semantics: [configuration](configuration.md). Fault lookup: [troubleshooting](troubleshooting.md).
+
 ## Foreground
 
 Run `npm run build` followed by `npm start`. Keep the computer awake and connected. Ctrl-C or SIGTERM disconnects Feishu, interrupts active Codex turns, stops the child, and releases local state ownership.

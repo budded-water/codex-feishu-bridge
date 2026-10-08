@@ -2,6 +2,8 @@
 
 Colleagues can submit private text tasks or @mention the application bot in a group. The bridge remains on the owner's computer and uses its installed Codex identity, projects, skills, and tools.
 
+For deployment-independent setup, all accepted fields/defaults and the personal/team templates are documented in [configuration](configuration.md). Colleagues can use [usage](usage.md) without installing a bridge. Independent hosts follow [installation](installation.md); tool identity is explained in [integrations](integrations.md).
+
 ## Configuration
 
 `src/config.ts` is canonical for accepted fields. Private configuration holds actual IDs and paths; the checked-in example contains placeholders.
@@ -12,7 +14,7 @@ Colleagues can submit private text tasks or @mention the application bot in a gr
 | `allowedTenant` | Required explicit tenant key in tenant mode; also restricts an allowlist when supplied. Never use a wildcard. |
 | `allowedUsers` | Distinct application-scoped user open IDs. In tenant mode this retained list does not restrict colleagues. It supplies the default approver list when `approvalUsers` is omitted. |
 | `groupContextMessages` | Recent group context count, 0–50; default 0 disables it. Opt-in fetches one page from the 24 hours preceding the trigger. With 0, an explicit quoted reply can fetch just its referenced message. |
-| `groupContextImages` | Group reference image attempts, 0–8; default 0 disables downloads. Owner configuration enables 8. Limits and byte budgets come from src/context-limits.ts. |
+| `groupContextImages` | Group reference image attempts, 0–8; default 0 disables downloads. Example configurations keep downloads off. Limits and byte budgets come from src/context-limits.ts. |
 | `enableGroups` | Enables group text with a verified @mention of this particular bot. Defaults to false for older configurations. |
 | `approvalUsers` | User open IDs authorized to accept or reject Codex command/file approval requests. Defaults to `allowedUsers`; in allowlist mode approvers must be listed there. |
 | `approvalChat` | Designated chat for command/file approval previews and decisions, normally the owner private bot chat. When omitted, approval stays in the task chat. |

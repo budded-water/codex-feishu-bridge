@@ -2,6 +2,8 @@
 
 This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. New image-grounded group replies and live administrator approval acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
 
+User-facing onboarding: [installation](installation.md), [configuration](configuration.md), [usage](usage.md), [tools and identities](integrations.md), and [troubleshooting](troubleshooting.md).
+
 ## Goal and boundary
 
 Expose the Codex already installed on the owner's computer through a Feishu application bot for colleagues using private text or group @mentions. Keep project execution, Codex configuration, and local tools on that computer.

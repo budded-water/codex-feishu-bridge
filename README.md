@@ -1,58 +1,31 @@
 # Codex Feishu Bridge
 
-A local bridge that lets your Feishu colleagues submit tasks to the Codex installed on your computer, through private chat or group @mentions.
+把安装在你电脑上的 Codex 接到飞书，让你或同事通过私聊、群内 `@机器人` 提交工作。
 
-## Status
+它可以作为本地 Codex 的工作分身入口：在已登记的项目中分析问题、实现功能、修复 Bug、review 代码；GitHub、资料搜索、飞书工具等工作由本机 Codex 已配置的工具完成。模型推理仍使用 Codex 的模型服务，本地文件操作在运行桥接程序的电脑上执行。
 
-The team chat bridge is implemented, including default discussion sessions, explicit project execution, optional bounded group context and image inputs, tenant access, verified group @mentions, per-user conversations, native rich replies, administrator approval routing, SQLite state, steering, interruption, and retryable delivery. Automated behavior checks and a real local Codex protocol handshake have passed. The owner application is published, its message scopes/subscription and SDK connection are verified, and private-chat enrollment succeeded. Owner group delivery, a bounded read-only project turn, and a count-only scoped history API read are observed. The supplied screenshot confirms text grounding and bold rendering; a separate real-image vision turn is verified. Native reaction add/lookup/delete APIs are verified; fresh feedback UX, new image-grounded bot replies, other rich rendering, colleague-account access, and administrator approval acceptance remain pending. See [live acceptance](docs/live-acceptance.md) for evidence.
+## 先选择你的使用方式
 
-## Design
+| 使用方式 | 谁安装和配置 | 使用哪台电脑的环境 |
+| --- | --- | --- |
+| 同事使用你现有的分身 | 你维护一个 bridge；同事按 [使用说明](docs/usage.md) 操作机器人 | 你的 Codex、项目和工具身份 |
+| 同事安装自己的分身 | 每位部署者按 [安装说明](docs/installation.md) 配置自己的应用、Codex 和项目 | 各部署者自己的环境 |
 
-```text
-Feishu private chat / group @bot
-        ↕
-Feishu Open Platform
-        ↕ outbound SDK WebSocket connection
-Local TypeScript bridge
-        ↕ JSON-RPC over stdin/stdout
-Local codex app-server
-        ↕
-Local projects, Codex configuration, skills, and tools
-```
+共享的是程序和配置模板。`Zhe! Bot` 是一个部署实例的自定义名称；代码不绑定这个名称、某个企业或某个本地项目。新部署者应使用自己的飞书应用和凭据，不复制别人的 `.env`、用户授权或状态数据库。同一个机器人应用不要同时连接多个独立 bridge：SDK 事件不会按“机器人属于哪台电脑”自动路由。
 
-The bridge runs on your computer. Codex performs the agent work using its normal model service and local execution environment. The bridge owns message routing, conversation mapping, progress delivery, and approval forwarding.
+## 当前下载方式
 
-See [the architecture](docs/architecture.md) for lifecycle, session, and recovery details, and [the implementation plan](docs/implementation-plan.md) for acceptance criteria.
-
-## Initial scope
-
-- Colleagues in one explicitly configured tenant, or a configured user allowlist.
-- Private text chats and group text messages that mention this particular bot.
-- Separate conversations per user and chat, with configured administrators deciding Codex approval requests.
-- Discussion mode by default; `/project` explicitly selects project execution and `/chat` returns to discussion.
-- Optional recent group context, limited to at most 50 messages; disabled by default. Quoted-message-only context is supported.
-- Optional standalone and rich-post group images passed as actual Codex image inputs; unread or failed media stays explicit.
-- Persistent Codex conversation mapping.
-- Native Feishu rich-post replies for emphasis, lists, links, and code. Native received reactions, queue feedback and a single delayed stage notice; answer drafts stay private until the final result.
-- Text-based approvals, steering, and interruption.
-- Local operation without a public HTTP listener.
-
-The host computer must be awake and connected to the network. Messages sent while it is offline are not guaranteed to be recovered. Existing desktop conversations are not automatically attached to the bridge.
-
-## Requirements and setup
-
-Use Node.js 24 or later and an installed, authenticated Codex. The exact supported Codex release is generated in [the protocol version file](src/codex/generated/version.ts); startup checks that it matches your executable.
+完整实现目前在 [PR #1](https://github.com/budded-water/codex-feishu-bridge/pull/1) 的 `docs/initial-architecture` 分支；默认 `main` 只有初始化 README。合并前请按下面命令下载实现分支：
 
 ```bash
+git clone --branch docs/initial-architecture https://github.com/budded-water/codex-feishu-bridge.git
+cd codex-feishu-bridge
 npm ci
 cp .env.example .env
 cp bridge.config.example.json bridge.config.json
 ```
 
-1. Create your own Feishu self-built application with bot capability and enter its credentials in the local `.env`.
-2. Follow [Feishu setup](docs/feishu-setup.md) to enable private and group-mention message events and obtain your application-specific open ID, tenant key, and private approval chat using `npm run identify`.
-3. Configure team access, approval routing, and your actual project directories in `bridge.config.json`; see [team access](docs/team-access.md). Directory paths must be absolute and exist. State paths are relative to that configuration file unless absolute.
-4. Verify configuration, then build and start:
+替换所有占位值，按 [安装说明](docs/installation.md) 完成应用配置与身份登记后运行：
 
 ```bash
 npm run doctor
@@ -60,51 +33,81 @@ npm run build
 npm start
 ```
 
-`doctor` verifies local configuration, credential presence, and the Codex version. It does not verify authentication, inference access, or Feishu permissions. `npm run dev` runs the TypeScript entry point directly during development.
+需要 Node.js 24 或更高版本，以及与 [协议版本文件](src/codex/generated/version.ts) **完全匹配**、已登录的 Codex。当前不是 npm 发布包，没有一键安装器；Git checkout 是安装入口。
 
-Keep `.env`, `bridge.config.json`, the local state database, transcripts, and credentials outside version control. Published examples use placeholders only.
+## 功能与实际边界
 
-## Chat commands
-
-| Command | Action |
+| 功能 | 当前行为 |
 | --- | --- |
-| `/project <alias>` | Explicitly enter execution mode for a registered local project. |
-| `/chat` | Return to ordinary discussion, without defaulting to a code repository. |
-| `/new` | Create a new conversation when the selected session has no pending work. |
-| `/status` | Show task counts, process readiness, active stage/event age, and pending requests. |
-| `/补充 <text>` | Steer the selected active turn. |
-| `/stop` | Interrupt the selected active turn; queued tasks remain queued. |
-| `/clear` | Cancel the selected session's queued tasks. |
-| `/批准 <id>` / `/拒绝 <id>` | Configured administrators decide a specific approval in its designated chat; a submitter may decline their own question. |
-| `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
-| `/help` | Show help. |
+| 私聊 / 群聊入口 | 接收人类发送的文本；群里必须真实 `@` 此机器人，普通群消息不触发工作 |
+| 普通讨论 | 默认使用独立讨论会话；代码工作先 `/project 项目别名`，不会自动猜项目 |
+| 功能开发 / Bug 修复 / Review | Codex 在登记的本地目录执行，沿用本机配置、工具和授权策略 |
+| 提交分支 / 开 PR / 查资料 | 取决于本机 Codex 的相关工具、登录状态和项目规则；bridge 不自带 GitHub 或搜索账号 |
+| 群聊前文 | 单页读取触发消息之前 24 小时内最多 50 条记录；默认关闭；明确引用单条消息可走引用模式 |
+| 图片参考 | 可选读取前文或引用中的独立图片 / 富文本图片，作为真实 Codex 图片输入；最多 8 次尝试，默认关闭 |
+| 会话与排队 | 按租户、用户、聊天、项目分会话；同一真实目录串行，不同目录可以独立执行 |
+| 接收反馈 | 原消息添加 `OnIt` 表情；排队有说明；超过 30 秒至多发一次阶段提示；最终答案单独发送 |
+| 运行控制 | `/status`、`/补充`、`/stop`、`/clear`、`/new` |
+| Codex 审批 / 提问 | 支持命令与文件请求审批、单个非敏感问题；管理员可在指定私聊回复 |
+| 结果发送 | 以应用机器人身份发送飞书富文本，持久化重试；重试结果不会重跑任务 |
+| 以本人身份主动发消息 | 可通过另行配置的飞书 CLI 用户授权实现；不是 bridge 的内置发送模式，见 [工具与身份](docs/integrations.md) |
 
-In a group, include an actual @mention of the bot before every task or command. Ordinary discussion uses a neutral local session and returns a direct answer. Normal tasks receive a native `OnIt` reaction on their original message. If adding the reaction fails, one short acknowledgment is queued instead. Queued work is identified as not yet started. After 30 seconds (canonical in [feedback.ts](src/feedback.ts)), at most one truthful stage notice is queued; `/status` shows elapsed time, the current stage, and the age of the last correlated Codex event. Process readiness is not model/network health. These are feedback signals, not proof of completion. Draft answers remain internal. Terminal tasks remove only the bot's own reaction, with persisted reconciliation and cleanup retries; delayed statuses are discarded after task completion. HTTP outages can delay feedback or cleanup, and host sleep cannot be reported through an offline channel. A long wait does not automatically interrupt or replay work. Group references require available recent or quoted context; unavailable history is stated instead of substituting local repository rules. Normal text in an explicitly selected project starts a project task. While the project is busy, normal text queues for the next turn. Tasks retain their original session and project even if you switch projects. Aliases pointing at the same directory share one execution queue.
+图片是**参考上下文**，直接发送图片不会启动任务。文件、音频、视频、交互卡片、置顶文档、会议纪要链接等不会自动展开。支持的图片格式、数量、字节和下载时间限制以 [context-limits.ts](src/context-limits.ts) 为准。
 
-## Verification and operation
+## 系统关系
 
-```bash
-npm run check          # Type checking, behavior tests, production build
-npm run smoke:codex    # Actual local stdio handshake; no model inference
+```mermaid
+flowchart LR
+    F[飞书私聊或群内 @机器人] <--> S[飞书 SDK 长连接]
+    S <--> B[本地 bridge]
+    B <-->|stdio JSON-RPC| C[本地 codex app-server]
+    C --> P[登记项目 / 本地规则 / 已配置工具]
 ```
 
-GitHub Actions runs the automated checks without live Codex or Feishu credentials. Protocol types are generated from the installed Codex executable; `npm run protocol:generate` regenerates them for an upgrade, which requires review and verification before use.
+不需要公网 Webhook、开放本地端口或额外部署模型服务。运行电脑要保持唤醒和联网；模型调用仍会产生所选 Codex 服务对应的用量。
 
-See [operation](docs/operation.md) for macOS service setup and recovery, and [the implementation plan](docs/implementation-plan.md) for remaining live acceptance work.
+分身可使用运行账号可访问的 Codex 配置、项目 `AGENTS.md`、Skills 和工具；**不会自动复制当前桌面聊天的上下文或过去所有对话经验**。希望长期沿用的习惯、项目经验和工作流程，应记录在可被 Codex 读取的规则、文档或 Skills 中。
 
-Recent history is off by default (`groupContextMessages: 0`); opt in to 1–50 only for the agreed group-context scope. It uses one bounded page from the preceding 24 hours, excludes future/other-chat/deleted/bot messages, and keeps failed or unprovided media explicitly unread. A quoted reply can use its explicitly referenced single message without reading recent history. The owner installation has opted in to 50, approved the wider platform group-read scope, and verified a successful scoped API read without printing chat content. Image reading is separately opt-in (`groupContextImages: 0` by default; 1–8 enables it). The owner has enabled 8. It downloads the most recent admitted standalone/post images through the message-resource API, with up to 8 attempts, 10 MiB per image and 20 MiB total; supported PNG/JPEG/GIF/WebP signatures become inline Codex image inputs. Limits are canonical in [context-limits.ts](src/context-limits.ts). New downloads stop once the time budget expires; in-flight requests obey SDK timeouts. Failure or skipped images retain explicit unread markers. The checked-in example remains off by default.
+## 文档入口
 
-Images in group context are supplied in memory; base64 is separate from the textual context JSON, and the bridge stores no downloaded image files. Codex/model transcript retention still applies.
+| 文档 | 读者与内容 |
+| --- | --- |
+| [安装说明](docs/installation.md) | 部署者：环境准备、下载、身份登记、启动、首次验收、更新 |
+| [配置说明](docs/configuration.md) | 部署者：全部字段、默认值、个人 / 团队模板、上下文开关 |
+| [飞书应用设置](docs/feishu-setup.md) | 应用管理员：权限、长连接订阅、发布、头像、可用范围 |
+| [使用说明](docs/usage.md) | 同事：发任务、选项目、开发 / PR / Review 示例、命令、审批 |
+| [工具与身份](docs/integrations.md) | 部署者：Codex、GitHub、飞书 CLI、用户授权与应用身份 |
+| [常见问题](docs/troubleshooting.md) | 部署者 / 同事：不回复、读不到前文、图片、版本、授权、恢复 |
+| [运行维护](docs/operation.md) | 维护者：前台进程、macOS launchd、数据、重试、日志 |
+| [架构](docs/architecture.md) / [团队访问](docs/team-access.md) | 开发者：实现与访问控制细节 |
+| [实施状态](docs/implementation-plan.md) / [真实验收记录](docs/live-acceptance.md) | 维护者：已实现、已观察、待验收的区别 |
 
-Limitations: incoming text chats are supported within the configured tenant/user policy. Group output is visible to group members; private-chat output stays in that private chat. Sessions isolate conversation history, while project files, Codex credentials, and installed tools remain shared on the host. Approvals apply to requests raised by the existing Codex policy, not every action. Secret questions, multiple simultaneous questions in one RPC request, and unsupported tool permission interactions are declined. Known gateway/API secrets are redacted from outgoing text; arbitrary secrets in model output still require care. Persistent local state contains task inputs and replies and has no automatic retention policy yet.
+## 配置与授权
 
-Replies use native `post` messages with Markdown elements, compact headings, and reduced empty spacing outside code. Long replies prefer line boundaries and reopen fenced code between parts; exceptionally long lines are split at Unicode character boundaries. Each part uses a stable Feishu idempotency key and never reruns the task. Successful project replies have a small project/number footer; failed or interrupted work is labelled and unfinished drafts are not presented as answers. Delivery remains at least once across external deduplication-window expiry; rare duplicate replies are possible.
+`.env` 放**本部署**的飞书应用凭据；`bridge.config.json` 放允许的使用者、审批人、租户、项目目录和上下文范围。提供两个全字段模板：
 
-Use topic branches and pull requests. Follow the repository guidance in [AGENTS.md](AGENTS.md).
+- [团队模板](bridge.config.example.json)：指定租户、开启群聊，仍需替换应用范围内的真实 IDs。
+- [个人模板](bridge.config.personal.example.json)：白名单、私聊优先；新部署可先用它验证，再开启团队使用。
 
-## References
+模板都关闭群聊前文和图片。开启前文需要额外的飞书群消息权限；后台权限比运行时的 24 小时 / 50 条限制更宽。配置与授权的对应关系见 [配置说明](docs/configuration.md) 和 [飞书应用设置](docs/feishu-setup.md)。
 
-- [Codex app-server](https://learn.chatgpt.com/docs/app-server)
-- [Official Feishu Node SDK](https://github.com/larksuite/node-sdk)
-- [Feishu message content](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json)
-- [Feishu message events](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)
+任务由部署者的本地 Codex 环境执行。用户会话分离，但项目文件、主机凭据和工具不是按同事隔离的；群内答案对群成员可见。bridge 仅转发 Codex **实际提出**的审批请求，不能保证所有修改、发送、push 或发布都经过额外审批。工作授权和 PR / 合并 / 发布规则需要写入项目规则并配合相应工具权限；需要严格隔离时应使用独立运行账号、凭据和环境。
+
+## 验证与状态
+
+```bash
+npm run check       # 类型检查、行为测试和生产构建；不向飞书发消息
+npm run smoke:codex # 真实本地协议握手；不发起推理任务
+```
+
+GitHub Actions 使用 Node.js 24 运行无外部凭据的检查。已观察到一个 macOS 部署的应用连接、身份登记、群消息收发、只读项目任务、前文 API、独立图片推理与表情 API；完整同事账户、审批和新图文交互验收仍有待完成。Linux CI 验证了模拟行为，Linux / Windows 的完整真实部署未作普遍验证；macOS 后台服务另有生成脚本。
+
+现有桌面会话同步、自然语言自动选项目、每位同事的飞书 OAuth 映射、自动任务重放和数据定期清理尚未实现。休眠期间消息不保证补收；结果投递跨飞书去重窗口可能重复。新部署需完成自己的真实验收。
+
+## 开发与参考
+
+维护指引在 [AGENTS.md](AGENTS.md)。使用 topic branch 与 PR，升级 Codex 协议时重新生成并验证绑定。
+
+- [Codex CLI](https://developers.openai.com/codex/cli/) / [app-server](https://learn.chatgpt.com/docs/app-server)
+- [飞书 Node SDK](https://github.com/larksuite/node-sdk) / [消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)
+- [飞书 CLI](https://github.com/larksuite/cli)

@@ -1,0 +1,20 @@
+{
+  "allowedUsers": [
+    "your_feishu_open_id"
+  ],
+  "codexExecutable": "codex",
+  "stateDirectory": ".local/state",
+  "approvalTimeoutSeconds": 300,
+  "projects": {
+    "example": "/absolute/path/to/your/project"
+  },
+  "accessMode": "allowlist",
+  "allowedTenant": null,
+  "enableGroups": false,
+  "approvalUsers": [
+    "your_feishu_open_id"
+  ],
+  "approvalChat": null,
+  "groupContextMessages": 0,
+  "groupContextImages": 0
+}
