@@ -604,6 +604,8 @@ export class Bridge {
         else this.complete(active, 'interrupted');
         return;
       }
+      await this.abortRouting(active, '这次请求已停止。');
+      return;
     }
     if (!active || (active.session.id !== session.id && active.task.routingOrigin !== session.id) || !active.turn || active.done) {
       this.state.send(message.chat, '当前会话暂无可控制的运行任务。'); return;

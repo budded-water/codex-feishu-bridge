@@ -282,6 +282,28 @@ test('an uncertain classifier interruption cancels queued work and a new request
   h.codex.complete(next.threadId, next.turnId, 'completed', decision('answer', null, 'New answer'));
 });
 
+test('a failed stop of a confirmed classifier cancels queued work and discards its thread', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('Modify alpha')); await until(() => h.turns().length === 1); const old = h.current();
+  h.bridge.receive(message('Queued work'));
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    if (method === 'turn/steer' || method === 'turn/interrupt') throw new Error('unconfirmed RPC');
+    return request<T>(method, params);
+  };
+  h.bridge.receive(message('/stop'));
+  await until(() => !h.state.directories().length);
+  assert.equal(h.state.routing(h.session.owner), undefined);
+  assert.ok(h.state.status(h.session.id).some(row => row.status === 'unknown'));
+  assert.ok(h.state.status(h.session.id).some(row => row.status === 'interrupted'));
+  h.codex.request = request;
+  h.bridge.receive(message('A new request')); await until(() => h.turns().length === 2);
+  const next = h.current(); assert.notEqual(next.threadId, old.threadId);
+  h.codex.complete(old.threadId, old.turnId, 'completed', decision('project', 'alpha'));
+  assert.equal(h.turns().length, 2);
+  h.codex.complete(next.threadId, next.turnId, 'completed', decision('answer', null, 'New answer'));
+});
+
 test('stop during an unconfirmed routing start drains that turn before a subsequent request can reuse it', async t => {
   const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
   const request = h.codex.request.bind(h.codex);
