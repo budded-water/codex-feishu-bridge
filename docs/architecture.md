@@ -32,7 +32,7 @@ The first version uses app-server's default stdio transport. It does not expose 
 3. Open SQLite and mark previously running tasks as interrupted or outcome unknown.
 4. Launch the installed Codex executable using a subprocess argument array, without shell interpolation.
 5. Complete app-server's `initialize` request and `initialized` notification before sending other protocol requests.
-6. Establish the outbound Feishu connection and register message handlers. Wait for the actual SDK readiness callback, bounded to 30 seconds; terminal startup errors reject. Later terminal errors stop the application and release state ownership, while retryable reconnects stay with the SDK.
+6. Establish the outbound Feishu connection and register message handlers. Wait for the actual SDK readiness callback, bounded to 30 seconds, with each underlying WebSocket handshake bounded to 10 seconds; terminal startup errors reject. Later terminal errors stop the application and release state ownership, while retryable reconnects stay with the SDK.
 
 Use the local Codex identity and configuration. Pin and verify the installed protocol version; app-server remains an evolving interface. Do not copy the owner's Codex authentication files into the public repository.
 

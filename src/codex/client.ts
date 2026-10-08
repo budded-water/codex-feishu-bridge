@@ -30,6 +30,7 @@ export class CodexClient implements CodexPort {
   private nextId = 1;
   private inbound = new Set<string | number>();
   private closed = true;
+  private lifecycle = 0;
   private executable: string;
   private prefix: string[];
   private timeout: number;
@@ -42,7 +43,9 @@ export class CodexClient implements CodexPort {
 
   async start(): Promise<void> {
     if (this.child && !this.closed) throw new Error('Codex process is already running');
+    const lifecycle = ++this.lifecycle;
     await checkVersion(this.executable, this.prefix);
+    if (lifecycle !== this.lifecycle) throw new Error('Codex startup was interrupted');
     this.generation = randomUUID();
     const env = { ...process.env };
     // The local agent does not need the chat gateway credentials.
@@ -162,6 +165,8 @@ export class CodexClient implements CodexPort {
   onExit(listener: () => void): () => void { return this.subscribe('exit', listener); }
 
   async close(): Promise<void> {
+    // Also cancel starts still waiting for their executable version check.
+    this.lifecycle++;
     const child = this.child;
     if (!child) return;
     this.fail(child);

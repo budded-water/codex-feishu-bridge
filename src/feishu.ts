@@ -43,6 +43,7 @@ function reactionGone(value: unknown): boolean {
 }
 
 export const FEISHU_START_TIMEOUT_MS = 30_000;
+export const FEISHU_HANDSHAKE_TIMEOUT_MS = 10_000;
 
 const silentLogger = { trace() {}, debug() {}, info() {}, warn() {}, error() {} };
 
@@ -64,6 +65,7 @@ export class Feishu implements ContextPort, ReactionPort {
     this.client = new lark.Client({ ...credentials, domain: lark.Domain.Feishu, logger: silentLogger });
     this.socket = new lark.WSClient({
       ...credentials, domain: lark.Domain.Feishu, logger: silentLogger,
+      handshakeTimeoutMs: FEISHU_HANDSHAKE_TIMEOUT_MS,
       onReady: () => {
         if (this.closed) return;
         const startup = this.startup;

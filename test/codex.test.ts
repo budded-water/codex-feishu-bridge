@@ -50,3 +50,14 @@ test('malformed JSON and RPC timeouts fail the process instead of leaving work h
   await assert.rejects(stalled.request('never', {}), /timed out/);
   assert.equal(stalled.ready, false);
 });
+
+
+test('closing during version validation cannot resurrect a Codex subprocess', async t => {
+  const client = new CodexClient(process.execPath, [fixture]); t.after(() => client.close());
+  const startup = client.start();
+  await client.close();
+  await assert.rejects(startup, /startup was interrupted/);
+  assert.equal(client.ready, false);
+  // The cancelled start must not poison an explicitly requested later start.
+  await client.start(); assert.equal(client.ready, true);
+});
