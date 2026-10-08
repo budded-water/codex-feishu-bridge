@@ -79,8 +79,10 @@ export class Bridge {
       // Feishu can redeliver enrollment after the identify connection closes.
       // Reserve the exact challenge syntax so it can never become a Codex task.
       if (/^pair\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return;
-      const [command, ...parts] = text.split(/\s+/);
-      const argument = parts.join(' ');
+      const end = text.search(/\s/);
+      const command = end < 0 ? text : text.slice(0, end);
+      // Remove only the command separator, preserving free-form code/indentation.
+      const argument = end < 0 ? '' : text.slice(end + 1);
       if (['/批准', '/拒绝', '/回答'].includes(command!)) {
         after = () => this.replyPrompt(message, command!, argument);
         return;
@@ -88,11 +90,12 @@ export class Bridge {
       let session = this.state.selected(message);
       if (command === '/help') { this.state.send(message.chat, HELP); return; }
       if (command === '/project') {
-        const directory = this.config.projects[argument];
+        const alias = argument.trim();
+        const directory = this.config.projects[alias];
         if (!directory) {
           this.state.send(message.chat, `请选择已登记项目：${Object.keys(this.config.projects).join('、')}`);
         } else {
-          session = this.state.select(message, argument, directory);
+          session = this.state.select(message, alias, directory);
           this.state.send(message.chat, `当前项目：${session.project}。${HELP}`);
         }
         return;
@@ -224,7 +227,8 @@ export class Bridge {
             ? await this.contextPort.context(session, task.source, this.config.groupContextMessages)
             : { status: 'unavailable', messages: [], note: '尚未启用群聊前文读取；请引用或粘贴要讨论的内容。' };
           if (active.done || this.closed) break;
-          if (context.status !== 'available' && /上面|前面|刚才|前文|上述|这个群|群里(?:说|提|讨论)|聊天(?:里|中)|above|earlier|previous/i.test(task.input)) {
+          const missingChatReference = /(?:上面|前面|刚才|之前|上述)(?:的)?(?:讨论|对话|聊天|消息|发言)|(?:这个群|本群|群里)(?:的)?(?:讨论|对话|聊天|消息|发言)|\b(?:above|earlier|previous)\s+(?:discussion|conversation|chat|messages)\b/i.test(task.input);
+          if (context.status !== 'available' && session.project === '$chat' && !session.thread && missingChatReference) {
             this.complete(active, 'failed', context.note); continue;
           }
         }
@@ -415,7 +419,10 @@ export class Bridge {
   }
 
   private replyPrompt(message: IncomingMessage, command: string, argument: string): void {
-    const [token, question, ...answer] = argument.split(/\s+/);
+    const token = argument.match(/^\s*(\S+)/)?.[1];
+    const input = argument.match(/^\s*\S+\s+(\S+)(?:\r?\n|[ \t])([\s\S]*)$/);
+    const question = input?.[1];
+    const answer = input?.[2] ?? '';
     const prompt = this.prompts.get(token!);
     const authorized = prompt && (prompt.kind === 'approval'
       ? this.config.approvalUsers.includes(message.user) && message.tenant === prompt.active.session.tenant && message.chat === prompt.replyChat
@@ -426,10 +433,10 @@ export class Bridge {
       return;
     }
     if (command === '/回答') {
-      if (prompt.kind !== 'question' || prompt.questions[0] !== question || !answer.length) {
+      if (prompt.kind !== 'question' || prompt.questions[0] !== question || !answer.trim()) {
         this.state.send(message.chat, '请使用 /回答 编号 问题ID 内容，或 /拒绝 编号。'); return;
       }
-      this.decide(prompt, false, answer.join(' '), message.user);
+      this.decide(prompt, false, answer, message.user);
     } else {
       if (command === '/批准' && prompt.kind !== 'approval') {
         this.state.send(message.chat, '这是提问，请用 /回答 回复。'); return;

@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   const bridge = new Bridge(config, state, codex, feishu);
   const outbox = new Outbox(state, feishu, secrets);
   const feedback = new Feedback(state, feishu);
+  let unsubscribeFeishu: (() => void) | undefined;
   let closing: Promise<void> | undefined;
   let stopping = false;
   let restart: NodeJS.Timeout | undefined;
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
     if (restart) clearTimeout(restart);
     if (healthy) clearTimeout(healthy);
     unsubscribe();
+    unsubscribeFeishu?.();
     feishu.close();
     closing = (async () => {
       await bridge.close();
@@ -91,6 +93,7 @@ async function main(): Promise<void> {
     return closing;
   };
   const stop = (): void => { void shutdown!().catch(() => { process.exitCode = 1; }); };
+  unsubscribeFeishu = feishu.onFailure(() => { process.exitCode = 1; stop(); });
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   try {
@@ -105,7 +108,9 @@ async function main(): Promise<void> {
     });
     if (!stopping) console.log('Bridge running; configured tenant/user access and per-user sessions are enforced');
   } catch {
+    const intentionalStop = stopping;
     await shutdown();
+    if (intentionalStop) return;
     throw new Error('Bridge startup failed; run npm run doctor and verify Feishu application settings');
   }
 }

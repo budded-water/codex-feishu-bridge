@@ -20,7 +20,7 @@ Normal tasks receive a native `OnIt` reaction on their original message. If addi
 
 ## Review follow-up
 
-Review reproduced and fixed two result-delivery edges: completed turns with only commentary or incomplete deltas no longer publish those drafts, while completed unphased answers remain supported; selected task-status notices are revalidated before HTTP after other chats wait. Known gateway/API secrets are also redacted before new reply chunks are split/persisted, and application IDs fail local validation unless they match the pinned SDK format. Behavioral regressions cover all four defects. Standard installation now uses the merged main implementation. These changes do not add live acceptance evidence or change private deployment settings.
+Review reproduced and fixed two result-delivery edges: completed turns with only commentary or incomplete deltas no longer publish those drafts, while completed unphased answers remain supported; selected task-status notices are revalidated before HTTP after other chats wait. Known gateway/API secrets are also redacted before new reply chunks are split/persisted, and application IDs fail local validation unless they match the pinned SDK format. Review also corrected terminal SDK connection failure propagation, overly broad missing-history routing, and whitespace loss in steering/question answers. Behavioral regressions cover these seven defects. Standard installation now uses the merged main implementation. These changes do not add live acceptance evidence or change private deployment settings.
 
 ## Required checks
 

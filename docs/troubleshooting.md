@@ -21,6 +21,7 @@
 | --- | --- |
 | 保存 SDK 长连接设置提示未连接 | 保持 npm run identify 在线，再配置事件；它只需 .env，无需 JSON 已填完 |
 | identify 没有返回 ID | 私聊发送终端打印的完整 pair 挑战；超过 15 分钟重新生成；确认发布、事件和可用范围 |
+| 启动时没有连接成功 / 终止失败 | 启动会等实际 SDK ready，30 秒内未就绪则退出；校对 App Secret、应用长连接配置和网络；终止错误也会退出以释放锁，暂时断线仍由 SDK 重连 |
 | 机器人没有回应 | 先 doctor 检查 App ID 格式（cli_ 后接 16 位十六进制字符）；保持主机唤醒和进程运行；核对凭据、订阅 im.message.receive_v1、发布和可用范围、JSON 准入 |
 | 群里不回复但私聊正常 | enableGroups=true、正确群 @ 权限、机器人已入群，并通过选择器真实 @ 此机器人；命令也要 @ |
 | 同事被忽略 | 核对 allowedTenant / accessMode / allowedUsers 和应用可用范围；IDs 属于此应用 |

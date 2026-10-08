@@ -32,7 +32,7 @@ The first version uses app-server's default stdio transport. It does not expose 
 3. Open SQLite and mark previously running tasks as interrupted or outcome unknown.
 4. Launch the installed Codex executable using a subprocess argument array, without shell interpolation.
 5. Complete app-server's `initialize` request and `initialized` notification before sending other protocol requests.
-6. Establish the outbound Feishu connection and register message handlers.
+6. Establish the outbound Feishu connection and register message handlers. Wait for the actual SDK readiness callback, bounded to 30 seconds; terminal startup errors reject. Later terminal errors stop the application and release state ownership, while retryable reconnects stay with the SDK.
 
 Use the local Codex identity and configuration. Pin and verify the installed protocol version; app-server remains an evolving interface. Do not copy the owner's Codex authentication files into the public repository.
 
@@ -69,7 +69,7 @@ These commands belong to the bridge, not the Codex CLI:
 | `/拒绝 <id>` | Configured administrators decline an approval; the submitter can decline their own question. |
 | `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
 
-Discussion sessions use private per-user/chat directories under the state directory. Older project histories are preserved; switch with `/chat` to leave an existing selected project. Neutral mode instructs Codex not to browse a repository to guess group context, without relaxing local sandbox or approvals.
+Discussion sessions use private per-user/chat directories under the state directory. Older project histories are preserved; switch with `/chat` to leave an existing selected project. Neutral mode instructs Codex not to browse a repository to guess group context, without relaxing local sandbox or approvals. The missing-history shortcut applies only to a fresh neutral discussion with an explicit chat reference; self-contained project tasks and follow-ups in existing Codex threads are not rejected by optional missing group history. Free-form steering and question answers preserve embedded newlines and indentation.
 
 When a session is idle, normal text starts another turn in the same thread. When busy, normal text queues for the next turn. Control commands bypass the queue. Bind queued tasks to their original session and project so a later project switch cannot reroute them.
 

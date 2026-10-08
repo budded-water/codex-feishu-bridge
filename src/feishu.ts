@@ -42,6 +42,8 @@ function reactionGone(value: unknown): boolean {
   return [230110, 231003, 231011].includes(Number(code));
 }
 
+export const FEISHU_START_TIMEOUT_MS = 30_000;
+
 const silentLogger = { trace() {}, debug() {}, info() {}, warn() {}, error() {} };
 
 export class Feishu implements ContextPort, ReactionPort {
@@ -50,6 +52,9 @@ export class Feishu implements ContextPort, ReactionPort {
   private enableGroups: boolean;
   private imageLimit: number;
   private appId: string;
+  private closed = false;
+  private startup?: { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
+  private failureListeners = new Set<() => void>();
 
   constructor(credentials: { appId: string; appSecret: string }, enableGroups = false, imageLimit = 0) {
     this.appId = credentials.appId;
@@ -59,27 +64,54 @@ export class Feishu implements ContextPort, ReactionPort {
     this.client = new lark.Client({ ...credentials, domain: lark.Domain.Feishu, logger: silentLogger });
     this.socket = new lark.WSClient({
       ...credentials, domain: lark.Domain.Feishu, logger: silentLogger,
-      onReady: () => console.log('Feishu connection ready'),
+      onReady: () => {
+        if (this.closed) return;
+        const startup = this.startup;
+        if (startup) { clearTimeout(startup.timer); this.startup = undefined; startup.resolve(); }
+        console.log('Feishu connection ready');
+      },
       onReconnecting: () => console.log('Feishu reconnecting'),
-      onError: () => console.error('Feishu connection unavailable; verify application configuration'),
+      onError: () => this.connectionFailed(),
     });
   }
 
   async start(receive: (message: IncomingMessage) => void): Promise<void> {
+    if (this.closed || this.startup) throw new Error('Feishu connection cannot be started');
     let botOpenId: string | undefined;
     if (this.enableGroups) {
       const response = await this.client.request<{ code: number; bot?: { open_id?: string } }>({ method: 'GET', url: '/open-apis/bot/v3/info/' });
       botOpenId = response.bot?.open_id;
       if (response.code !== 0 || !botOpenId || !/^ou_[\w-]+$/.test(botOpenId)) throw new Error('Cannot verify bot identity for group mentions');
     }
-    await this.socket.start({
-      eventDispatcher: new lark.EventDispatcher({ logger: silentLogger }).register({
-        'im.message.receive_v1': data => {
-          const message = normalizeMessage(data, botOpenId);
-          if (message) receive(message);
-        },
-      }),
+    if (this.closed) throw new Error('Feishu connection stopped');
+    await new Promise<void>((resolve, reject) => {
+      this.startup = { resolve, reject, timer: setTimeout(() => this.connectionFailed(), FEISHU_START_TIMEOUT_MS) };
+      // SDK start() resolves before the socket handshake; readiness comes from onReady.
+      void this.socket.start({
+        eventDispatcher: new lark.EventDispatcher({ logger: silentLogger }).register({
+          'im.message.receive_v1': data => {
+            const message = normalizeMessage(data, botOpenId);
+            if (message) receive(message);
+          },
+        }),
+      }).catch(() => this.connectionFailed());
     });
+  }
+
+  onFailure(listener: () => void): () => void {
+    this.failureListeners.add(listener);
+    return () => { this.failureListeners.delete(listener); };
+  }
+
+  private connectionFailed(): void {
+    if (this.closed) return;
+    const startup = this.startup;
+    this.startup = undefined;
+    if (startup) clearTimeout(startup.timer);
+    this.close();
+    console.error('Feishu connection unavailable; verify application configuration');
+    if (startup) startup.reject(new Error('Feishu connection unavailable; no live message connection'));
+    else for (const listener of this.failureListeners) listener();
   }
 
   async send(chat: string, text: string, idempotencyKey: string): Promise<void> {
@@ -151,7 +183,16 @@ export class Feishu implements ContextPort, ReactionPort {
     }
   }
 
-  close(): void { this.socket.close({ force: true }); }
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.startup) {
+      clearTimeout(this.startup.timer);
+      this.startup.reject(new Error('Feishu connection stopped'));
+      this.startup = undefined;
+    }
+    this.socket.close({ force: true });
+  }
 }
 
 // Historical messages are reference material, never executable bridge commands.

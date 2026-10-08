@@ -325,8 +325,10 @@ test('ordinary group discussion carries bounded context into a neutral chat and 
 test('missing group context is stated without starting an irrelevant Codex turn', async t => {
   const h = setup({ async context() { return { status: 'unavailable', messages: [], note: '读不到前文，请引用相关消息。' }; } }); t.after(h.close);
   h.config.groupContextMessages = 20;
+  h.bridge.receive(message('/chat'));
+  const discussion = h.state.selected(message(''))!;
   h.bridge.receive(message('看看上面的讨论', { chatType: 'group', createTime: '1791400000000' }));
-  await until(() => h.state.status(h.session.id).some(row => row.status === 'failed'));
+  await until(() => h.state.status(discussion.id).some(row => row.status === 'failed'));
   assert.equal(h.turns().length, 0);
   assert.ok(h.deliveries().some(text => text.includes('读不到前文')));
 });
@@ -406,3 +408,49 @@ for (const kind of ['commentary', 'delta', 'legacy'] as const) {
     assert.ok(h.state.status(h.session.id).some(row => row.status === 'completed'));
   });
 }
+
+
+test('self-contained group project work is not blocked by optional missing history', async t => {
+  const h = setup(); t.after(h.close); h.deliveries();
+  h.bridge.receive(message('修复页面上面的导航栏', { chatType: 'group' }));
+  await until(() => h.turns().length === 1);
+  assert.equal(h.turns()[0]!.params.cwd, h.config.projects.alpha);
+  assert.ok(JSON.stringify(h.turns()[0]!.params.input).includes('修复页面上面的导航栏'));
+  assert.ok(!h.deliveries().some(body => body.includes('未启用群聊前文')));
+});
+
+test('group follow-ups can use their existing Codex conversation without new group history', async t => {
+  const h = setup(); t.after(h.close);
+  h.bridge.receive(message('/chat')); h.deliveries();
+  h.bridge.receive(message('我们讨论一下设计方案', { chatType: 'group' }));
+  await until(() => h.turns().length === 1);
+  const first = h.current(); h.codex.complete(first.threadId, first.turnId);
+  await until(() => !h.state.directories().length);
+  h.bridge.receive(message('再说说上面的讨论', { chatType: 'group' }));
+  await until(() => h.turns().length === 2);
+  assert.equal(h.turns()[1]!.params.threadId, first.threadId);
+  assert.ok(h.codex.calls.some(call => call.method === 'thread/resume'));
+});
+
+test('free-form steering preserves newlines and indentation including its first code line', async t => {
+  const h = setup(); t.after(h.close);
+  h.bridge.receive(message('Work')); await until(() => h.turns().length === 1);
+  for (const [separator, input] of [
+    [' ', '请按下面改：\n```python\nif ready:\n    run()\n\n    finish()\n```'],
+    ['\n', '    first()\n    second()'],
+  ]) {
+    h.bridge.receive(message('/补充' + separator + input));
+    const call = h.codex.calls.filter(item => item.method === 'turn/steer').at(-1)!;
+    assert.deepEqual(call.params.input, [{ type: 'text', text: input, text_elements: [] }]);
+  }
+});
+
+test('free-form question answers preserve multiline code instead of joining words', async t => {
+  const h = setup(); t.after(h.close);
+  h.bridge.receive(message('Work')); await until(() => h.turns().length === 1);
+  h.codex.ask('code-question', 'item/tool/requestUserInput', { ...h.current(), questions: [{ id: 'q', question: 'Which code?' }] });
+  const token = h.deliveries().join('\n').match(/问题 ([a-f0-9]{8})/)![1]!;
+  const input = 'if ready:\n    run()\n    finish()';
+  h.bridge.receive(message(`/回答 ${token} q ${input}`));
+  assert.deepEqual(h.codex.replies, [{ id: 'code-question', result: { answers: { q: { answers: [input] } } } }]);
+});

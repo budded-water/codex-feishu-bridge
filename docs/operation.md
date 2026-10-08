@@ -4,7 +4,7 @@ First-time setup: [installation](installation.md). Field semantics: [configurati
 
 ## Foreground
 
-Run `npm run build` followed by `npm start`. Keep the computer awake and connected. Ctrl-C or SIGTERM disconnects Feishu, interrupts active Codex turns, stops the child, and releases local state ownership.
+Run `npm run build` followed by `npm start`. Keep the computer awake and connected. Startup waits up to 30 seconds for actual Feishu SDK readiness. Terminal startup errors fail setup; a terminal error after connection stops the bridge with failure status and releases the state lock. Retryable disconnects continue through SDK reconnects. Ctrl-C or SIGTERM disconnects Feishu, interrupts active Codex turns, stops the child, and releases local state ownership.
 
 One bridge process may own a state directory at a time. A heartbeat lock prevents duplicate execution. After an unclean exit, the lock becomes stale after approximately ten seconds. Never delete a live process's lock to force a second instance.
 
