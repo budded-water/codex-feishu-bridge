@@ -3,6 +3,7 @@
     "your_feishu_open_id"
   ],
   "codexExecutable": "codex",
+  "codexReasoningEffort": null,
   "stateDirectory": ".local/state",
   "approvalTimeoutSeconds": 300,
   "projects": {
