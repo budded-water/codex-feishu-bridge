@@ -1,0 +1,54 @@
+# Live acceptance evidence
+
+This record describes the owner installation. It does not imply that a new installation is already configured. Keep credentials, account identifiers, project paths, and chat transcripts in private local configuration/state only.
+
+## Observed
+
+- A dedicated self-built bot application is enabled and published.
+- The developer console shows private-message receive and bot-send scopes as added, and the message-received event is subscribed.
+- The official SDK connected; the developer console verified the persistent connection as connected.
+- Challenge enrollment received the owner's matching private message and exited successfully.
+- The enrolled owner is the designated local approval administrator; team mode pins the owner application tenant and admits its colleagues. Approvals are routed to the owner private bot chat.
+- Local configuration and the installed Codex protocol version passed `doctor`.
+- The bridge initialized local Codex and connected to Feishu in foreground mode.
+- Team routing and approval permissions passed the automated behavior suite, including legacy audit migration.
+- The official bot-info API returned a valid application bot identity, and the published version API confirmed the group-mention scope.
+- The owner approved the wider `im:message.group_msg` platform scope. The console now shows it as Added and current changes as published. A scoped read succeeded after the grant, returning only aggregate verification status/counts; no chat text was printed or committed.
+- A local launchd definition passed `plutil -lint`; it has not been installed or activated.
+
+## Enrollment redelivery regression
+
+The live setup exposed a replay boundary: Feishu redelivered the enrollment message after the identification client disconnected, and the initial task router treated it as ordinary task text. The exact `pair <UUID>` syntax is now reserved and ignored before session selection or task enqueueing. A behavioral regression covers duplicate/redelivered challenges before and during a normal task, while allowing ordinary discussion of enrollment syntax.
+
+A completed turn caused by that redelivery is not counted as the intended bounded task acceptance.
+
+## Discussion-context regression
+
+An owner group question referring to earlier discussion reached Codex with only the @mention text. The default project selection exposed repository guidance, which the answer incorrectly treated as the discussion. The owner supplied a screenshot and reported the irrelevant answer; the specific local task input and final answer confirmed the failure. A separate intended read-only project turn completed, so inference access alone was not the missing capability.
+
+The fix defaults new conversations to neutral discussion, requires explicit project selection, suppresses discussion execution-state replies, and distinguishes group reference material from instructions and local repository rules. Recent context is opt-in and bounded to at most 50 prior messages from the preceding 24 hours. Quoted-message-only context is supported. Missing history and unread media are stated explicitly. Behavioral tests use fictional context; the owner initially authorized 20 records and now authorizes at most 50 records from the preceding 24 hours in the triggering group. Private runtime configuration is set to 50, with image attempts enabled up to 8. The initial count-only scoped API verification returned `230027` (missing permissions). After explicit approval, `im:message.group_msg` was added. The console continued to show current changes as published, and a fresh bounded API read returned success and usable context. The permission took effect without creating a new application version. The later owner screenshot shows a reply referring to real preceding text discussion and rendered bold emphasis, confirming these parts of the round trip. New image-grounded replies still need live acceptance.
+
+## Reply-format regression
+
+The owner screenshot showed raw Markdown emphasis in plain-text replies and duplicated answer content in a project progress message and final message. The transport now sends native rich posts, compresses excess spacing and heading size outside code, and splits long replies with Unicode and fenced-code handling. Project drafts/commentary are accumulated internally instead of sent as progress. A successful project reply has a small identifying footer; interruption/failure does not expose unfinished text as a result. Tests validate payloads and event sequences without sending messages. The later owner screenshot confirms readable paragraphs and bold emphasis. Links, lists, and code rendering still need live acceptance.
+
+## Image-context upgrade
+
+The owner screenshot showed relevant text context but an explicit unread-image limitation. That limitation reflected the previous implementation: resource markers were never downloaded or passed as image input. The owner requested image reading and increased history to 50 records. The bridge now supports separately enabled image downloads, numbered message associations, inline Codex image inputs, and count/byte/time bounds. Public examples and legacy configurations keep downloads disabled. Automated tests use synthetic bytes; a real 50-record scoped read succeeded and returned an admitted image, and a separate ephemeral Codex vision turn accepted that image and correctly described its visible title/page. The image and generated verification answer remain private. No group test message was sent. This validates image download and model input; a fresh bot reply using combined chat/image context still needs live acceptance.
+
+## Pending
+
+- Links, lists, and fenced-code rendering in the actual Feishu client; paragraphs and bold are observed.
+
+- Published colleague availability and a colleague-account @mention/status round trip. Owner group membership and @mention delivery are observed; they do not establish every colleague's access.
+- Relevant group discussion using quoted/recent context and direct answers without task noise; runtime scope, wider platform permission approval, and successful API access are verified; text grounding is observed, while relevance of a fresh image-grounded answer remains pending.
+- Context continuation, new sessions, project switching, steering, interruption, and queue controls.
+- Rejected and explicitly approved colleague actions routed through the owner approval chat under the actual local Codex policy.
+- Restart/reconnection exercises and delivery recovery without task replay.
+- Optional service installation and activation after foreground acceptance.
+
+Automated behavior checks and the no-inference protocol smoke test are separate evidence. A connected socket and enrollment message do not prove model access or outbound result delivery.
+
+## Received feedback
+
+Native `OnIt` received reactions, one-time 30-second stage notices, explicit queue feedback and richer `/status` are implemented. Reaction intent/IDs are persisted for late-add and restart cleanup; retries never rerun Codex. Behavioral tests cover deduplication, authorization, long context reads, queued work, approval waits, process loss, ambiguous add responses, deletion retry, restart recovery, stale notice suppression and independent answer delivery. The developer console currently shows reaction-write/read scopes Added and current changes published. A real application-identity check added `OnIt` to an existing owner request, looked up this app’s reaction, deleted it and verified absence, without sending new chat messages. The foreground feedback build connected successfully; fresh bot-message UX acceptance remains pending.
