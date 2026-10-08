@@ -18,13 +18,15 @@
 
 ## 2. 下载并安装依赖
 
-当前完整实现仍在 [PR #1](https://github.com/budded-water/codex-feishu-bridge/pull/1) 的 `docs/initial-architecture` 分支；`main` 只有初始化内容。合并前请使用实现分支：
+默认 `main` 分支包含完整实现，常规安装使用它：
 
 ```bash
-git clone --branch docs/initial-architecture https://github.com/budded-water/codex-feishu-bridge.git
+git clone https://github.com/budded-water/codex-feishu-bridge.git
 cd codex-feishu-bridge
 npm ci
 ```
+
+若试用尚未合并的后续 PR，在 clone 时加 `--branch <该 PR 的分支>`；不要把分支中的未发布能力当作 main 已有功能。
 
 本项目没有发布到 npm。`npm ci` 安装 bridge 依赖，不会替你创建飞书应用、登录 Codex 或授权飞书 CLI。
 
@@ -111,7 +113,7 @@ npm start
 
 | 命令 | 能验证什么 | 不能证明什么 |
 | --- | --- | --- |
-| `doctor` | 私有 JSON、凭据存在、项目目录、Codex 版本 | 飞书权限、OAuth、模型能完成推理 |
+| `doctor` | 私有 JSON、凭据存在及 App ID 格式、项目目录、Codex 版本 | 飞书权限、OAuth、模型能完成推理 |
 | `check` | 类型检查、模拟行为测试、编译产物 | 新应用的真实收消息和授权配置 |
 | `smoke:codex` | 本机 app-server 初始化和模型目录 | 实际推理 / 工具执行能力 |
 | `start` | 启动实际 bridge、Codex 与飞书连接 | 仍需聊天任务完成真实验收 |

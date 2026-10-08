@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadConfig } from '../src/config.js';
+import { loadConfig, credentials } from '../src/config.js';
 import { normalizeMessage, formatContext } from '../src/feishu.js';
 
 function event() {
@@ -99,4 +99,25 @@ test('history context excludes other chats, future/current/deleted/bot records a
   assert.equal(JSON.stringify(context).includes('private-key'), false);
   assert.equal(formatContext([], 'group', 'trigger', 2000, 20).status, 'unavailable');
   assert.equal(formatContext([row('bot', 'text', { text: 'quoted answer' }, { sender: { sender_type: 'app' } })], 'group', 'trigger', 2000, 1, true).messages[0]!.text, 'quoted answer');
+});
+
+
+test('mistyped application IDs fail before the SDK can silently skip its connection', t => {
+  const previous = { appId: process.env.FEISHU_APP_ID, appSecret: process.env.FEISHU_APP_SECRET };
+  t.after(() => {
+    for (const [key, value] of Object.entries({ FEISHU_APP_ID: previous.appId, FEISHU_APP_SECRET: previous.appSecret })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+  process.env.FEISHU_APP_SECRET = 'fictional-test-secret';
+  for (const id of [undefined, '', 'your_app_id', 'mistyped-id', 'cli_' + '0'.repeat(15), 'cli_' + '0'.repeat(17), 'cli_' + 'z'.repeat(16)]) {
+    if (id === undefined) delete process.env.FEISHU_APP_ID; else process.env.FEISHU_APP_ID = id;
+    assert.throws(() => credentials(), /FEISHU_APP_ID/);
+  }
+  for (const id of ['cli_' + '0'.repeat(16), 'cli_' + 'A'.repeat(16)]) {
+    process.env.FEISHU_APP_ID = id;
+    assert.deepEqual(credentials(), { appId: id, appSecret: 'fictional-test-secret' });
+  }
+  process.env.FEISHU_APP_SECRET = 'your_app_secret';
+  assert.throws(() => credentials(), /FEISHU_APP_SECRET/);
 });

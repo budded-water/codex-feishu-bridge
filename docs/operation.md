@@ -4,7 +4,7 @@ First-time setup: [installation](installation.md). Field semantics: [configurati
 
 ## Foreground
 
-Run `npm run build` followed by `npm start`. Keep the computer awake and connected. Ctrl-C or SIGTERM disconnects Feishu, interrupts active Codex turns, stops the child, and releases local state ownership.
+Run `npm run build` followed by `npm start`. Keep the computer awake and connected. Startup waits up to 30 seconds for actual Feishu SDK readiness; each underlying WebSocket negotiation has its own 10-second watchdog. Closing during Codex executable verification invalidates that pending start so it cannot launch a subprocess after shutdown. Terminal startup errors fail setup; a terminal error after connection stops the bridge with failure status and releases the state lock. Retryable disconnects continue through SDK reconnects. Ctrl-C or SIGTERM disconnects Feishu, interrupts active Codex turns, stops the child, and releases local state ownership.
 
 One bridge process may own a state directory at a time. A heartbeat lock prevents duplicate execution. After an unclean exit, the lock becomes stale after approximately ten seconds. Never delete a live process's lock to force a second instance.
 
@@ -51,11 +51,11 @@ Reference image bytes are streamed into bounded memory and passed as inline inpu
 
 There is no automatic data expiry yet. Stop before managing or deleting state. Database deletion loses mappings and deduplication history. Treat backups as private task data.
 
-Logs cover connection, restart, and delivery state. Raw SDK responses, Codex stderr, shell output, and credentials are not printed. Known gateway/API secrets are redacted from outgoing text, but arbitrary secrets in model content cannot all be identified.
+Logs cover connection, restart, and delivery state. Raw SDK responses, Codex stderr, shell output, and credentials are not printed. Known gateway/API secrets are redacted from complete new outbound text before chunk splitting and persistence, including task-status notices. Delivery also retains per-chunk redaction for older queued records containing a complete known secret; it cannot repair secret fragments split across legacy records. This does not scrub task inputs or Codex transcripts, and arbitrary secrets in model content cannot all be identified.
 
 ## Delivery and recovery
 
-The outbox stores Markdown chunks, preserves chat order, and retries each chunk with backoff and a stable Feishu UUID. The transport converts each stored chunk to a native rich post only when sending; old unsent text records use the same conversion without losing their IDs. Code fences are closed and reopened across newly queued parts. Exceptionally long individual lines split at Unicode character boundaries, so complex inline formatting spanning such a boundary may not render intact. A reply failure never starts another Codex turn. External deduplication is time-limited; long outages can still yield duplicate replies. Exactly-once delivery is not promised.
+The outbox stores Markdown chunks, preserves chat order, and retries each chunk with backoff and a stable Feishu UUID. The transport converts each stored chunk to a native rich post only when sending; old unsent text records use the same conversion without losing their IDs. Code fences are closed and reopened across newly queued parts. Exceptionally long individual lines split at Unicode character boundaries, so complex inline formatting spanning such a boundary may not render intact. Each selected task-status notice is revalidated immediately before its HTTP send, so a task that finishes while another chat is waiting cannot emit an unsent stale notice. An HTTP send already in flight cannot be recalled. A reply failure never starts another Codex turn. External deduplication is time-limited; long outages can still yield duplicate replies. Exactly-once delivery is not promised.
 
 On restart, queued and running tasks are interrupted rather than replayed. Check actual project or external service state before explicitly continuing possible writes.
 

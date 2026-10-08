@@ -15,10 +15,10 @@
 
 ## 当前下载方式
 
-完整实现目前在 [PR #1](https://github.com/budded-water/codex-feishu-bridge/pull/1) 的 `docs/initial-architecture` 分支；默认 `main` 只有初始化 README。合并前请按下面命令下载实现分支：
+从默认 `main` 分支下载完整实现。若试用尚未合并的后续 PR，请改用该 PR 的分支：
 
 ```bash
-git clone --branch docs/initial-architecture https://github.com/budded-water/codex-feishu-bridge.git
+git clone https://github.com/budded-water/codex-feishu-bridge.git
 cd codex-feishu-bridge
 npm ci
 cp .env.example .env

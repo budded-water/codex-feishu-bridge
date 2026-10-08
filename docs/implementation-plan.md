@@ -12,11 +12,15 @@ The team text-chat bridge is implemented. Automated checks and a real local Code
 
 ## Sharing and onboarding
 
-The public README and Chinese deployment/usage guides describe independent installations and colleagues using an existing host separately. All config fields/defaults, personal/team examples, protocol-version installation, enrollment/subscription order, feature/tool boundaries, identities, troubleshooting and update/service paths are documented. Download instructions explicitly select the implementation branch while PR #1 remains open and main is only a bootstrap. No runtime behavior or private deployment configuration is changed by this documentation work. New hosts still need their own real acceptance.
+The public README and Chinese deployment/usage guides describe independent installations and colleagues using an existing host separately. All config fields/defaults, personal/team examples, protocol-version installation, enrollment/subscription order, feature/tool boundaries, identities, troubleshooting and update/service paths are documented. The initial implementation was merged through PR #1. Standard download instructions now use main; testing an unmerged follow-up PR requires selecting that PR branch. No runtime behavior or private deployment configuration is changed by this documentation work. New hosts still need their own real acceptance.
 
 ## Feedback acceptance
 
 Normal tasks receive a native `OnIt` reaction on their original message. If adding the reaction fails, one short acknowledgment is queued instead. Queued work is identified as not yet started. After 30 seconds, at most one truthful stage notice is queued; `/status` shows elapsed time, the current stage, and the age of the last correlated Codex event. Process readiness is not model/network health. These are feedback signals, not proof of completion. Draft answers remain internal. Terminal tasks remove only the bot's own reaction, with persisted reconciliation and cleanup retries; delayed statuses are discarded after task completion. HTTP outages can delay feedback or cleanup, and host sleep cannot be reported through an offline channel. A long wait does not automatically interrupt or replay work. Real add/own-lookup/delete/absence API verification succeeded; fresh bot-message UX acceptance is tracked in live-acceptance.md.
+
+## Review follow-up
+
+Review reproduced and fixed two result-delivery edges: completed turns with only commentary or incomplete deltas no longer publish those drafts, while completed unphased answers remain supported; selected task-status notices are revalidated before HTTP after other chats wait. Known gateway/API secrets are also redacted before new reply chunks are split/persisted, and application IDs fail local validation unless they match the pinned SDK format. Review also corrected terminal SDK connection failure propagation, overly broad missing-history routing, and whitespace loss in steering/question answers. The SDK also has a bounded underlying handshake, and closing during Codex version validation cannot resurrect a subprocess. Behavioral regressions cover the review defects and shutdown races. Standard installation now uses the merged main implementation. These changes do not add live acceptance evidence or change private deployment settings.
 
 ## Required checks
 
