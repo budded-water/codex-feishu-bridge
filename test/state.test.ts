@@ -13,9 +13,9 @@ test('routing clarification and diagnostics survive reopen without replaying han
   const directory = mkdtempSync(join(tmpdir(), 'routing-state-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
   let state = new State(directory);
   const actor = message('Query users'); const first = state.select(actor, '$chat', directory);
-  state.setRouting(first.owner, 'router-thread', 'Query users');
+  state.setRouting(first.owner, 'router-thread', 'Query users', { id: 'original-message', chatType: 'group', parentId: 'quoted', createTime: '1000' });
   state.close(); state = new State(directory);
-  assert.deepEqual({ ...state.routing(first.owner) }, { thread: 'router-thread', pending: 'Query users' });
+  assert.deepEqual({ ...state.routing(first.owner) }, { thread: 'router-thread', pending: 'Query users', source: { id: 'original-message', chatType: 'group', parentId: 'quoted', createTime: '1000' } });
   const task = state.enqueue(first.id, actor.text);
   state.taskStatus(task.id, 'running');
   state.diagnostic(task.id, 'Bridge rejected unsupported/toolApproval');

@@ -163,3 +163,51 @@ test('failed routing steering cannot hand off a task without the user constraint
   h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'alpha'));
   assert.equal(h.turns().length, 1); assert.match(h.deliveries().join(''), /请求已停止/);
 });
+
+test('a completed classifier cannot hand off after a stop request whose RPC is still pending', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('Modify beta')); await until(() => h.turns().length === 1); const router = h.current();
+  const request = h.codex.request.bind(h.codex); let release!: () => void;
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    if (method === 'turn/interrupt') await new Promise<void>(done => { release = done; });
+    return request<T>(method, params);
+  };
+  h.bridge.receive(message('/stop')); await until(() => Boolean(release));
+  h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'beta'));
+  await until(() => !h.state.directories().length);
+  assert.equal(h.turns().length, 1); assert.equal(h.state.selected(message(''))!.project, 'alpha');
+  release(); await until(() => h.codex.calls.some(call => call.method === 'turn/interrupt'));
+});
+
+test('reselecting the same project and switching away and back defeat late automatic selection', async () => {
+  for (const commands of [['/project alpha'], ['/project beta', '/project alpha']]) {
+    const h = setup(); h.config.projectRouting = 'automatic'; h.deliveries();
+    try {
+      h.bridge.receive(message('Work beta')); await until(() => h.turns().length === 1); const router = h.current();
+      const before = h.state.selectionRevision(h.session.owner);
+      for (const command of commands) h.bridge.receive(message(command));
+      assert.ok(h.state.selectionRevision(h.session.owner) > before); h.deliveries();
+      h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'beta'));
+      await until(() => h.turns().length === 2);
+      assert.equal(h.turns()[1]!.params.cwd, h.config.projects.beta);
+      assert.equal(h.state.selected(message(''))!.project, 'alpha');
+    } finally { await h.close(); }
+  }
+});
+
+test('clarification preserves the original quoted source and history cutoff for execution context', async t => {
+  const sources: {id: string; parentId?: string; createTime?: string}[] = [];
+  const h = setup({ async context(_session, source) { sources.push(source); return { status: 'available', messages: [{ sender: 'Owner', type: 'text', text: 'original error logs' }], note: '' }; } });
+  t.after(h.close); h.config.projectRouting = 'automatic'; h.config.groupContextMessages = 0; h.deliveries();
+  const original = message('Fix this error', { chatType: 'group', parentId: 'quoted-logs', createTime: '1000' });
+  h.bridge.receive(original); await until(() => h.turns().length === 1); const first = h.current();
+  h.codex.complete(first.threadId, first.turnId, 'completed', decision('question', null, 'Which project?'));
+  await until(() => !h.state.directories().length);
+  assert.equal(h.state.routing(h.session.owner)!.source!.parentId, 'quoted-logs');
+  h.bridge.receive(message('beta', { chatType: 'group', createTime: '2000' })); await until(() => h.turns().length === 2);
+  const second = h.current(); h.codex.complete(second.threadId, second.turnId, 'completed', decision('project', 'beta', '', true));
+  await until(() => h.turns().length === 3);
+  assert.equal(sources.length, 1); assert.equal(sources[0]!.id, original.id);
+  assert.equal(sources[0]!.parentId, 'quoted-logs'); assert.equal(sources[0]!.createTime, '1000');
+  assert.ok(JSON.stringify(h.turns()[2]!.params.input).includes('original error logs'));
+});

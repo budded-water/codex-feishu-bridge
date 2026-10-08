@@ -29,6 +29,7 @@ export interface Task {
   source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string };
   routed?: boolean;
   routingOrigin?: string | null;
+  routingRevision?: number | null;
 }
 
 export interface RpcEvent {
