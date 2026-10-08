@@ -133,6 +133,11 @@ export class State {
     this.db.prepare("UPDATE tasks SET session=?,input=?,routed=1,status='queued',turn=NULL WHERE id=? AND status='running'").run(session, input, id);
   }
 
+  taskInput(id: string, input: string): void { this.db.prepare('UPDATE tasks SET input=? WHERE id=?').run(input, id); }
+  taskDiagnostic(id: string): string | undefined {
+    return (this.db.prepare('SELECT diagnostic FROM tasks WHERE id=?').get(id) as { diagnostic?: string } | undefined)?.diagnostic ?? undefined;
+  }
+
   diagnostic(id: string, message: string): void { this.db.prepare('UPDATE tasks SET diagnostic=? WHERE id=?').run(message, id); }
   latestDiagnostic(session: string): string | undefined {
     return (this.db.prepare('SELECT diagnostic FROM tasks WHERE session=? ORDER BY sequence DESC LIMIT 1').get(session) as { diagnostic?: string } | undefined)?.diagnostic ?? undefined;

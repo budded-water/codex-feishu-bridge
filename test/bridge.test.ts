@@ -500,3 +500,15 @@ test('free-form question answers preserve multiline code instead of joining word
   h.bridge.receive(message(`/回答 ${token} q ${input}`));
   assert.deepEqual(h.codex.replies, [{ id: 'code-question', result: { answers: { q: { answers: [input] } } } }]);
 });
+
+test('a newer queued task cannot hide the running task diagnostic or its final fallback', async t => {
+  const h = setup(); t.after(h.close); h.deliveries();
+  h.bridge.receive(message('Work')); await until(() => h.turns().length === 1); const active = h.current();
+  h.bridge.receive(message('Next work')); h.deliveries();
+  h.codex.ask('unsupported', 'unsupported/toolApproval', { ...active, secret: 'never-display' });
+  assert.deepEqual(h.deliveries(), []);
+  h.bridge.receive(message('/status'));
+  assert.match(h.deliveries().join(''), /unsupported\/toolApproval/);
+  h.codex.complete(active.threadId, active.turnId, 'failed', '');
+  assert.match(h.deliveries().join(''), /这次操作需要在本机确认/);
+});

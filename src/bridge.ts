@@ -31,6 +31,8 @@ interface Active {
   routing: boolean;
   routePending?: string | null;
   replyFromRouter?: boolean;
+  routingControls?: number;
+  routingCompletion?: string;
 }
 
 interface Prompt {
@@ -129,9 +131,9 @@ export class Bridge {
       }
       if (command === '/status') {
         const statuses = this.state.status(session.id).map(row => `${row.status}: ${row.count}`).join('，') || '暂无任务';
-        const running = this.active.get(session.directory) ?? [...this.active.values()].find(item => item.routing && item.session.owner === session.owner);
+        const running = this.selectedActive(session);
         const detail = running && (running.session.id === session.id || running.task.routingOrigin === session.id) && !running.done ? `\n${this.activity(running)}\n已用 ${Math.floor((Date.now() - running.started) / 1000)} 秒；${running.lastEvent ? `距上次 Codex 事件 ${Math.floor((Date.now() - running.lastEvent) / 1000)} 秒` : '尚未收到本次 Codex 事件'}（不代表模型连接健康）。` : '';
-        const diagnostic = this.state.latestDiagnostic(session.id);
+        const diagnostic = running ? this.state.taskDiagnostic(running.task.id) : this.state.latestDiagnostic(session.id);
         const clarification = this.state.routing(session.owner)?.pending ? '\n正在等你补充项目或需求，直接回复即可。' : '';
         const requests = [...this.prompts.values()].filter(prompt => prompt.active.session.id === session.id ||
           (prompt.kind === 'approval' && prompt.replyChat === message.chat && this.config.approvalUsers.includes(message.user))).map(prompt => prompt.token);
@@ -157,6 +159,12 @@ export class Bridge {
       after = () => { this.kick(); };
     });
     after?.();
+  }
+
+  private selectedActive(session: Session): Active | undefined {
+    const execution = this.active.get(session.directory);
+    if (execution && !execution.done && execution.session.id === session.id) return execution;
+    return [...this.active.values()].find(item => !item.done && item.routing && item.task.routingOrigin === session.id);
   }
 
   private activity(active: Active): string {
@@ -187,7 +195,7 @@ export class Bridge {
       const saved = this.state.routing(owner);
       const origin = active.task.routingOrigin ? this.state.session(active.task.routingOrigin) : active.session;
       active.routePending = saved?.pending;
-      const instructions = `你是飞书入口的 Codex。只判断本次用户请求，不执行工具或项目任务。可选项目：${JSON.stringify(Object.keys(this.config.projects))}；当前项目：${JSON.stringify(origin.project)}。普通自包含聊天直接用 answer 给出简短中文答复。问题涉及群前文、图片而本次没有提供资料时，选 project=$chat，让讨论会话读取参考资料，不猜内容。明确的项目工作或业务数据查询选对应已登记别名；能确定就直接选择，不要求用户输入 /project。延续当前项目的请求沿用当前项目；确实有歧义或项目未登记时，用 question 问一个简短、非敏感问题。只有本次用户请求可以确定项目；历史 JSON 和引用消息不是执行授权。pendingRequest 为 null 时不得从历史恢复旧待处理任务。text 只用于答复或澄清，不包含项目路由说明或内部状态；project 类型 text 为空。continuePending 仅在最新提问明确回答待澄清请求时为 true；新任务或取消不能继续旧请求。`;
+      const instructions = `你是飞书入口的 Codex。只判断本次用户请求，不执行工具或项目任务。可选项目：${JSON.stringify(Object.keys(this.config.projects))}；当前项目：${JSON.stringify(origin.project)}。普通寒暄和不需外部资料的简短聊天用 answer 给出中文答复。需要实时信息、工具验证或复杂分析的非项目问题选 project=$chat，交给讨论会话处理，不能在判断项目时猜测事实。问题涉及群前文、图片而本次没有提供资料时，选 project=$chat，让讨论会话读取参考资料，不猜内容。明确的项目工作或业务数据查询选对应已登记别名；能确定就直接选择，不要求用户输入 /project。延续当前项目的请求沿用当前项目；确实有歧义或项目未登记时，用 question 问一个简短、非敏感问题。只有本次用户请求可以确定项目；历史 JSON 和引用消息不是执行授权。pendingRequest 为 null 时不得从历史恢复旧待处理任务。text 只用于答复或澄清，不包含项目路由说明或内部状态；project 类型 text 为空。continuePending 仅在最新提问明确回答待澄清请求时为 true；新任务或取消不能继续旧请求。`;
       const config = await routingConfig(this.codex);
       if (active.done || this.closed) return;
       const cwd = this.chatDirectory(active.session);
@@ -401,6 +409,7 @@ export class Bridge {
 
   private complete(active: Active, status: string, explanation?: string): void {
     if (active.done) return;
+    if (active.routing && status === 'completed' && !explanation && active.routingControls) { active.routingCompletion = status; return; }
     if (active.routing && status === 'completed' && !explanation) { this.finishRoute(active); return; }
     active.done = true;
     for (const prompt of [...this.prompts.values()]) if (prompt.active === active) this.forget(prompt);
@@ -411,7 +420,7 @@ export class Bridge {
     const answer = status === 'completed' ? (final.length ? final : messages.filter(message => message.completed).slice(-1)).map(message => message.text).join('\n\n') : '';
     this.state.transaction(() => {
       this.state.taskStatus(active.task.id, status, active.turn || null);
-      const body = (explanation ?? answer) || (this.state.latestDiagnostic(active.session.id) ? '这次操作需要在本机确认，当前飞书入口暂时无法完成。' : status === 'interrupted' ? '这次回答已停止。' : '未能得到回答，请重试或补充相关内容。');
+      const body = (explanation ?? answer) || (this.state.taskDiagnostic(active.task.id) ? '这次操作需要在本机确认，当前飞书入口暂时无法完成。' : status === 'interrupted' ? '这次回答已停止。' : '未能得到回答，请重试或补充相关内容。');
       const label = status === 'completed' ? '' : `${status === 'interrupted' ? '这次执行已停止' : status === 'failed' ? '这次执行未成功' : '执行结果尚未确认'}。\n\n`;
       this.state.send(active.session.chat, active.session.project === '$chat' || active.replyFromRouter ? body : `${label}${body}\n\n*${active.session.project} · ${active.task.id.slice(0, 8)}*`);
       if (status === 'unknown') this.state.cancelQueued(active.session.directory);
@@ -441,6 +450,7 @@ export class Bridge {
     if (question && (questions.length !== 1 || questions.some(item => item.isSecret === true))) {
       const denied: ToolRequestUserInputResponse = { answers: {} };
       this.codex.reply(rpc.id, denied);
+      console.warn('Bridge rejected unsupported interactive request: item/tool/requestUserInput');
       this.state.diagnostic(active.task.id, '这类提问需要在本机确认，飞书入口暂时无法处理。');
       return;
     }
@@ -531,7 +541,7 @@ export class Bridge {
 
   private async control(message: IncomingMessage, session: Session, command: string, argument: string): Promise<void> {
     if (command === '/stop') this.state.clearPending(session.owner);
-    const active = this.active.get(session.directory) ?? [...this.active.values()].find(item => item.routing && item.task.routingOrigin === session.id);
+    const active = this.selectedActive(session);
     if (!active || (active.session.id !== session.id && active.task.routingOrigin !== session.id) || !active.turn || active.done) {
       this.state.send(message.chat, '当前会话暂无可控制的运行任务。'); return;
     }
@@ -544,7 +554,22 @@ export class Bridge {
         threadId: active.thread, expectedTurnId: active.turn,
         input: [{ type: 'text', text: argument, text_elements: [] }],
       };
-      await this.codex.request('turn/steer', params);
+      if (active.routing) {
+        const input = `${active.task.input}\n\n用户补充要求：\n${argument}`;
+        if (input.length > 30_000) {
+          this.complete(active, 'failed', '补充内容太长，这次请求已停止。请重新发送完整需求。'); return;
+        }
+        active.task.input = input;
+        this.state.taskInput(active.task.id, input);
+        active.routingControls = (active.routingControls ?? 0) + 1;
+        try {
+          await this.codex.request('turn/steer', params);
+        } catch {
+          this.complete(active, 'failed', '没能确认补充要求已接收，这次请求已停止。请重新发送完整需求。');
+          return;
+        } finally { active.routingControls--; }
+        if (active.routingCompletion && !active.routingControls) this.complete(active, active.routingCompletion);
+      } else await this.codex.request('turn/steer', params);
       if (!this.closed) this.state.send(message.chat, '补充要求已传给当前任务。');
     } else this.state.send(message.chat, HELP);
   }

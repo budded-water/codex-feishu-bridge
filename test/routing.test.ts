@@ -99,3 +99,67 @@ test('different owners targeting one project remain serialized and cannot share 
   await until(() => h.turns().length === 4);
   assert.equal(h.turns()[3]!.params.cwd, h.config.projects.beta);
 });
+
+
+test('status and stop find the owner routing turn when another owner occupies the selected project', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.config.accessMode = 'tenant'; h.config.allowedTenant = 'tenant'; h.deliveries();
+  const bob = { user: 'bob', chat: 'group' }; const alice = { user: 'alice', chat: 'group' };
+  h.bridge.receive(message('Work alpha', bob)); await until(() => h.turns().length === 1);
+  const first = h.current(); h.codex.complete(first.threadId, first.turnId, 'completed', decision('project', 'alpha'));
+  await until(() => h.turns().length === 2); const execution = h.current();
+  h.bridge.receive(message('/project alpha', alice)); h.deliveries();
+  h.bridge.receive(message('Work beta', alice)); await until(() => h.turns().length === 3); const router = h.current();
+  h.bridge.receive(message('/status', alice)); assert.match(h.deliveries()[0]!, /正在理解请求/);
+  h.bridge.receive(message('/stop', alice));
+  await until(() => h.codex.calls.some(call => call.method === 'turn/interrupt'));
+  const interrupted = h.codex.calls.filter(call => call.method === 'turn/interrupt');
+  assert.equal(interrupted.length, 1); assert.equal(interrupted[0]!.params.threadId, router.threadId);
+  assert.notEqual(interrupted[0]!.params.threadId, execution.threadId);
+  h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'beta'));
+  assert.equal(h.turns().length, 3);
+});
+
+test('clearing pending clarification cannot resurrect the old request on a later message', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('Query users')); await until(() => h.turns().length === 1);
+  const first = h.current(); h.codex.complete(first.threadId, first.turnId, 'completed', decision('question', null, 'Which project?'));
+  await until(() => !h.state.directories().length); h.deliveries();
+  h.bridge.receive(message('/clear')); h.deliveries();
+  h.bridge.receive(message('Work beta')); await until(() => h.turns().length === 2);
+  assert.equal(JSON.parse((h.turns()[1]!.params.input as {text: string}[])[0]!.text).pendingRequest, null);
+  const second = h.current(); h.codex.complete(second.threadId, second.turnId, 'completed', decision('project', 'beta', '', true));
+  await until(() => h.turns().length === 3);
+  assert.ok(!JSON.stringify(h.turns()[2]!.params.input).includes('Query users'));
+});
+
+test('routing handoff waits for steering acceptance and preserves the latest execution constraints', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('Modify alpha')); await until(() => h.turns().length === 1); const router = h.current();
+  const request = h.codex.request.bind(h.codex); let release!: () => void;
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    if (method === 'turn/steer') await new Promise<void>(done => { release = done; });
+    return request<T>(method, params);
+  };
+  h.bridge.receive(message('/补充 Only inspect beta; do not modify anything'));
+  await until(() => Boolean(release));
+  h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'beta'));
+  assert.equal(h.turns().length, 1);
+  release(); await until(() => h.turns().length === 2);
+  const input = JSON.stringify(h.turns()[1]!.params.input);
+  assert.ok(input.includes('Modify alpha')); assert.ok(input.includes('Only inspect beta; do not modify anything'));
+  assert.equal(h.turns()[1]!.params.cwd, h.config.projects.beta);
+});
+
+test('failed routing steering cannot hand off a task without the user constraints', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('Modify alpha')); await until(() => h.turns().length === 1); const router = h.current();
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    if (method === 'turn/steer') throw new Error('stale turn');
+    return request<T>(method, params);
+  };
+  h.bridge.receive(message('/补充 Do not modify anything'));
+  await until(() => !h.state.directories().length);
+  h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'alpha'));
+  assert.equal(h.turns().length, 1); assert.match(h.deliveries().join(''), /请求已停止/);
+});
