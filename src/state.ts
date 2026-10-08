@@ -179,10 +179,13 @@ export class State {
   }
 
   cancelQueued(directory: string): void {
-    const tasks = this.db.prepare(`SELECT tasks.id, sessions.chat FROM tasks JOIN sessions ON sessions.id=tasks.session
-      WHERE tasks.status='queued' AND sessions.directory=?`).all(directory) as { id: string; chat: string }[];
+    const tasks = this.db.prepare(`SELECT tasks.id, sessions.chat, sessions.owner, tasks.routed, tasks.routing_origin FROM tasks JOIN sessions ON sessions.id=tasks.session
+      WHERE tasks.status='queued' AND sessions.directory=?`).all(directory) as { id: string; chat: string; owner: string; routed: number; routing_origin: string | null }[];
     this.db.prepare(`UPDATE tasks SET status='interrupted' WHERE status='queued' AND session IN (SELECT id FROM sessions WHERE directory=?)`).run(directory);
-    for (const task of tasks) this.send(task.chat, `排队任务 ${task.id.slice(0, 8)} 已取消。请确认先前任务的实际结果后重新发起。`);
+    for (const task of tasks) {
+      if (!task.routed && task.routing_origin) this.clearPending(task.owner);
+      this.send(task.chat, `排队任务 ${task.id.slice(0, 8)} 已取消。请确认先前任务的实际结果后重新发起。`);
+    }
   }
 
   cancelSessionQueued(session: string): number {
@@ -192,9 +195,10 @@ export class State {
   recover(): number {
     return this.transaction(() => {
       this.db.prepare("UPDATE approvals SET status='invalidated' WHERE status='pending'").run();
-      const tasks = this.db.prepare(`SELECT tasks.id, sessions.chat FROM tasks JOIN sessions ON sessions.id=tasks.session WHERE status IN ('running','queued')`)
-        .all() as { id: string; chat: string }[];
+      const tasks = this.db.prepare(`SELECT tasks.id, sessions.chat, sessions.owner, tasks.routed, tasks.routing_origin FROM tasks JOIN sessions ON sessions.id=tasks.session WHERE status IN ('running','queued')`)
+        .all() as { id: string; chat: string; owner: string; routed: number; routing_origin: string | null }[];
       for (const task of tasks) {
+        if (!task.routed && task.routing_origin) this.clearPending(task.owner);
         this.taskStatus(task.id, 'interrupted');
         this.send(task.chat, `任务 ${task.id.slice(0, 8)} 在上次进程退出时未确认完成，已停止。请检查实际结果后重新发起；不会自动重跑。`);
       }

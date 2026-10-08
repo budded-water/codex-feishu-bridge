@@ -386,3 +386,26 @@ test('a failed decision after clarification cannot retain old authority with or 
     } finally { await h.close(); }
   }
 });
+
+test('discussion controls cannot affect a classifier submitted from another selected project session', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting='automatic'; h.deliveries();
+  h.bridge.receive(message('Work alpha')); await until(() => h.turns().length===1);
+  h.bridge.receive(message('/chat')); h.deliveries(); h.bridge.receive(message('/status'));
+  const status = h.deliveries().join(''); assert.match(status,/暂无任务/); assert.ok(!status.includes('正在理解请求'));
+  h.bridge.receive(message('/stop')); h.bridge.receive(message('/补充 Do not modify'));
+  assert.ok(!h.codex.calls.some(call => ['turn/steer','turn/interrupt'].includes(call.method)));
+  assert.ok(h.state.status(h.session.id).some(row => row.status==='running'));
+});
+
+test('process loss before queued clarification starts clears its old authority and retains idle owners', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting='automatic'; h.deliveries();
+  h.bridge.receive(message('Modify alpha')); await until(() => h.turns().length===1); const first=h.current();
+  h.codex.complete(first.threadId,first.turnId,'completed',decision('question',null,'Which project?'));
+  await until(() => !h.state.directories().length);
+  const idle=h.state.select(message('Idle',{user:'ou_idle'}),'beta',h.config.projects.beta!);
+  h.state.setRouting(idle.owner,'idle-router','Idle request');
+  h.bridge.receive(message('beta, only inspect; do not modify')); h.codex.exit();
+  assert.equal(h.state.routing(h.session.owner)!.pending,null); assert.equal(h.state.routing(h.session.owner)!.source,undefined);
+  assert.equal(h.state.routing(idle.owner)!.pending,'Idle request');
+  assert.equal(h.turns().length,1);
+});

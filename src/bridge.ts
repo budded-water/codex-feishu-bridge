@@ -174,7 +174,7 @@ export class Bridge {
 
   private selectedActive(session: Session): Active | undefined {
     const execution = this.active.get(session.directory);
-    if (execution && !execution.done && execution.session.id === session.id) return execution;
+    if (execution && !execution.routing && !execution.done && execution.session.id === session.id) return execution;
     return [...this.active.values()].find(item => !item.done && item.routing && item.task.routingOrigin === session.id);
   }
 

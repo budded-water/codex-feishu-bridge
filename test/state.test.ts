@@ -205,3 +205,19 @@ test('known secrets crossing reply boundaries are redacted before persistence an
   assert.ok(!sent.join('').includes(secret));
   assert.ok(sent.includes('Received [redacted]'));
 });
+
+test('recovery invalidates interrupted classification authority but preserves idle owner clarification', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'routing-recover-')); t.after(() => rmSync(directory,{recursive:true,force:true}));
+  let state = new State(directory); const actor = message('Modify obsolete files'); const session = state.select(actor,'alpha',directory);
+  const idle = state.select(message('Idle',{user:'ou_idle'}),'beta',directory);
+  const source = {id:'first-request',chatType:'group' as const,parentId:'quoted-error'};
+  state.setRouting(session.owner,'interrupted-router',actor.text,source);
+  state.setRouting(idle.owner,'idle-router','Idle request',source);
+  const task = state.enqueue(session.id,'beta, only inspect; do not modify',source,session.id,state.selectionRevision(session.owner));
+  state.taskStatus(task.id,'running','interrupted-turn');
+  state.close(); state = new State(directory);
+  assert.equal(state.recover(),1);
+  assert.equal(state.routing(session.owner)!.pending,null); assert.equal(state.routing(session.owner)!.source,undefined);
+  assert.equal(state.routing(idle.owner)!.pending,'Idle request'); assert.deepEqual(state.routing(idle.owner)!.source,source);
+  assert.equal(state.queued(directory),undefined); state.close();
+});
