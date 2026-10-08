@@ -14,6 +14,7 @@ lines.on('line', line => {
   if (message.method === 'initialize') send({ id: message.id, result: {} });
   else if (message.method === 'initialized') initialized = true;
   else if (message.method === 'echo') setTimeout(() => send({ id: message.id, result: { value: message.params.value, initialized } }), message.params.delay ?? 0);
+  else if (['turn/start', 'thread/resume', 'turn/steer'].includes(message.method)) send({ id: message.id, result: message.params });
   else if (message.method === 'env') send({ id: message.id, result: { secretPresent: Boolean(process.env.FEISHU_APP_SECRET) } });
   else if (message.method === 'ask') {
     send({ id: 'server-approval', method: 'item/commandExecution/requestApproval', params: { command: 'echo hello' } });

@@ -63,6 +63,10 @@ Native `OnIt` received reactions, explicit queue feedback and richer `/status` a
 
 ## Natural routing verification
 
-A real local model verification using fictional inputs selected the named registered alias, asked one clarification for an ambiguous data request, and answered ordinary conversation directly. No tool requests or Feishu messages occurred. The no-inference protocol smoke also created a read-only, tool-disabled routing thread successfully. These checks verify local routing behavior, not the accuracy of a fresh business-data query or end-to-end bot UX.
+A real local model verification using fictional inputs selected the named registered alias, asked one clarification for an ambiguous data request, and routed ordinary conversation to the persistent neutral discussion thread. No tool requests or Feishu messages occurred. The no-inference protocol smoke also created a read-only, tool-disabled routing thread successfully. These checks verify local routing behavior, not the accuracy of a fresh business-data query or end-to-end bot UX.
 
 The natural-routing build was loaded after confirming no running/queued tasks, pending deliveries or approvals. A graceful SIGTERM logged clean shutdown, launchd restarted the process, Feishu readiness resumed, and SQLite contained the additive routing/task migrations. Fresh bot-message UX and naturally routed business-query acceptance remain pending.
+
+## Bot reasoning effort deployment
+
+On 2026-10-08 (Asia/Shanghai), the owner requested low reasoning effort for this bot independently of other Codex sessions. The private deployment configuration was set to low, the current routing checkout was built with the adapter override, and an idle-service graceful restart was performed. The host Codex configuration remained high. Config/protocol doctor and local behavior checks passed; the real stdio/model-catalog smoke passed outside the sandbox without inference. No Feishu test message or low-effort inference was initiated, so an end-to-end low-effort turn remains unverified. Public templates remain null and do not encode this private deployment preference.

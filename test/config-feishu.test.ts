@@ -124,3 +124,21 @@ test('mistyped application IDs fail before the SDK can silently skip its connect
   process.env.FEISHU_APP_SECRET = 'your_app_secret';
   assert.throws(() => credentials(), /FEISHU_APP_SECRET/);
 });
+
+
+test('bot reasoning effort is optional and validates supported levels', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'codex-effort-config-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const file = join(directory, 'config.json');
+  const valid = { allowedUsers: ['ou_owner'], projects: { example: directory } };
+  const write = (value: unknown) => writeFileSync(file, JSON.stringify(value));
+  write(valid); assert.equal(loadConfig(file).codexReasoningEffort, null);
+  for (const effort of [null, 'none', 'minimal', 'low', 'medium', 'high', 'xhigh']) {
+    write({ ...valid, codexReasoningEffort: effort });
+    assert.equal(loadConfig(file).codexReasoningEffort, effort);
+  }
+  for (const effort of ['', 'LOW', ' low ', 'unknown', 1, false, ['low'], { toString: 'low' }]) {
+    write({ ...valid, codexReasoningEffort: effort });
+    assert.throws(() => loadConfig(file), /Invalid codexReasoningEffort/);
+  }
+});

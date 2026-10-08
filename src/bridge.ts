@@ -119,7 +119,7 @@ export class Bridge {
         return;
       }
       if (command === '/new') {
-        if ((this.active.get(session.directory)?.session.id === session.id || [...this.active.values()].some(item => item.routing && item.task.routingOrigin === session.id)) || this.state.status(session.id).some(row => ['queued', 'running'].includes(row.status))) {
+        if (this.selectedActive(session) || this.state.status(session.id).some(row => ['queued', 'running'].includes(row.status))) {
           this.state.send(message.chat, '当前会话仍有任务，请等待完成或停止并清理队列后再创建新会话。');
           return;
         }

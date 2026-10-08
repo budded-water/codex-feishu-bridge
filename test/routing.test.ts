@@ -399,6 +399,14 @@ test('discussion controls cannot affect a classifier submitted from another sele
   h.bridge.receive(message('/stop')); h.bridge.receive(message('/补充 Do not modify'));
   assert.ok(!h.codex.calls.some(call => ['turn/steer','turn/interrupt'].includes(call.method)));
   assert.ok(h.state.status(h.session.id).some(row => row.status==='running'));
+  const discussion = h.state.selected(message(''))!;
+  h.bridge.receive(message('/new'));
+  assert.notEqual(h.state.selected(message(''))!.id, discussion.id);
+  assert.match(h.deliveries().join(''), /已创建 聊天 的新会话/);
+  h.bridge.receive(message('/project alpha')); h.deliveries();
+  h.bridge.receive(message('/new'));
+  assert.equal(h.state.selected(message(''))!.id, h.session.id);
+  assert.match(h.deliveries().join(''), /仍有任务/);
 });
 
 test('process loss before queued clarification starts clears its old authority and retains idle owners', async t => {

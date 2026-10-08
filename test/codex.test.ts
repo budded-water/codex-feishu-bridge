@@ -61,3 +61,35 @@ test('closing during version validation cannot resurrect a Codex subprocess', as
   // The cancelled start must not poison an explicitly requested later start.
   await client.start(); assert.equal(client.ready, true);
 });
+
+
+test('bot effort overrides new turns on execution and routing threads, including resumed threads and process restarts', async t => {
+  const client = new CodexClient(process.execPath, [fixture], 30_000, 'low');
+  t.after(() => client.close());
+  await client.start();
+  const input = [{ type: 'text', text: 'Task', text_elements: [] }];
+  for (const threadId of ['execution', 'router']) {
+    const resume = { threadId, cwd: '/test', excludeTurns: true };
+    assert.deepEqual(await client.request('thread/resume', resume), resume);
+    const params = { threadId, input, effort: 'high', cwd: '/test' };
+    assert.deepEqual(await client.request('turn/start', params), { ...params, effort: 'low' });
+    assert.equal(params.effort, 'high');
+    const followup = { threadId, input };
+    assert.deepEqual(await client.request('turn/start', followup), { ...followup, effort: 'low' });
+    assert.deepEqual(await client.request('turn/steer', followup), followup);
+  }
+  await client.close(); await client.start();
+  assert.deepEqual(await client.request('turn/start', { threadId: 'execution', input }), { threadId: 'execution', input, effort: 'low' });
+});
+
+test('omitted or null bot effort preserves inherited and caller settings', async t => {
+  for (const effort of [undefined, null] as const) {
+    const client = new CodexClient(process.execPath, [fixture], 30_000, effort);
+    t.after(() => client.close());
+    await client.start();
+    for (const params of [{ threadId: 'execution', input: [] }, { threadId: 'execution', input: [], effort: 'high' }]) {
+      assert.deepEqual(await client.request('turn/start', params), params);
+    }
+    await client.close();
+  }
+});

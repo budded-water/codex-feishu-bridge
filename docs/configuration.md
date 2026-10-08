@@ -14,7 +14,7 @@
 
 `stateDirectory` 则相对于 **JSON 所在目录**解析，二者基准不同。项目路径必须绝对；不展开 `~`、`${VAR}`。后台服务应以 checkout 为工作目录，使用真实 Node / Codex 路径。
 
-本机已有环境变量优先于 `.env` 中的同名值。出现“修改文件但仍连旧应用”时检查终端 / 服务环境。模型、sandbox、Codex 登录等使用本机 Codex 配置；bridge 没有单独的模型 API key 或 unrestricted 开关。
+本机已有环境变量优先于 `.env` 中的同名值。出现“修改文件但仍连旧应用”时检查终端 / 服务环境。模型、sandbox、Codex 登录等使用本机 Codex 配置；推理强度可用 `codexReasoningEffort` 单独覆盖此 bot；bridge 没有单独的模型 API key 或 unrestricted 开关。
 
 ## 全部 JSON 字段
 
@@ -31,6 +31,7 @@
 | `groupContextMessages` | 整数 0–50 | 0 | 最近前文记录数；0 关闭自动前文，明确引用仍可读单条引用 |
 | `groupContextImages` | 整数 0–8 | 0 | 前文 / 引用中资源图片尝试上限；0 关闭；不能替代前文权限或消息时间 |
 | `codexExecutable` | 非空字符串 | codex | 可执行名称或完整路径，不是 shell 命令；不能附带参数 |
+| `codexReasoningEffort` | none / minimal / low / medium / high / xhigh / null | null | 单独覆盖此 bot 每次新请求的推理强度；null 或省略不覆盖；实际支持等级取决于所选模型 |
 | `stateDirectory` | 非空路径 | .local/state | JSON 所在目录下的持久化状态；多实例必须独立 |
 | `approvalTimeoutSeconds` | 整数 10–3600 | 300 | 审批 / 单个问题超时后拒绝，不能靠等待获得授权 |
 | `projectRouting` | automatic / manual | automatic | Codex 判断明确项目、直接回答或澄清；manual 保留手动选项目流程 |
@@ -70,3 +71,15 @@
 `approvalUsers` 控制的是 Codex 已提出审批请求后的回复资格，不是“所有写操作必须审批”的总开关。你自己的 PR、push、合并和发布工作流仍由本机规则和工具权限决定。提问只允许原提交者在原聊天回答；管理员身份不能代答同事的问题。
 
 更改配置后正常停止并重启 bridge，保留状态目录；没有热更新。切换应用需要重新核对该应用下的用户与聊天 IDs，不能只改 App Secret 就沿用另一应用的身份。
+
+## 单独设置 bot 推理强度
+
+在本部署的私有 JSON 中设置：
+
+```json
+"codexReasoningEffort": "low"
+```
+
+正常停止并重启 bridge 后，所有新发起的 `turn/start` 都携带这个强度，包括恢复的旧会话与路由判断；不必 `/new`。已经运行的任务不会中途改变强度。模型、身份、工具、sandbox 和审批策略仍沿用本机 Codex 配置，其他 CLI / 桌面会话不受此字段影响；不会修改 `~/.codex/config.toml`。这是部署者配置，没有聊天内切换命令。
+
+省略或设为 `null` 时不发送强度覆盖，遵循 Codex 对该会话的继承行为；曾经覆盖过的旧会话可能保留原强度，恢复全局默认时可在空闲后 `/new`。字段合法不保证所选模型支持该等级，不支持时应调整此字段，不会自动换模型或静默降级。
