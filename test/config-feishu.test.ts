@@ -33,10 +33,13 @@ test('configuration requires explicit authorization and existing absolute direct
   write(valid);
   assert.equal(loadConfig(file).projects.example, realpathSync(directory));
   assert.equal(loadConfig(file).stateDirectory, join(directory, 'state'));
+  assert.equal(loadConfig(file).projectRouting, 'automatic');
+  write({ ...valid, projectRouting: 'manual' }); assert.equal(loadConfig(file).projectRouting, 'manual');
   for (const invalid of [
     { ...valid, allowedUsers: [] }, { ...valid, allowedUsers: ['*'] },
     { ...valid, allowedUsers: ['ou_owner', 'ou_owner'] }, { ...valid, projects: { example: './relative' } },
     { ...valid, projects: {} }, { ...valid, approvalTimeoutSeconds: 0 }, { ...valid, permissive: true },
+    { ...valid, projectRouting: 'guess-paths' },
   ]) { write(invalid); assert.throws(() => loadConfig(file)); }
 });
 

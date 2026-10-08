@@ -44,6 +44,7 @@ export class State {
         project TEXT, directory TEXT, thread TEXT
       );
       CREATE TABLE IF NOT EXISTS selections (owner TEXT PRIMARY KEY, session TEXT REFERENCES sessions(id));
+      CREATE TABLE IF NOT EXISTS routing (owner TEXT PRIMARY KEY, thread TEXT, pending TEXT);
       CREATE TABLE IF NOT EXISTS tasks (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, session TEXT REFERENCES sessions(id),
         input TEXT, status TEXT, turn TEXT
@@ -63,6 +64,9 @@ export class State {
     `);
     const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
     if (!taskColumns.some(column => column.name === 'source')) this.db.exec('ALTER TABLE tasks ADD COLUMN source TEXT');
+    if (!taskColumns.some(column => column.name === 'routed')) this.db.exec('ALTER TABLE tasks ADD COLUMN routed INTEGER DEFAULT 0');
+    if (!taskColumns.some(column => column.name === 'diagnostic')) this.db.exec('ALTER TABLE tasks ADD COLUMN diagnostic TEXT');
+    if (!taskColumns.some(column => column.name === 'routing_origin')) this.db.exec('ALTER TABLE tasks ADD COLUMN routing_origin TEXT');
     const outboxColumns = this.db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[];
     if (!outboxColumns.some(column => column.name === 'task')) this.db.exec('ALTER TABLE outbox ADD COLUMN task TEXT');
     const approvalColumns = this.db.prepare('PRAGMA table_info(approvals)').all() as { name: string }[];
@@ -96,7 +100,7 @@ export class State {
     return result;
   }
 
-  select(message: IncomingMessage, project: string, directory: string, fresh = false): Session {
+  select(message: IncomingMessage, project: string, directory: string, fresh = false, activate = true): Session {
     const owner = ownerKey(message);
     let existing = fresh ? undefined : this.db.prepare(
       'SELECT * FROM sessions WHERE owner=? AND project=? AND directory=? ORDER BY rowid DESC LIMIT 1',
@@ -107,7 +111,7 @@ export class State {
         existing.id, owner, message.tenant, message.user, message.chat, project, directory, null,
       );
     }
-    this.db.prepare('INSERT INTO selections VALUES (?, ?) ON CONFLICT(owner) DO UPDATE SET session=excluded.session').run(owner, existing.id);
+    if (activate) this.db.prepare('INSERT INTO selections VALUES (?, ?) ON CONFLICT(owner) DO UPDATE SET session=excluded.session').run(owner, existing.id);
     return existing;
   }
 
@@ -115,15 +119,34 @@ export class State {
     this.db.prepare('UPDATE sessions SET thread=? WHERE id=?').run(thread, session);
   }
 
-  enqueue(session: string, input: string, source?: Task['source']): Task {
+  routing(owner: string): { thread: string; pending: string | null } | undefined {
+    return this.db.prepare('SELECT thread,pending FROM routing WHERE owner=?').get(owner) as { thread: string; pending: string | null } | undefined;
+  }
+
+  setRouting(owner: string, thread: string, pending: string | null): void {
+    this.db.prepare('INSERT INTO routing VALUES (?,?,?) ON CONFLICT(owner) DO UPDATE SET thread=excluded.thread,pending=excluded.pending').run(owner, thread, pending);
+  }
+  clearRouting(owner: string): void { this.db.prepare('DELETE FROM routing WHERE owner=?').run(owner); }
+  clearPending(owner: string): void { this.db.prepare('UPDATE routing SET pending=NULL WHERE owner=?').run(owner); }
+
+  routeTask(id: string, session: string, input: string): void {
+    this.db.prepare("UPDATE tasks SET session=?,input=?,routed=1,status='queued',turn=NULL WHERE id=? AND status='running'").run(session, input, id);
+  }
+
+  diagnostic(id: string, message: string): void { this.db.prepare('UPDATE tasks SET diagnostic=? WHERE id=?').run(message, id); }
+  latestDiagnostic(session: string): string | undefined {
+    return (this.db.prepare('SELECT diagnostic FROM tasks WHERE session=? ORDER BY sequence DESC LIMIT 1').get(session) as { diagnostic?: string } | undefined)?.diagnostic ?? undefined;
+  }
+
+  enqueue(session: string, input: string, source?: Task['source'], routingOrigin?: string): Task {
     const task: Task = { id: randomUUID(), session, input, status: 'queued', turn: null, source };
-    this.db.prepare('INSERT INTO tasks (id, session, input, status, source) VALUES (?, ?, ?, ?, ?)').run(task.id, session, input, task.status, source ? JSON.stringify(source) : null);
+    this.db.prepare('INSERT INTO tasks (id, session, input, status, source, routing_origin) VALUES (?, ?, ?, ?, ?, ?)').run(task.id, session, input, task.status, source ? JSON.stringify(source) : null, routingOrigin ?? null);
     if (source) this.db.prepare('INSERT INTO feedback (task, message) VALUES (?, ?)').run(task.id, source.id);
     return task;
   }
 
   queued(directory: string): Task | undefined {
-    const row = this.db.prepare(`SELECT tasks.id, tasks.session, tasks.input, tasks.status, tasks.turn, tasks.source FROM tasks
+    const row = this.db.prepare(`SELECT tasks.id, tasks.session, tasks.input, tasks.status, tasks.turn, tasks.source, tasks.routed, tasks.routing_origin AS routingOrigin FROM tasks
       JOIN sessions ON sessions.id=tasks.session WHERE tasks.status='queued' AND sessions.directory=? ORDER BY tasks.sequence LIMIT 1`)
       .get(directory) as unknown as (Omit<Task, 'source'> & { source: string | null }) | undefined;
     return row ? { ...row, source: row.source ? JSON.parse(row.source) as Task['source'] : undefined } : undefined;
@@ -135,7 +158,7 @@ export class State {
   }
 
   status(session: string): { status: string; count: number }[] {
-    return this.db.prepare('SELECT status, COUNT(*) AS count FROM tasks WHERE session=? GROUP BY status').all(session) as unknown as { status: string; count: number }[];
+    return this.db.prepare('SELECT status, COUNT(*) AS count FROM tasks WHERE session=? OR (routed=0 AND routing_origin=?) GROUP BY status').all(session, session) as unknown as { status: string; count: number }[];
   }
 
   taskStatus(id: string, status: string, turn: string | null = null): void {
@@ -150,7 +173,7 @@ export class State {
   }
 
   cancelSessionQueued(session: string): number {
-    return Number(this.db.prepare("UPDATE tasks SET status='interrupted' WHERE status='queued' AND session=?").run(session).changes);
+    return Number(this.db.prepare("UPDATE tasks SET status='interrupted' WHERE status='queued' AND (session=? OR (routed=0 AND routing_origin=?))").run(session, session).changes);
   }
 
   recover(): number {

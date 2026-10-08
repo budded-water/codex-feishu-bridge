@@ -16,5 +16,6 @@
   ],
   "approvalChat": null,
   "groupContextMessages": 0,
-  "groupContextImages": 0
+  "groupContextImages": 0,
+  "projectRouting": "automatic"
 }

@@ -4,8 +4,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
-import { Feedback, LONG_WAIT_MS } from '../src/feedback.js';
+import { Feedback } from '../src/feedback.js';
 import { State } from '../src/state.js';
+const LONG_WAIT_MS = 30_000; // Simulate the former notice threshold; waiting must stay quiet.
 import { setup, message, until } from './helpers.js';
 
 function store(t: TestContext) {
@@ -102,14 +103,16 @@ test('cancelled queued work with no attempted reaction never creates one', async
   await feedback.flush(); assert.equal(state.feedback(task.id), undefined);
 });
 
-test('long wait has exactly one truthful notice; final answer cancels further status delivery', async t => {
+test('long wait stays quiet; on-demand status and a single final answer remain available', async t => {
   const h = setup(); t.after(h.close); h.deliveries();
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   h.bridge.receive(message('Explain')); await setImmediate();
   const active = h.current();
   t.mock.timers.tick(LONG_WAIT_MS - 1); assert.deepEqual(h.deliveries(), []);
   t.mock.timers.tick(1);
-  const notices = h.deliveries(); assert.equal(notices.length, 1); assert.ok(notices[0]!.includes('等待 Codex'));
+  assert.deepEqual(h.deliveries(), []);
+  h.bridge.receive(message('/status'));
+  assert.ok(h.deliveries()[0]!.includes('等待 Codex'));
   t.mock.timers.tick(LONG_WAIT_MS * 3); assert.deepEqual(h.deliveries(), []);
   h.codex.complete(active.threadId, active.turnId, 'completed', 'Answer');
   assert.equal(h.deliveries().filter(body => body.startsWith('Answer')).length, 1);
@@ -123,7 +126,7 @@ test('waiting for group context is reported honestly before Codex starts', async
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   h.bridge.receive(message('Question', { chatType: 'group' })); await setImmediate();
   t.mock.timers.tick(LONG_WAIT_MS);
-  assert.ok(h.deliveries()[0]!.includes('读取群聊前文')); assert.equal(h.turns().length, 0);
+  assert.deepEqual(h.deliveries(), []); assert.equal(h.turns().length, 0);
   h.bridge.receive(message('/status')); assert.ok(h.deliveries()[0]!.includes('尚未收到本次 Codex 事件'));
   resolve({ status: 'available', messages: [], note: '' }); await setImmediate();
   h.codex.complete(h.current().threadId, h.current().turnId);
@@ -137,8 +140,10 @@ test('queue notice, approval wait and process exit never pretend the model is th
   h.bridge.receive(message('Second')); assert.ok(h.deliveries()[0]!.includes('前一个请求'));
   h.codex.ask('approval', 'item/commandExecution/requestApproval', { ...active, command: 'echo bounded' }); h.deliveries();
   t.mock.timers.tick(LONG_WAIT_MS);
+  assert.deepEqual(h.deliveries(), []);
+  h.bridge.receive(message('/status'));
   const notices = h.deliveries().join('\n');
-  assert.ok(notices.includes('等待管理员审批')); assert.ok(notices.includes('尚未开始'));
+  assert.ok(notices.includes('等待管理员审批')); assert.ok(notices.includes('queued'));
   h.codex.exit(); const ended = h.deliveries().join('\n'); assert.ok(ended.includes('进程退出'));
   t.mock.timers.tick(LONG_WAIT_MS * 3); assert.deepEqual(h.deliveries(), []);
   assert.equal(h.turns().length, 1);

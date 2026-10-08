@@ -1,7 +1,6 @@
 import { State, type FeedbackRecord } from './state.js';
 
 export const RECEIVED_EMOJI = 'OnIt';
-export const LONG_WAIT_MS = 30_000;
 
 export interface ReactionPort {
   addReaction(message: string): Promise<string>;

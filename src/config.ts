@@ -16,12 +16,13 @@ export interface Config {
   stateDirectory: string;
   approvalTimeoutSeconds: number;
   projects: Record<string, string>;
+  projectRouting: 'automatic' | 'manual';
 }
 
 export function loadConfig(filename = 'bridge.config.json'): Config {
   const path = resolve(filename);
   const value = record(JSON.parse(readFileSync(path, 'utf8')));
-  const fields = ['allowedUsers', 'accessMode', 'allowedTenant', 'enableGroups', 'groupContextMessages', 'groupContextImages', 'approvalUsers', 'approvalChat', 'codexExecutable', 'stateDirectory', 'approvalTimeoutSeconds', 'projects'];
+  const fields = ['allowedUsers', 'accessMode', 'allowedTenant', 'enableGroups', 'groupContextMessages', 'groupContextImages', 'approvalUsers', 'approvalChat', 'codexExecutable', 'stateDirectory', 'approvalTimeoutSeconds', 'projects', 'projectRouting'];
   if (Object.keys(value).some(key => !fields.includes(key))) throw new Error('Unknown bridge configuration field');
   const accessMode = value.accessMode ?? 'allowlist';
   if (accessMode !== 'allowlist' && accessMode !== 'tenant') throw new Error('Invalid accessMode');
@@ -63,9 +64,11 @@ export function loadConfig(filename = 'bridge.config.json'): Config {
     projects[alias] = canonical;
   }
   if (!Object.keys(projects).length) throw new Error('Register at least one project');
+  const projectRouting = value.projectRouting ?? 'automatic';
+  if (projectRouting !== 'automatic' && projectRouting !== 'manual') throw new Error('Invalid projectRouting');
   return {
     allowedUsers, accessMode, allowedTenant, enableGroups, groupContextMessages, groupContextImages, approvalUsers, approvalChat, codexExecutable: executable,
-    stateDirectory: resolve(dirname(path), state), approvalTimeoutSeconds: timeout, projects,
+    stateDirectory: resolve(dirname(path), state), approvalTimeoutSeconds: timeout, projects, projectRouting,
   };
 }
 

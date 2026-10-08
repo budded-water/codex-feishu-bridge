@@ -33,6 +33,7 @@
 | `codexExecutable` | 非空字符串 | codex | 可执行名称或完整路径，不是 shell 命令；不能附带参数 |
 | `stateDirectory` | 非空路径 | .local/state | JSON 所在目录下的持久化状态；多实例必须独立 |
 | `approvalTimeoutSeconds` | 整数 10–3600 | 300 | 审批 / 单个问题超时后拒绝，不能靠等待获得授权 |
+| `projectRouting` | automatic / manual | automatic | Codex 判断明确项目、直接回答或澄清；manual 保留手动选项目流程 |
 | `projects` | 非空 alias → 目录映射 | 必填 | 目录必须存在且绝对；别名 1–64 个字母、数字、下划线或连字符 |
 
 `allowedUsers` / `approvalUsers` 使用**本应用对应的用户 open ID**。即使同一个人，在另一个应用下拿到的 ID 也不能直接复用。通过 [identify 登记流程](installation.md) 获取 owner、tenant 和审批聊天；登记其他用户时也要核对本应用身份。
@@ -64,7 +65,7 @@
 
 ## 项目、会话和审批
 
-项目别名供 `/project alias` 使用，选择属于每个用户 / 聊天；配置文件没有 defaultProject 或自然语言选项目字段。两个别名指向同一真实目录时共用一条串行队列。thread 创建和恢复时只向 Codex 提供实际别名及当前选择，不提供目录清单；看到别名不等于已经选择项目。
+项目别名供 `/project alias` 使用，选择属于每个用户 / 聊天；`projectRouting` 默认为 automatic：Codex 根据本次请求和已登记别名判断目标，确有歧义时提问；manual 使用手动选择流程。没有 defaultProject。两个别名指向同一真实目录时共用一条串行队列。thread 创建和恢复时只向 Codex 提供实际别名及当前选择，不提供目录清单；看到别名不等于已经选择项目。
 
 `approvalUsers` 控制的是 Codex 已提出审批请求后的回复资格，不是“所有写操作必须审批”的总开关。你自己的 PR、push、合并和发布工作流仍由本机规则和工具权限决定。提问只允许原提交者在原聊天回答；管理员身份不能代答同事的问题。
 

@@ -27,6 +27,8 @@ export interface Task {
   status: string;
   turn: string | null;
   source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string };
+  routed?: boolean;
+  routingOrigin?: string | null;
 }
 
 export interface RpcEvent {

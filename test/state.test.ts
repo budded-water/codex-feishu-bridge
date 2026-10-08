@@ -9,6 +9,30 @@ import { State } from '../src/state.js';
 import { Outbox } from '../src/outbox.js';
 import { message } from './helpers.js';
 
+test('routing clarification and diagnostics survive reopen without replaying handed-off work', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'routing-state-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let state = new State(directory);
+  const actor = message('Query users'); const first = state.select(actor, '$chat', directory);
+  state.setRouting(first.owner, 'router-thread', 'Query users');
+  state.close(); state = new State(directory);
+  assert.deepEqual({ ...state.routing(first.owner) }, { thread: 'router-thread', pending: 'Query users' });
+  const task = state.enqueue(first.id, actor.text);
+  state.taskStatus(task.id, 'running');
+  state.diagnostic(task.id, 'Bridge rejected unsupported/toolApproval');
+  const target = state.select(actor, 'alpha', directory);
+  state.transaction(() => {
+    state.clearPending(first.owner);
+    state.routeTask(task.id, target.id, 'Query users\nUser clarified alpha');
+  });
+  state.close(); state = new State(directory);
+  assert.deepEqual({ ...state.routing(first.owner) }, { thread: 'router-thread', pending: null });
+  assert.equal(Boolean(state.queued(directory)!.routed), true);
+  assert.match(state.latestDiagnostic(target.id)!, /Bridge rejected/);
+  assert.equal(state.routing(JSON.stringify(['tenant', 'different-user', 'chat'])), undefined);
+  assert.equal(state.recover(), 1); assert.equal(state.queued(directory), undefined);
+  state.close();
+});
+
 test('restart preserves threads and deduplication while stopping unfinished work exactly once', t => {
   const directory = mkdtempSync(join(tmpdir(), 'codex-state-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

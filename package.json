@@ -17,7 +17,8 @@
     "identify": "node --env-file-if-exists=.env --import tsx src/identify.ts",
     "smoke:codex": "node --import tsx scripts/smoke-codex.ts",
     "protocol:generate": "node scripts/generate-protocol.mjs",
-    "service:print": "node scripts/launchd.mjs"
+    "service:print": "node scripts/launchd.mjs",
+    "verify:routing": "node --import tsx scripts/verify-routing.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.74.0",
