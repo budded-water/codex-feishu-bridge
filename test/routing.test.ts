@@ -339,3 +339,50 @@ test('early routing events are applied only after the returned turn ID confirms 
   assert.equal(h.turns()[3]!.params.cwd, h.config.projects.beta);
   assert.ok(JSON.stringify(h.turns()[3]!.params.input).includes('New beta'));
 });
+
+test('aborted pending clarification cannot revive its original work or quoted source', async () => {
+  for (const failure of ['rejected', 'oversized']) {
+    const h = setup(); h.config.projectRouting = 'automatic'; h.deliveries();
+    try {
+      h.bridge.receive(message('Modify alpha', {chatType:'group',parentId:'old-quote'})); await until(() => h.turns().length === 1);
+      const first = h.current(); h.codex.complete(first.threadId, first.turnId, 'completed', decision('question', null, 'Which project?'));
+      await until(() => !h.state.directories().length);
+      h.bridge.receive(message(failure === 'oversized' ? 'beta' + 'z'.repeat(20_000) : 'beta')); await until(() => h.turns().length === 2);
+      const request = h.codex.request.bind(h.codex);
+      if (failure === 'rejected') h.codex.request = async <T>(method:string,params:unknown):Promise<T> => {
+        if (method === 'turn/steer') throw new Error('steering failed'); return request<T>(method,params);
+      };
+      h.bridge.receive(message('/补充 ' + (failure === 'oversized' ? 'y'.repeat(15_000) : 'Do not modify anything')));
+      await until(() => !h.state.directories().length);
+      assert.equal(h.state.routing(h.session.owner)!.pending, null);
+      assert.equal(h.state.routing(h.session.owner)!.source, undefined);
+      h.codex.request = request;
+      h.bridge.receive(message('beta')); await until(() => h.turns().length === 3);
+      assert.equal(JSON.parse((h.turns()[2]!.params.input as {text:string}[])[0]!.text).pendingRequest, null);
+      const next = h.current(); h.codex.complete(next.threadId, next.turnId, 'completed', decision('project', 'beta', '', true));
+      await until(() => h.turns().length === 4);
+      assert.ok(!JSON.stringify(h.turns()[3]!.params.input).includes('Modify alpha'));
+    } finally { await h.close(); }
+  }
+});
+
+test('a failed decision after clarification cannot retain old authority with or without accepted steering', async () => {
+  for (const steer of [false, true]) {
+    const h = setup(); h.config.projectRouting = 'automatic'; h.deliveries();
+    try {
+      h.bridge.receive(message('Modify alpha')); await until(() => h.turns().length === 1);
+      const first = h.current(); h.codex.complete(first.threadId, first.turnId, 'completed', decision('question', null, 'Which project?'));
+      await until(() => !h.state.directories().length);
+      h.bridge.receive(message(steer ? 'beta' : 'Cancel this')); await until(() => h.turns().length === 2);
+      if (steer) {
+        h.bridge.receive(message('/补充 Do not modify anything'));
+        await until(() => h.codex.calls.some(call => call.method === 'turn/steer'));
+      }
+      const second = h.current(); h.codex.complete(second.threadId, second.turnId, 'completed', 'Invalid decision');
+      await until(() => !h.state.directories().length);
+      assert.equal(h.state.routing(h.session.owner)!.pending, null);
+      h.bridge.receive(message('beta')); await until(() => h.turns().length === 3);
+      assert.equal(JSON.parse((h.turns()[2]!.params.input as {text:string}[])[0]!.text).pendingRequest, null);
+    } finally { await h.close(); }
+  }
+});
