@@ -7,7 +7,7 @@ export interface RouteDecision { kind: 'answer' | 'question' | 'project'; projec
 export function routeSchema(config: Pick<Config, 'projects'>): JsonValue {
   return { title: 'BridgeRoute', type: 'object', additionalProperties: false,
     required: ['kind', 'project', 'text', 'continuePending'], properties: {
-      kind: { type: 'string', enum: ['answer', 'question', 'project'] },
+      kind: { type: 'string', enum: ['question', 'project'] },
       project: { anyOf: [{ type: 'string', enum: ['$chat', ...Object.keys(config.projects)] }, { type: 'null' }] },
       text: { type: 'string' }, continuePending: { type: 'boolean' },
     } };

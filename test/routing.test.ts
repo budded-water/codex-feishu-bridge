@@ -22,13 +22,17 @@ test('a clear Codex project decision requeues once into the registered directory
   assert.match(h.deliveries()[0]!, /Verified count/);
 });
 
-test('ordinary chat answers once and does not execute a project', async t => {
+test('ordinary chat answers once from its discussion thread and does not execute a code project', async t => {
   const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
   h.bridge.receive(message('你好')); await until(() => h.turns().length === 1);
   const router = h.current(); h.codex.complete(router.threadId, router.turnId, 'completed', decision('answer', null, '你好！'));
+  await until(() => h.turns().length === 2);
+  assert.deepEqual(h.deliveries(), []);
+  const discussion = h.current(); h.codex.complete(discussion.threadId, discussion.turnId, 'completed', '你好！');
   await until(() => !h.state.directories().length);
   assert.deepEqual(h.deliveries(), ['你好！']);
-  assert.equal(h.turns().length, 1);
+  assert.equal(h.turns().length, 2);
+  assert.notEqual(h.turns()[1]!.params.cwd, h.config.projects.alpha);
 });
 
 test('ambiguity asks one question and same-owner clarification carries the pending request into execution', async t => {
@@ -408,4 +412,31 @@ test('process loss before queued clarification starts clears its old authority a
   assert.equal(h.state.routing(h.session.owner)!.pending,null); assert.equal(h.state.routing(h.session.owner)!.source,undefined);
   assert.equal(h.state.routing(idle.owner)!.pending,'Idle request');
   assert.equal(h.turns().length,1);
+});
+
+
+test('simple facts and later reference-dependent discussion share one canonical Codex conversation', async t => {
+  const h=setup();t.after(h.close);h.config.projectRouting='automatic';h.deliveries();
+  h.bridge.receive(message('我住在上海'));await until(()=>h.turns().length===1);const first=h.current();
+  h.codex.complete(first.threadId,first.turnId,'completed',decision('project','$chat'));
+  await until(()=>h.turns().length===2);const discussion=h.current();
+  assert.ok(JSON.stringify(h.turns()[1]!.params.input).includes('我住在上海'));
+  h.codex.complete(discussion.threadId,discussion.turnId,'completed','好的。');await until(()=>!h.state.directories().length);
+  h.bridge.receive(message('查一下我所在城市的天气'));await until(()=>h.turns().length===3);const second=h.current();
+  h.codex.complete(second.threadId,second.turnId,'completed',decision('project','$chat'));
+  await until(()=>h.turns().length===4);
+  assert.equal(h.turns()[3]!.params.threadId,discussion.threadId);
+  assert.notEqual(discussion.threadId,first.threadId);
+});
+
+test('routing uses the latest final decision and ignores unphased preambles or superseded finals', async t => {
+  const h=setup();t.after(h.close);h.config.projectRouting='automatic';h.deliveries();
+  h.bridge.receive(message('Work beta'));await until(()=>h.turns().length===1);const router=h.current();
+  h.codex.notify('item/completed',{...router,item:{type:'agentMessage',id:'preamble',text:'I will choose a project'}});
+  h.codex.notify('item/completed',{...router,item:{type:'agentMessage',id:'revision',phase:'final_answer',text:decision('project','alpha')}});
+  h.codex.notify('item/completed',{...router,item:{type:'agentMessage',id:'latest',phase:'final_answer',text:decision('project','alpha')}});
+  h.codex.notify('item/completed',{...router,item:{type:'agentMessage',id:'revision',phase:'final_answer',text:decision('project','beta')}});
+  h.codex.notify('turn/completed',{threadId:router.threadId,turn:{id:router.turnId,status:'completed'}});
+  await until(()=>h.turns().length===2);
+  assert.equal(h.turns()[1]!.params.cwd,h.config.projects.beta);assert.deepEqual(h.deliveries(),[]);
 });

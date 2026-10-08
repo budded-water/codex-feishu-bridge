@@ -15,10 +15,10 @@ client.onRequest(request => { calls++; client.reject(request.id, 'Verification c
 try {
   await client.start();
   const overrides = await routingConfig(client);
-  for (const [input, kind, project] of [['查询 beta 的注册人数', 'project', 'beta'], ['查一下注册人数', 'question', null], ['你好', 'answer', null]] as const) {
+  for (const [input, kind, project] of [['查询 beta 的注册人数', 'project', 'beta'], ['查一下注册人数', 'question', null], ['你好', 'project', '$chat']] as const) {
     const result = await client.request<{ thread: { id: string } }>('thread/start', {
       cwd: directory, ephemeral: true, sandbox: 'read-only', config: overrides,
-      developerInstructions: '只判断本次请求，不能执行工具。已登记 alpha 和 beta，当前没有选择项目。明确的项目数据查询返回 project 和对应别名，text 为空；不清楚项目时返回 question 和一个简短中文问题，project=null；普通聊天返回 answer，project=null。不猜数据。continuePending=false。',
+      developerInstructions: '只判断本次请求，不能执行工具。已登记 alpha 和 beta，当前没有选择项目。明确的项目数据查询返回 project 和对应别名，text 为空；不清楚项目时返回 question 和一个简短中文问题，project=null；普通聊天返回 project，project=$chat，text 为空。不猜数据。continuePending=false。',
     });
     let answer = '';
     let resolve!: () => void;
