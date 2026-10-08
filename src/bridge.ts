@@ -35,6 +35,8 @@ interface Active {
   routingCompletion?: string;
   routingCancelled?: boolean;
   routingAbort?: string;
+  routingStarting?: boolean;
+  routingEvents?: RpcEvent[];
   routePendingSource?: Task['source'];
 }
 
@@ -213,13 +215,24 @@ export class Bridge {
         this.state.setRouting(owner, active.thread, saved?.pending ?? null, saved?.source);
       }
       if (active.done || this.closed) return;
-      const response = await this.codex.request<{ turn: { id: string } }>('turn/start', {
-        threadId: active.thread, cwd, clientUserMessageId: active.task.id,
-        input: [{ type: 'text', text: JSON.stringify({ pendingRequest: active.routePending ?? null, userRequest: active.task.input }), text_elements: [] }],
-        outputSchema: routeSchema(this.config),
-      } satisfies TurnStartParams);
-      if (!response.turn?.id) throw new Error('Invalid routing turn');
-      if (!active.done) { active.turn = response.turn.id; await active.completion; }
+      active.routingStarting = true;
+      active.routingEvents = [];
+      let response: { turn: { id: string } };
+      try {
+        response = await this.codex.request<{ turn: { id: string } }>('turn/start', {
+          threadId: active.thread, cwd, clientUserMessageId: active.task.id,
+          input: [{ type: 'text', text: JSON.stringify({ pendingRequest: active.routePending ?? null, userRequest: active.task.input }), text_elements: [] }],
+          outputSchema: routeSchema(this.config),
+        } satisfies TurnStartParams);
+        if (!response.turn?.id) throw new Error('Invalid routing turn');
+      } catch (error) {
+        this.state.clearRouting(owner);
+        throw error;
+      } finally { active.routingStarting = false; }
+      active.turn = response.turn.id;
+      for (const event of active.routingEvents.splice(0)) this.notification(event);
+      if (!active.done && active.routingCancelled) await this.abortRouting(active, '这次回答已停止。');
+      if (!active.done) await active.completion;
     } finally {
       release();
       if (this.routeLocks.get(owner) === lock) this.routeLocks.delete(owner);
@@ -377,6 +390,9 @@ export class Bridge {
       return;
     }
     if (!active || active.done) return;
+    if (active.routingStarting) { (active.routingEvents ??= []).push(event); return; }
+    if (active.routing && !active.turn) return;
+    if (event.method === 'turn/started' && active.turn && string(record(event.params.turn).id) !== active.turn) return;
     active.lastEvent = Date.now();
     const params = event.params;
     if (event.method === 'turn/started') {
@@ -571,7 +587,11 @@ export class Bridge {
     const active = this.selectedActive(session);
     if (active?.routing && command === '/stop') {
       active.routingCancelled = true;
-      if (!active.turn) { this.complete(active, 'interrupted'); return; }
+      if (!active.turn) {
+        if (active.routingStarting) this.state.send(message.chat, '已收到停止要求，当前请求不会进入项目执行。');
+        else this.complete(active, 'interrupted');
+        return;
+      }
     }
     if (!active || (active.session.id !== session.id && active.task.routingOrigin !== session.id) || !active.turn || active.done) {
       this.state.send(message.chat, '当前会话暂无可控制的运行任务。'); return;

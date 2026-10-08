@@ -277,3 +277,65 @@ test('an uncertain classifier interruption cancels queued work and a new request
   assert.equal(h.turns().length, 2);
   h.codex.complete(next.threadId, next.turnId, 'completed', decision('answer', null, 'New answer'));
 });
+
+test('stop during an unconfirmed routing start drains that turn before a subsequent request can reuse it', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  const request = h.codex.request.bind(h.codex);
+  let releaseStart!: () => void; let releaseInterrupt!: () => void; let first = true;
+  const started: {threadId:string;turnId:string}[] = [];
+  h.codex.onNotification(event => {
+    if (event.method === 'turn/started') started.push({threadId:String(event.params.threadId),turnId:String((event.params.turn as {id:string}).id)});
+  });
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    if (method === 'turn/start' && first) {
+      first = false; const body = params as Record<string,unknown>; h.codex.calls.push({method,params:body});
+      await new Promise<void>(done => { releaseStart = done; });
+      return {turn:{id:'unconfirmed-turn'}} as T;
+    }
+    if (method === 'turn/interrupt') await new Promise<void>(done => { releaseInterrupt = done; });
+    return request<T>(method, params);
+  };
+  h.bridge.receive(message('Stopped alpha')); await until(() => Boolean(releaseStart));
+  const thread = String(h.turns()[0]!.params.threadId);
+  h.bridge.receive(message('/stop')); h.bridge.receive(message('New beta'));
+  assert.equal(h.turns().length, 1);
+  releaseStart(); await until(() => Boolean(releaseInterrupt));
+  h.codex.complete(thread, 'unconfirmed-turn', 'completed', decision('project', 'alpha'));
+  assert.equal(h.turns().length, 1);
+  releaseInterrupt(); await until(() => h.turns().length === 2);
+  h.codex.request = request;
+  const next = started.at(-1)!;
+  h.codex.complete(next.threadId, next.turnId, 'completed', decision('project', 'beta'));
+  await until(() => h.turns().length === 3);
+  assert.equal(h.turns()[2]!.params.cwd, h.config.projects.beta);
+  assert.ok(JSON.stringify(h.turns()[2]!.params.input).includes('New beta'));
+  assert.ok(!JSON.stringify(h.turns()[2]!.params.input).includes('Stopped alpha'));
+});
+
+test('early routing events are applied only after the returned turn ID confirms their request', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('First alpha')); await until(() => h.turns().length === 1); const old = h.current();
+  h.codex.complete(old.threadId, old.turnId, 'completed', decision('project', 'alpha'));
+  await until(() => h.turns().length === 2); const execution = h.current();
+  h.codex.complete(execution.threadId, execution.turnId); await until(() => !h.state.directories().length);
+  const request = h.codex.request.bind(h.codex); let releaseResume!: () => void; let releaseStart!: () => void;
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    if (method === 'thread/resume') await new Promise<void>(done => { releaseResume = done; });
+    if (method === 'turn/start') {
+      h.codex.calls.push({method,params:params as Record<string,unknown>});
+      await new Promise<void>(done => { releaseStart = done; });
+      return {turn:{id:'confirmed-beta-turn'}} as T;
+    }
+    return request<T>(method, params);
+  };
+  h.bridge.receive(message('New beta')); await until(() => Boolean(releaseResume));
+  h.codex.complete(old.threadId, old.turnId, 'completed', decision('project', 'alpha'));
+  assert.equal(h.turns().length, 2);
+  releaseResume(); await until(() => Boolean(releaseStart));
+  h.codex.complete(old.threadId, old.turnId, 'completed', decision('project', 'alpha'));
+  h.codex.complete(old.threadId, 'confirmed-beta-turn', 'completed', decision('project', 'beta'));
+  assert.equal(h.turns().length, 3);
+  h.codex.request = request; releaseStart(); await until(() => h.turns().length === 4);
+  assert.equal(h.turns()[3]!.params.cwd, h.config.projects.beta);
+  assert.ok(JSON.stringify(h.turns()[3]!.params.input).includes('New beta'));
+});
