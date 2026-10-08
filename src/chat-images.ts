@@ -70,8 +70,14 @@ export async function attachImages(context: ChatContext, items: Record<string, u
   let total = 0;
   let attempted = 0;
   const deadline = Date.now() + IMAGE_FETCH_BUDGET_MS;
-  // Prefer recent images when the bounded page contains more than we can attach.
-  for (const ref of refs.reverse()) {
+  // Explicit quotes precede history; quote presentation orders latest clarification first.
+  // Unquoted records retain newest-first selection independently of presentation order.
+  const prioritized = refs.reverse().sort((a, b) => {
+    const aQuote = Boolean(context.messages[a.message]?.quoted), bQuote = Boolean(context.messages[b.message]?.quoted);
+    if (aQuote !== bQuote) return Number(bQuote) - Number(aQuote);
+    return aQuote ? a.message - b.message : 0;
+  });
+  for (const ref of prioritized) {
     const token = identity(ref.message, ref.key);
     if (attempted >= Math.min(limit, MAX_CONTEXT_IMAGES) || total >= MAX_TOTAL_IMAGE_BYTES || Date.now() >= deadline) {
       descriptions.set(token, '[图片：达到本次读取限额，尚未读取]'); continue;
