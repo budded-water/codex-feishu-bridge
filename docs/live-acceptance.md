@@ -14,7 +14,7 @@ This record describes the owner installation. It does not imply that a new insta
 - Team routing and approval permissions passed the automated behavior suite, including legacy audit migration.
 - The official bot-info API returned a valid application bot identity, and the published version API confirmed the group-mention scope.
 - The owner approved the wider `im:message.group_msg` platform scope. The console now shows it as Added and current changes as published. A scoped read succeeded after the grant, returning only aggregate verification status/counts; no chat text was printed or committed.
-- The owner authorized installing and activating the local macOS launchd service. The installed definition passed `plutil -lint`; launchd reported it running, the state-lock heartbeat resumed, and startup logged Feishu connection readiness after Codex initialization. Login startup and process restart are configured; an actual subsequent login or process-restart exercise remains pending.
+- The owner authorized installing and activating the local macOS launchd service. The installed definition passed `plutil -lint`; launchd reported it running, the state-lock heartbeat resumed, and startup logged Feishu connection readiness after Codex initialization. Login startup and process restart are configured. A later idle-service SIGTERM exercise logged clean shutdown, a successful launchd restart and renewed Feishu readiness/lock heartbeat; a subsequent login exercise remains pending.
 
 ## Background service recovery
 
@@ -42,7 +42,7 @@ The owner screenshot showed relevant text context but an explicit unread-image l
 
 ## Business-data query context
 
-An owner product-statistics request reached a neutral discussion thread. Codex attempted an analytics-account listing without a verified product data source; the tool returned a rejection while the bridge reported an unsupported interaction. The deployment had no registered alias for the requested product. The follow-up registers that project privately and adds project-specific query guidance referencing its live infrastructure and data model. A separate bounded read-only AWS verification completed registration and recorded-activity aggregation with full pagination, returning only aggregate results. It did not read conversation, image or health content. Private credentials, target preferences, resource mappings and numeric results are excluded from this public record. This verifies the data-query path directly; a fresh project-selected bot query remains pending.
+An owner product-statistics request reached a neutral discussion thread. Codex attempted an analytics-account listing without a verified product data source; the tool returned a rejection while the bridge reported an unsupported interaction. The deployment had no registered alias for the requested product. The follow-up registers that project privately and adds project-specific query guidance referencing its live infrastructure and data model. A separate bounded read-only AWS verification completed registration and recorded-activity aggregation with full pagination, returning only aggregate results. It did not read conversation, image or health content. Private credentials, target preferences, resource mappings and numeric results are excluded from this public record. The checked bridge build and expanded private project registry were loaded with an idle-service graceful restart; Feishu readiness and the lock heartbeat resumed. This verifies the data-query path directly and updated service startup; a fresh project-selected bot query remains pending.
 
 ## Pending
 
@@ -53,7 +53,7 @@ An owner product-statistics request reached a neutral discussion thread. Codex a
 - Context continuation, new sessions, project switching, steering, interruption, and queue controls.
 - Rejected and explicitly approved colleague actions routed through the owner approval chat under the actual local Codex policy.
 - Restart/reconnection exercises and delivery recovery without task replay.
-- A subsequent login and process-restart exercise for the installed service, plus a fresh task round trip through the background instance.
+- A subsequent login exercise for the installed service, plus a fresh task round trip through the background instance.
 
 Automated behavior checks and the no-inference protocol smoke test are separate evidence. A connected socket and enrollment message do not prove model access or outbound result delivery.
 
