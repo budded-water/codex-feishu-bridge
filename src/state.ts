@@ -171,7 +171,7 @@ export class State {
   }
 
   status(session: string): { status: string; count: number }[] {
-    return this.db.prepare('SELECT status, COUNT(*) AS count FROM tasks WHERE session=? OR (routed=0 AND routing_origin=?) GROUP BY status').all(session, session) as unknown as { status: string; count: number }[];
+    return this.db.prepare('SELECT status, COUNT(*) AS count FROM tasks WHERE ((routing_origin IS NULL OR routed=1) AND session=?) OR (routed=0 AND routing_origin=?) GROUP BY status').all(session, session) as unknown as { status: string; count: number }[];
   }
 
   taskStatus(id: string, status: string, turn: string | null = null): void {
@@ -186,7 +186,7 @@ export class State {
   }
 
   cancelSessionQueued(session: string): number {
-    return Number(this.db.prepare("UPDATE tasks SET status='interrupted' WHERE status='queued' AND (session=? OR (routed=0 AND routing_origin=?))").run(session, session).changes);
+    return Number(this.db.prepare("UPDATE tasks SET status='interrupted' WHERE status='queued' AND (((routing_origin IS NULL OR routed=1) AND session=?) OR (routed=0 AND routing_origin=?))").run(session, session).changes);
   }
 
   recover(): number {

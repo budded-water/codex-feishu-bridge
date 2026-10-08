@@ -162,6 +162,7 @@ test('failed routing steering cannot hand off a task without the user constraint
   await until(() => !h.state.directories().length);
   h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'alpha'));
   assert.equal(h.turns().length, 1); assert.match(h.deliveries().join(''), /请求已停止/);
+  assert.ok(h.codex.calls.some(call => call.method === 'turn/interrupt'));
 });
 
 test('a completed classifier cannot hand off after a stop request whose RPC is still pending', async t => {
@@ -210,4 +211,69 @@ test('clarification preserves the original quoted source and history cutoff for 
   assert.equal(sources.length, 1); assert.equal(sources[0]!.id, original.id);
   assert.equal(sources[0]!.parentId, 'quoted-logs'); assert.equal(sources[0]!.createTime, '1000');
   assert.ok(JSON.stringify(h.turns()[2]!.params.input).includes('original error logs'));
+});
+
+
+test('earlier automatic handoffs cannot discard a later queued clarification or project selection', async () => {
+  for (const kind of ['question', 'project'] as const) {
+    const h = setup(); h.config.projectRouting = 'automatic'; h.deliveries();
+    try {
+      h.bridge.receive(message('Work beta')); h.bridge.receive(message('Second request'));
+      await until(() => h.turns().length === 1); const first = h.current();
+      h.codex.complete(first.threadId, first.turnId, 'completed', decision('project', 'beta'));
+      await until(() => h.turns().length === 3); const second = h.current();
+      assert.ok(h.turns()[2]!.params.outputSchema);
+      h.codex.complete(second.threadId, second.turnId, 'completed', kind === 'question' ? decision('question', null, 'Which project?') : decision('project', 'alpha'));
+      if (kind === 'question') assert.equal(h.state.routing(h.session.owner)!.pending, 'Second request');
+      else { await until(() => h.turns().length === 4); assert.equal(h.state.selected(message(''))!.project, 'alpha'); }
+    } finally { await h.close(); }
+  }
+});
+
+test('chat queue clearing does not cancel unclassified work submitted from a project session', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('First alpha')); await until(() => h.turns().length === 1);
+  h.bridge.receive(message('Second alpha')); h.deliveries();
+  h.bridge.receive(message('/chat')); h.deliveries(); h.bridge.receive(message('/clear'));
+  assert.match(h.deliveries().join(''), /0 个排队任务/);
+  assert.ok(h.state.status(h.session.id).some(row => row.status === 'queued' && row.count === 1));
+  assert.ok(!h.state.status(h.state.selected(message(''))!.id).some(row => row.status === 'queued'));
+});
+
+test('oversized routing steering interrupts and drains before the next request uses the classifier', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('x'.repeat(20_000))); await until(() => h.turns().length === 1);
+  const request = h.codex.request.bind(h.codex); let release!: () => void;
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    if (method === 'turn/interrupt') await new Promise<void>(done => { release = done; });
+    return request<T>(method, params);
+  };
+  h.bridge.receive(message('/补充 ' + 'y'.repeat(15_000))); await until(() => Boolean(release));
+  h.bridge.receive(message('Another beta')); assert.equal(h.turns().length, 1);
+  release(); await until(() => h.turns().length === 2);
+  assert.ok(h.codex.calls.some(call => call.method === 'turn/interrupt'));
+  assert.equal(JSON.parse((h.turns()[1]!.params.input as {text:string}[])[0]!.text).userRequest, 'Another beta');
+  h.codex.request = request;
+});
+
+test('an uncertain classifier interruption cancels queued work and a new request uses a fresh thread', async t => {
+  const h = setup(); t.after(h.close); h.config.projectRouting = 'automatic'; h.deliveries();
+  h.bridge.receive(message('Modify alpha')); await until(() => h.turns().length === 1); const old = h.current();
+  h.bridge.receive(message('Queued work'));
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    if (method === 'turn/steer' || method === 'turn/interrupt') throw new Error('unconfirmed RPC');
+    return request<T>(method, params);
+  };
+  h.bridge.receive(message('/补充 Do not modify anything'));
+  await until(() => !h.state.directories().length);
+  assert.equal(h.state.routing(h.session.owner), undefined);
+  assert.ok(h.state.status(h.session.id).some(row => row.status === 'unknown'));
+  assert.ok(h.state.status(h.session.id).some(row => row.status === 'interrupted'));
+  h.codex.request = request;
+  h.bridge.receive(message('A new request')); await until(() => h.turns().length === 2);
+  const next = h.current(); assert.notEqual(next.threadId, old.threadId);
+  h.codex.complete(old.threadId, old.turnId, 'completed', decision('project', 'alpha'));
+  assert.equal(h.turns().length, 2);
+  h.codex.complete(next.threadId, next.turnId, 'completed', decision('answer', null, 'New answer'));
 });

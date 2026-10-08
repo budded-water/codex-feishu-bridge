@@ -34,6 +34,7 @@ interface Active {
   routingControls?: number;
   routingCompletion?: string;
   routingCancelled?: boolean;
+  routingAbort?: string;
   routePendingSource?: Task['source'];
 }
 
@@ -239,8 +240,9 @@ export class Bridge {
       }
       active.routing = false;
       const actor = { ...active.session, id: active.task.id, text: active.task.input };
-      const stillSelected = this.state.selected(actor)?.id === (active.task.routingOrigin ?? active.session.id) &&
-        (active.task.routingRevision == null || this.state.selectionRevision(active.session.owner) === active.task.routingRevision);
+      const stillSelected = active.task.routingRevision == null
+        ? this.state.selected(actor)?.id === (active.task.routingOrigin ?? active.session.id)
+        : this.state.selectionRevision(active.session.owner) === active.task.routingRevision;
       const source = decision.continuePending && active.routePending ? active.routePendingSource ?? active.task.source : active.task.source;
       if (decision.kind !== 'project') {
         active.replyFromRouter = true;
@@ -414,7 +416,8 @@ export class Bridge {
 
   private complete(active: Active, status: string, explanation?: string): void {
     if (active.done) return;
-    if (active.routing && active.routingCancelled) status = 'interrupted';
+    if (active.routing && active.routingCancelled && status === 'completed') status = 'interrupted';
+    explanation ??= active.routingAbort;
     if (active.routing && status === 'completed' && !explanation && active.routingControls) { active.routingCompletion = status; return; }
     if (active.routing && status === 'completed' && !explanation) { this.finishRoute(active); return; }
     active.done = true;
@@ -545,6 +548,24 @@ export class Bridge {
     if (prompt.replyChat !== prompt.active.session.chat) this.state.send(prompt.active.session.chat, `任务 ${prompt.active.task.id.slice(0, 8)} 的请求 ${token} 已由管理员回复。`);
   }
 
+  private async abortRouting(active: Active, explanation: string): Promise<void> {
+    if (active.done) return;
+    active.routingCancelled = true;
+    active.routingAbort = explanation;
+    // A deferred completion is already terminal; otherwise drain the actual turn.
+    if (active.routingCompletion) { this.complete(active, 'interrupted', explanation); return; }
+    try {
+      await this.codex.request('turn/interrupt', { threadId: active.thread, turnId: active.turn } satisfies TurnInterruptParams);
+      await active.completion;
+    } catch {
+      // A terminal notification may have arrived while the interrupt RPC failed.
+      if (active.done) return;
+      // An uncertain interrupt must never reuse a potentially active classifier.
+      this.state.clearRouting(active.session.owner);
+      this.complete(active, 'unknown', `${explanation}中断未确认，请在本机检查后继续。`);
+    }
+  }
+
   private async control(message: IncomingMessage, session: Session, command: string, argument: string): Promise<void> {
     if (command === '/stop') this.state.clearPending(session.owner);
     const active = this.selectedActive(session);
@@ -567,7 +588,7 @@ export class Bridge {
       if (active.routing) {
         const input = `${active.task.input}\n\n用户补充要求：\n${argument}`;
         if (input.length > 30_000) {
-          this.complete(active, 'failed', '补充内容太长，这次请求已停止。请重新发送完整需求。'); return;
+          await this.abortRouting(active, '补充内容太长，这次请求已停止。请重新发送完整需求。'); return;
         }
         active.task.input = input;
         this.state.taskInput(active.task.id, input);
@@ -575,7 +596,7 @@ export class Bridge {
         try {
           await this.codex.request('turn/steer', params);
         } catch {
-          this.complete(active, 'failed', '没能确认补充要求已接收，这次请求已停止。请重新发送完整需求。');
+          await this.abortRouting(active, '没能确认补充要求已接收，这次请求已停止。请重新发送完整需求。');
           return;
         } finally { active.routingControls--; }
         if (active.routingCompletion && !active.routingControls) this.complete(active, active.routingCompletion);
