@@ -417,7 +417,7 @@ test('discussion controls cannot affect a classifier submitted from another sele
   const h = setup(); t.after(h.close); h.config.projectRouting='automatic'; h.deliveries();
   h.bridge.receive(message('Work alpha')); await until(() => h.turns().length===1);
   h.bridge.receive(message('/chat')); h.deliveries(); h.bridge.receive(message('/status'));
-  const status = h.deliveries().join(''); assert.match(status,/暂无任务/); assert.ok(!status.includes('正在理解请求'));
+  const status = h.deliveries().join(''); assert.match(status,/暂无进行中的任务/); assert.ok(!status.includes('正在理解请求'));
   h.bridge.receive(message('/stop')); h.bridge.receive(message('/补充 Do not modify'));
   assert.ok(!h.codex.calls.some(call => ['turn/steer','turn/interrupt'].includes(call.method)));
   assert.ok(h.state.status(h.session.id).some(row => row.status==='running'));

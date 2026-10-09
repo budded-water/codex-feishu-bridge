@@ -74,3 +74,7 @@ On 2026-10-08 (Asia/Shanghai), the owner requested low reasoning effort for this
 ## Mention and quote diagnosis
 
 The owner supplied a reply containing unresolved mention placeholders and a quoted follow-up that was interpreted as an unrelated tool error. Private task metadata confirmed placeholder input, an explicit parent reference and enabled recent history. The previous history path omitted parent-message retrieval and filtered bot replies. The fix resolves supplied mention names and independently admits the exact quoted message, with bounded tests. No new Feishu test message was sent; fresh corrected-reply acceptance remains pending.
+
+## Conversational UX acceptance boundary
+
+Durable reply association, concrete-action approvals, scoped natural controls, explicit native mentions and local timing collection are implemented and covered by fictional behavioral tests. No bot activation, approval, member notification or new Feishu test message was performed for these tests. Real reply placement, notification visibility and colleague/admin UX still require acceptance. Metadata/source and service-connectivity evidence do not prove those end-to-end behaviors or faster responses.

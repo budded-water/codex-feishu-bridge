@@ -1,7 +1,8 @@
+import type { DeliveryOptions } from './types.js';
 import { State } from './state.js';
 
 export interface Sender {
-  send(chat: string, text: string, idempotencyKey: string): Promise<void>;
+  send(chat: string, text: string, idempotencyKey: string, options?: DeliveryOptions): Promise<void | string>;
 }
 
 export class Outbox {
@@ -34,8 +35,8 @@ export class Outbox {
       let text = delivery.body;
       for (const secret of this.secrets) text = text.split(secret).join('[redacted]');
       try {
-        await this.sender.send(delivery.chat, text, delivery.id);
-        this.state.delivered(delivery.id);
+        const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined, mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined });
+        this.state.delivered(delivery.id, message || undefined);
       } catch {
         this.state.retry(delivery);
         console.error('Message delivery failed; stored result will be retried');

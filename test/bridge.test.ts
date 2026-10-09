@@ -25,7 +25,7 @@ test('redelivered enrollment challenges never execute or queue a Codex task', as
   h.bridge.receive(message('/status'));
   assert.deepEqual(h.state.status(h.session.id), []);
   assert.equal(h.turns().length, 0);
-  assert.ok(h.deliveries().some(reply => reply.includes('暂无任务')));
+  assert.ok(h.deliveries().some(reply => reply.includes('暂无进行中的任务')));
   h.bridge.receive(message(`Explain the enrollment syntax: ${text}`));
   await until(() => h.turns().length === 1);
   h.bridge.receive(message(text));
@@ -146,14 +146,14 @@ test('file approvals display changes; missing action details are denied', async 
   assert.deepEqual(h.codex.replies[1], { id: 105, result: { decision: 'decline' } });
 });
 
-test('user questions require a matching question ID; sensitive and unsupported requests fail closed', async t => {
+test('user questions bind the unique prompt token; sensitive and unsupported requests fail closed', async t => {
   const h = setup(); t.after(h.close);
   h.bridge.receive(message('Work'));
   await until(() => h.turns().length === 1);
   const active = h.current();
   h.codex.ask(106, 'item/tool/requestUserInput', { ...active, questions: [{ id: 'choice', question: 'Choose', isSecret: false, options: [{ label: 'A' }] }] });
   const token = h.deliveries().join('\n').match(/问题 ([a-f0-9]{8})/)![1]!;
-  h.bridge.receive(message(`/回答 ${token} wrong A`));
+  h.bridge.receive(message(`/回答 expired-token A`));
   assert.equal(h.codex.replies.length, 0);
   h.bridge.receive(message(`/回答 ${token} choice A`));
   assert.deepEqual(h.codex.replies[0], { id: 106, result: { answers: { choice: { answers: ['A'] } } } });
@@ -187,7 +187,7 @@ test('unsupported interactions identify bridge rejection without exposing reques
   const active = h.current();
   h.codex.ask(501, 'unsupported/toolApproval', { ...active, arguments: { secret: 'private-argument' }, url: 'https://private.example' });
   assert.deepEqual(h.deliveries(), []);
-  h.bridge.receive(message('/status'));
+  h.bridge.receive(message('/status 详情'));
   const notice = h.deliveries().join('\n');
   assert.deepEqual(h.codex.rejected, [501]);
   assert.match(h.codex.rejectedMessages[0]!, /rejected by the bridge, not by the user/);
@@ -197,7 +197,7 @@ test('unsupported interactions identify bridge rejection without exposing reques
   assert.equal(h.codex.replies.length, 0);
   h.codex.ask(502, 'secret\nhttps://private.example', active);
   assert.deepEqual(h.deliveries(), []);
-  h.bridge.receive(message('/status'));
+  h.bridge.receive(message('/status 详情'));
   assert.match(h.deliveries().join('\n'), /不支持的交互：unknown/);
   assert.ok(!h.codex.rejectedMessages[1]!.includes('private.example'));
   h.codex.complete(active.threadId, active.turnId, 'completed', 'The tool query was blocked; no data available.');
@@ -332,8 +332,8 @@ test('routed colleague approvals expire in the administrator chat and late decis
   const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
   await until(() => h.codex.replies.length === 1);
   const notices = h.state.pending(Number.MAX_SAFE_INTEGER);
-  assert.ok(notices.some(reply => reply.chat === 'oc_admin' && reply.body.includes('已超时')));
-  assert.ok(notices.some(reply => reply.chat === 'group' && reply.body.includes('已超时')));
+  assert.ok(notices.some(reply => reply.chat === 'oc_admin' && reply.body.includes('已过期')));
+  assert.ok(notices.some(reply => reply.chat === 'group' && reply.body.includes('已过期')));
   h.bridge.receive(message(`/批准 ${token}`, { chat: 'oc_admin' }));
   assert.deepEqual(h.codex.replies, [{ id: 'expiring-team-approval', result: { decision: 'decline' } }]);
 });
@@ -450,7 +450,7 @@ for (const kind of ['commentary', 'delta', 'legacy'] as const) {
     const reply = h.deliveries().join('\n');
     assert.ok(!reply.includes('Unverified'));
     if (kind === 'legacy') assert.ok(reply.includes('Compatible finished answer'));
-    else assert.ok(reply.includes('未能得到回答'));
+    else assert.ok(reply.includes('没有拿到最终答复'));
     assert.ok(h.state.status(h.session.id).some(row => row.status === 'completed'));
   });
 }
@@ -507,8 +507,8 @@ test('a newer queued task cannot hide the running task diagnostic or its final f
   h.bridge.receive(message('Next work')); h.deliveries();
   h.codex.ask('unsupported', 'unsupported/toolApproval', { ...active, secret: 'never-display' });
   assert.deepEqual(h.deliveries(), []);
-  h.bridge.receive(message('/status'));
+  h.bridge.receive(message('/status 详情'));
   assert.match(h.deliveries().join(''), /unsupported\/toolApproval/);
   h.codex.complete(active.threadId, active.turnId, 'failed', '');
-  assert.match(h.deliveries().join(''), /这次操作需要在本机确认/);
+  assert.match(h.deliveries().join(''), /这一步需要部署者/);
 });

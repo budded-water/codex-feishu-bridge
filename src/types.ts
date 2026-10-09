@@ -1,3 +1,6 @@
+export interface Mention { id: string; name: string }
+export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string }
+
 export interface IncomingMessage {
   tenant: string;
   user: string;
@@ -7,6 +10,8 @@ export interface IncomingMessage {
   chatType?: 'p2p' | 'group';
   createTime?: string;
   parentId?: string;
+  mentions?: Mention[];
+  unsupported?: string;
 }
 
 export interface Session {
@@ -72,5 +77,6 @@ export interface ChatContext {
   images?: { messageIndex: number; label: string; url: string }[];
 }
 export interface ContextPort {
+  actor?(session: Session, message: string): Promise<{ name?: string; link?: string }>;
   context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext>;
 }
