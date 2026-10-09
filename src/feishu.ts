@@ -130,7 +130,7 @@ export class Feishu implements ContextPort, ReactionPort {
     const content = JSON.stringify(notificationPost(styled,options.mentions ?? []));
     if (options.replyTo) {
       const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type: 'post', content, uuid: idempotencyKey } }).catch(error => {
-        const code = Number(record(error).code ?? record(record(record(error).response).data).code);
+        const code = Number(record(record(record(error).response).data).code ?? record(error).code);
         if ([230011,230110].includes(code)) return {code,data:undefined};
         throw error;
       });

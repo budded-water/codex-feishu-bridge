@@ -203,3 +203,13 @@ test('simplified question answers preserve newlines and leading code indentation
  const answer='\n    first()\n    second()';h.bridge.receive(message(`/回答 ${token} ${answer}`));
  assert.deepEqual(h.codex.replies.at(-1),{id:'question',result:{answers:{'internal-id':{answers:[answer]}}}});
 });
+
+
+test('deleted reply HTTP errors prefer the Feishu business code over Axios transport codes', async t => {
+ const f=new Feishu({appId:'test',appSecret:'test'});t.after(()=>f.close());const creates:unknown[]=[];
+ for(const code of [230011,230110]) {
+  Object.assign(f,{client:{im:{v1:{message:{reply:async()=>{throw{code:'ERR_BAD_REQUEST',response:{data:{code}}};},create:async(x:unknown)=>{creates.push(x);return{code:0,data:{message_id:'om_fallback'}};}}}}}});
+  assert.equal(await f.send('chat','Result','stable-uuid',{replyTo:'om_deleted'}),'om_fallback');
+ }
+ assert.equal(creates.length,2);assert.ok(creates.every(x=>record(record(x).data).uuid==='stable-uuid'));
+});
