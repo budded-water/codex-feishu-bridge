@@ -18,7 +18,7 @@ function mockAdapter(rows: unknown[], images = 8, download: (key: string) => Buf
   const downloads: { path: { message_id: string; file_key: string }; params: unknown }[] = [];
   const pages: unknown[] = [];
   Object.assign(adapter, { client: { im: { v1: {
-    message: { list: async (request: unknown) => { pages.push(request); return { code: 0, data: { items: rows, has_more: true, page_token: 'ignored' } }; }, get: async () => ({ code: 0, data: { items: rows } }) },
+    message: { list: async (request: unknown) => { pages.push(request); return { code: 0, data: { items: rows, has_more: true, page_token: 'ignored' } }; }, get: async (request: { path: { message_id: string } }) => ({ code: 0, data: { items: rows.filter(item => record(item).message_id === request.path.message_id) } }) },
     messageResource: { get: async (request: typeof downloads[number]) => { downloads.push(request); return { getReadableStream: () => Readable.from((async function* () { yield await download(request.path.file_key); })()) }; } },
   } } } });
   return { adapter, downloads, pages };
@@ -124,4 +124,22 @@ test('rich-post image descriptions follow structured image tags without rewritin
   assert.equal(context.images!.length, 1);
   assert.ok(context.messages[0]!.text.startsWith('@Colleague Literal [img：尚未读取] '));
   assert.ok(context.messages[0]!.text.includes(context.images![0]!.label));
+});
+
+
+test('bounded downloads prioritize explicit quotes over history and latest clarification over original quote', async t => {
+  const h = mockAdapter([
+    row('original', 'img_original', { create_time: String(cutoff - 2000) }),
+    row('latest', 'img_latest', { create_time: String(cutoff - 3000) }),
+    row('history', 'img_history', { create_time: String(cutoff - 1) }),
+  ], 1); t.after(() => h.adapter.close());
+  const quote = await h.adapter.context(session, { ...source, parentId: 'om_original' }, 50);
+  assert.deepEqual(h.downloads.map(x => x.path.file_key), ['img_original']);
+  assert.equal(quote.images![0]!.messageIndex, 0); assert.equal(quote.messages[0]!.quoted, true);
+  assert.ok(quote.messages.some(x => !x.quoted && x.text.includes('读取限额')));
+  h.downloads.length = 0;
+  const clarified = await h.adapter.context(session, { ...source, parentId: 'om_original', clarification: { id: 'om_reply', parentId: 'om_latest', createTime: String(cutoff + 1000) } }, 0);
+  assert.deepEqual(h.downloads.map(x => x.path.file_key), ['img_latest']);
+  assert.equal(clarified.images![0]!.messageIndex, 0);
+  assert.ok(clarified.messages[1]!.text.includes('读取限额'));
 });

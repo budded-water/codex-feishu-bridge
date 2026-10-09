@@ -15,6 +15,24 @@ export function postRows(body: Record<string, unknown>): { title: string; rows: 
   return { title: string(post.title), rows: Array.isArray(post.content) ? post.content : [] };
 }
 
+export function mentionText(text: string, mentions: unknown): string {
+  const names = new Map<string, string>();
+  if (Array.isArray(mentions)) for (const value of mentions) {
+    const mention = record(value), key = string(mention.key);
+    if (/^@_user_\d+$/.test(key)) names.set(key, string(mention.name).trim());
+  }
+  return text.replace(/@_user_\d+/g, key => names.get(key) ? `@${names.get(key)}` : '@成员（身份未知）');
+}
+
+function postMention(part: Record<string, unknown>, mentions: unknown): string {
+  const id = string(part.user_id);
+  if (id === 'all') return '@所有人';
+  const values = Array.isArray(mentions) ? mentions.map(record) : [];
+  const match = id ? values.find(value => string(value.id) === id || string(record(value.id).open_id) === id || string(value.key) === id) : undefined;
+  const name = string(match?.name).trim() || string(part.user_name).trim();
+  return name ? `@${name}` : '@成员（身份未知）';
+}
+
 export function contextText(item: Record<string, unknown>, imageDescription?: (key: string) => string): string {
   const body = messageBody(item);
   const type = string(item.msg_type);
@@ -25,14 +43,12 @@ export function contextText(item: Record<string, unknown>, imageDescription?: (k
     const { title, rows } = postRows(body);
     text = [title, ...rows.map(row => Array.isArray(row) ? row.map(value => {
       const part = record(value);
+      if (part.tag === 'at') return postMention(part, item.mentions);
       if (part.tag === 'img' && imageDescription) return imageDescription(string(part.image_key));
       return ['text', 'a', 'md', 'code_block'].includes(string(part.tag)) ? string(part.text) + (part.href ? ` (${string(part.href)})` : '') : `[${string(part.tag) || '非文本'}：尚未读取]`;
     }).join('') : '')].filter(Boolean).join('\n');
   } else text = `[${type || '未知类型'}消息：内容尚未读取]`;
-  if (Array.isArray(item.mentions)) for (const mention of item.mentions.map(record)) {
-    const key = string(mention.key);
-    if (/^@_user_\d+$/.test(key)) text = text.replace(/@_user_\d+/g, token => token === key ? `@${string(mention.name) || '成员'}` : token);
-  }
+  text = mentionText(text, item.mentions);
   return (text || '[消息正文不可用]').slice(0, 1200);
 }
 
@@ -54,8 +70,14 @@ export async function attachImages(context: ChatContext, items: Record<string, u
   let total = 0;
   let attempted = 0;
   const deadline = Date.now() + IMAGE_FETCH_BUDGET_MS;
-  // Prefer recent images when the bounded page contains more than we can attach.
-  for (const ref of refs.reverse()) {
+  // Explicit quotes precede history; quote presentation orders latest clarification first.
+  // Unquoted records retain newest-first selection independently of presentation order.
+  const prioritized = refs.reverse().sort((a, b) => {
+    const aQuote = Boolean(context.messages[a.message]?.quoted), bQuote = Boolean(context.messages[b.message]?.quoted);
+    if (aQuote !== bQuote) return Number(bQuote) - Number(aQuote);
+    return aQuote ? a.message - b.message : 0;
+  });
+  for (const ref of prioritized) {
     const token = identity(ref.message, ref.key);
     if (attempted >= Math.min(limit, MAX_CONTEXT_IMAGES) || total >= MAX_TOTAL_IMAGE_BYTES || Date.now() >= deadline) {
       descriptions.set(token, '[图片：达到本次读取限额，尚未读取]'); continue;

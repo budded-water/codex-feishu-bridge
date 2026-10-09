@@ -1,3 +1,5 @@
+import type { Mention } from './types.js';
+
 // Feishu post messages render Markdown through a native md element. Keep the
 // durable outbox in Markdown, and convert only at the transport boundary.
 export function markdownPost(text: string) {
@@ -56,4 +58,36 @@ export function splitReply(text: string): string[] {
   }
   flush(true);
   return chunks;
+}
+
+
+export function notificationPost(text: string, mentions: Mention[]) {
+  const allowed = new Map(mentions.filter(x => /^ou_[\w-]+$/.test(x.id)).map(x => [x.id,x.name]));
+  const pieces: ({ tag: 'md'; text: string } | { tag: 'at'; user_id: string; user_name: string })[] = [];
+  const clean = safeMentionText(text);
+  let offset = 0;
+  let fence: Fence | undefined;
+  let base = 0;
+  const matches: { index: number; text: string; id: string }[] = [];
+  for (const line of clean.match(/[^\n]*\n|[^\n]+$/g) ?? []) {
+    const inside=Boolean(fence); fence=nextFence(line.trimEnd(),fence);
+    if (!inside && !fence) for (const match of line.matchAll(/\[\[notify:(ou_[\w-]+)\]\]/g)) matches.push({index:base+match.index,text:match[0],id:match[1]!});
+    base+=line.length;
+  }
+  for (const match of matches) {
+    if (match.index > offset) pieces.push({ tag: 'md', text: clean.slice(offset, match.index) });
+    const name = allowed.get(match.id);
+    pieces.push(name !== undefined ? { tag: 'at', user_id: match.id, user_name: name } : { tag: 'md', text: '成员（未通知）' });
+    offset = match.index + match.text.length;
+  }
+  if (offset < clean.length || !pieces.length) pieces.push({ tag: 'md', text: clean.slice(offset) });
+  return { zh_cn: { content: [pieces] } };
+}
+
+export function safeMentionText(text: string): string {
+  let fence: Fence | undefined;
+  return text.split('\n').map(line => {
+    const inside = Boolean(fence); fence = nextFence(line,fence);
+    return inside || fence ? line : line.replace(/<at\b[^>]*>(.*?)<\/at>/gi,(_,name:string)=>name || '成员').replace(/<\/?at\b[^>]*>/gi,'');
+  }).join('\n');
 }

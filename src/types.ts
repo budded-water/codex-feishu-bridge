@@ -1,3 +1,6 @@
+export interface Mention { id: string; name: string }
+export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string }
+
 export interface IncomingMessage {
   tenant: string;
   user: string;
@@ -7,6 +10,8 @@ export interface IncomingMessage {
   chatType?: 'p2p' | 'group';
   createTime?: string;
   parentId?: string;
+  mentions?: Mention[];
+  unsupported?: string;
 }
 
 export interface Session {
@@ -26,7 +31,10 @@ export interface Task {
   input: string;
   status: string;
   turn: string | null;
-  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string };
+  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string; clarification?: { id: string; createTime?: string; parentId: string } };
+  routed?: boolean;
+  routingOrigin?: string | null;
+  routingRevision?: number | null;
 }
 
 export interface RpcEvent {
@@ -64,10 +72,11 @@ export function ownerKey(message: Pick<IncomingMessage, 'tenant' | 'user' | 'cha
 
 export interface ChatContext {
   status: 'available' | 'unavailable';
-  messages: { sender: string; type: string; text: string }[];
+  messages: { sender: string; type: string; text: string; quoted?: boolean }[];
   note: string;
   images?: { messageIndex: number; label: string; url: string }[];
 }
 export interface ContextPort {
+  actor?(session: Session, message: string): Promise<{ name?: string; link?: string }>;
   context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext>;
 }

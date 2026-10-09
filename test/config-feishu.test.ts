@@ -33,10 +33,13 @@ test('configuration requires explicit authorization and existing absolute direct
   write(valid);
   assert.equal(loadConfig(file).projects.example, realpathSync(directory));
   assert.equal(loadConfig(file).stateDirectory, join(directory, 'state'));
+  assert.equal(loadConfig(file).projectRouting, 'automatic');
+  write({ ...valid, projectRouting: 'manual' }); assert.equal(loadConfig(file).projectRouting, 'manual');
   for (const invalid of [
     { ...valid, allowedUsers: [] }, { ...valid, allowedUsers: ['*'] },
     { ...valid, allowedUsers: ['ou_owner', 'ou_owner'] }, { ...valid, projects: { example: './relative' } },
     { ...valid, projects: {} }, { ...valid, approvalTimeoutSeconds: 0 }, { ...valid, permissive: true },
+    { ...valid, projectRouting: 'guess-paths' },
   ]) { write(invalid); assert.throws(() => loadConfig(file)); }
 });
 
@@ -46,11 +49,13 @@ test('group transport requires a verified mention of this bot and removes only i
   const group = {
     ...valid,
     message: { ...valid.message, chat_type: 'group', content: JSON.stringify({ text: '@_user_1 /status @_user_10' }),
-      mentions: [{ key: '@_user_1', id: { open_id: 'ou_bot' } }, { key: '@_user_10', id: { open_id: 'ou_other' } }] },
+      mentions: [{ key: '@_user_1', id: { open_id: 'ou_bot' } }, { key: '@_user_10', id: { open_id: 'ou_other' }, name: 'Alex' }] },
   };
   assert.equal(normalizeMessage(group), undefined);
   assert.equal(normalizeMessage(group, 'ou_different_bot'), undefined);
-  assert.equal(normalizeMessage(group, 'ou_bot')?.text, '/status @_user_10');
+  assert.equal(normalizeMessage(group, 'ou_bot')?.text, '/status @Alex');
+  const unknown = { ...group, message: { ...group.message, mentions: [group.message.mentions[0]!] } };
+  assert.equal(normalizeMessage(unknown, 'ou_bot')?.text, '/status @成员（身份未知）');
   assert.equal(normalizeMessage({ ...group, message: { ...group.message, mentions: [] } }, 'ou_bot'), undefined);
   assert.equal(normalizeMessage({ ...group, message: { ...group.message, content: JSON.stringify({ text: '@all /status' }) } }, 'ou_bot'), undefined);
   assert.equal(normalizeMessage({ ...group, message: { ...group.message, content: JSON.stringify({ text: '@_user_10 /status' }) } }, 'ou_bot'), undefined);

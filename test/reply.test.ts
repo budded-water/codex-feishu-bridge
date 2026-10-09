@@ -115,3 +115,79 @@ test('both SDK HTTP errors and API missing-permission results state the limitati
     assert.ok(!JSON.stringify(result).includes('private response'));
   }
 });
+
+
+test('text and native post mentions use supplied names without exposing transport placeholders or IDs', () => {
+  const mentions = [{ key: '@_user_2', id: 'ou_alex', name: 'Alex' }];
+  const row = (id: string, msg_type: string, body: unknown) => ({ message_id: id, chat_id: 'group', create_time: '1000', sender: { sender_type: 'user' }, msg_type, body: { content: JSON.stringify(body) }, mentions });
+  const context = formatContext([
+    row('text', 'text', { text: '@_user_2 and @_user_3' }),
+    row('post', 'post', { content: [[{ tag: 'at', user_id: 'ou_alex' }, { tag: 'text', text: ' / ' }, { tag: 'at', user_id: 'ou_unknown' }, { tag: 'text', text: ' / ' }, { tag: 'at' }]] }),
+  ], 'group', 'trigger', 2000, 5);
+  assert.equal(context.messages.find(x => x.type === 'text')!.text, '@Alex and @成员（身份未知）');
+  assert.equal(context.messages.find(x => x.type === 'post')!.text, '@Alex / @成员（身份未知） / @成员（身份未知）');
+  assert.ok(!JSON.stringify(context).includes('ou_'));
+  assert.ok(!JSON.stringify(context).includes('@_user_'));
+});
+
+test('explicit quoted bot reply is fetched with history enabled, prioritized, deduplicated and bounded', async t => {
+  const adapter = new Feishu({ appId: 'test-app', appSecret: 'test-secret' }); t.after(() => adapter.close());
+  const cutoff = 1800000000000;
+  const row = (id: string, type = 'user', time = cutoff - 1) => ({ message_id: id, chat_id: 'group', create_time: String(time), sender: { sender_type: type }, msg_type: 'text', body: { content: JSON.stringify({ text: id }) } });
+  let gets = 0, lists = 0;
+  Object.assign(adapter, { client: { im: { v1: { message: {
+    get: async () => { gets++; return { code: 0, data: { items: [row('quote', 'app', cutoff - 86400001)] } }; },
+    list: async () => { lists++; return { code: 0, data: { items: [row('quote', 'app'), row('newest'), row('older', 'user', cutoff - 2), row('unrelated-bot', 'app')] } }; },
+  } } } } });
+  const session = { id: 'session', owner: 'owner', tenant: 'tenant', user: 'user', chat: 'group', project: '$chat', directory: 'directory', thread: null };
+  const source = { id: 'trigger', chatType: 'group' as const, createTime: String(cutoff), parentId: 'quote' };
+  const context = await adapter.context(session, source, 2);
+  assert.equal(gets, 1); assert.equal(lists, 1);
+  assert.deepEqual(context.messages.map(x => [x.text, x.quoted ?? false]), [['quote', true], ['newest', false]]);
+  const one = await adapter.context(session, source, 1);
+  assert.equal(one.messages.length, 1); assert.equal(one.messages[0]!.quoted, true);
+  const onlyQuote = await adapter.context(session, source, 0);
+  assert.equal(onlyQuote.messages.length, 1); assert.equal(onlyQuote.messages[0]!.quoted, true); assert.equal(lists, 2);
+});
+
+test('quote and history failures are isolated and mismatched quote records cannot become reference material', async t => {
+  const adapter = new Feishu({ appId: 'test-app', appSecret: 'test-secret' }); t.after(() => adapter.close());
+  const session = { id: 'session', owner: 'owner', tenant: 'tenant', user: 'user', chat: 'group', project: '$chat', directory: 'directory', thread: null };
+  const source = { id: 'trigger', chatType: 'group' as const, createTime: '2000', parentId: 'quote' };
+  const row = (id: string, chat = 'group') => ({ message_id: id, chat_id: chat, create_time: '1000', sender: { sender_type: 'user' }, msg_type: 'text', body: { content: JSON.stringify({ text: id }) } });
+  const client = (get: unknown, list: unknown) => ({ im: { v1: { message: { get, list } } } });
+  Object.assign(adapter, { client: client(async () => ({ code: 0, data: { items: [row('quote')] } }), async () => ({ code: 230027 })) });
+  const quote = await adapter.context(session, source, 20);
+  assert.equal(quote.messages[0]!.quoted, true); assert.match(quote.note, /权限尚未开通/);
+  Object.assign(adapter, { client: client(async () => { throw new Error('Private API error'); }, async () => ({ code: 0, data: { items: [row('history')] } })) });
+  const partial = await adapter.context(session, source, 20);
+  assert.deepEqual(partial.messages.map(x => x.text), ['history']); assert.match(partial.note, /未能读取用户引用/);
+  assert.ok(!JSON.stringify(partial).includes('Private API error'));
+  for (const items of [[row('wrong')], [row('quote', 'other-chat')]]) {
+    Object.assign(adapter, { client: client(async () => ({ code: 0, data: { items } }), async () => ({ code: 0, data: { items: [row('history')] } })) });
+    const context = await adapter.context(session, source, 20);
+    assert.deepEqual(context.messages.map(x => x.text), ['history']); assert.match(context.note, /引用的消息不可用/);
+    assert.ok(!context.messages.some(x => x.quoted));
+  }
+});
+
+
+test('latest clarification quote has its own cutoff while original history and combined record budget remain unchanged', async t => {
+  const adapter = new Feishu({ appId: 'test-app', appSecret: 'test-secret' }); t.after(() => adapter.close());
+  const session = { id: 'session', owner: 'owner', tenant: 'tenant', user: 'user', chat: 'group', project: '$chat', directory: 'directory', thread: null };
+  const source = { id: 'original', chatType: 'group' as const, createTime: '2000', parentId: 'old-quote', clarification: { id: 'reply', createTime: '4000', parentId: 'new-quote' } };
+  const row = (id: string, time: string) => ({ message_id: id, chat_id: 'group', create_time: time, sender: { sender_type: 'user' }, msg_type: 'text', body: { content: JSON.stringify({ text: id }) } });
+  const historyRequests: { params: { end_time: string } }[] = [];
+  Object.assign(adapter, { client: { im: { v1: { message: {
+    get: async ({ path }: { path: { message_id: string } }) => ({ code: 0, data: { items: [row(path.message_id, path.message_id === 'new-quote' ? '3000' : '1000')] } }),
+    list: async (request: { params: { end_time: string } }) => { historyRequests.push(request); return { code: 0, data: { items: [row('history', '1500'), row('after-original', '3500')] } }; },
+  } } } } });
+  const both = await adapter.context(session, source, 0);
+  assert.deepEqual(both.messages.map(x => [x.text, x.quoted]), [['new-quote', true], ['old-quote', true]]);
+  assert.equal(historyRequests.length, 0);
+  const one = await adapter.context(session, source, 1);
+  assert.deepEqual(one.messages.map(x => x.text), ['new-quote']);
+  const full = await adapter.context(session, source, 3);
+  assert.deepEqual(full.messages.map(x => x.text), ['new-quote', 'old-quote', 'history']);
+  assert.ok(historyRequests.every(x => x.params.end_time === '3'));
+});

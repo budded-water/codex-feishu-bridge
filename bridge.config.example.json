@@ -17,5 +17,6 @@
   ],
   "approvalChat": "oc_your_owner_private_chat_id",
   "groupContextMessages": 0,
-  "groupContextImages": 0
+  "groupContextImages": 0,
+  "projectRouting": "automatic"
 }

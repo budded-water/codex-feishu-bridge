@@ -9,6 +9,30 @@ import { State } from '../src/state.js';
 import { Outbox } from '../src/outbox.js';
 import { message } from './helpers.js';
 
+test('routing clarification and diagnostics survive reopen without replaying handed-off work', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'routing-state-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let state = new State(directory);
+  const actor = message('Query users'); const first = state.select(actor, '$chat', directory);
+  state.setRouting(first.owner, 'router-thread', 'Query users', { id: 'original-message', chatType: 'group', parentId: 'quoted', createTime: '1000' });
+  state.close(); state = new State(directory);
+  assert.deepEqual({ ...state.routing(first.owner) }, { thread: 'router-thread', pending: 'Query users', source: { id: 'original-message', chatType: 'group', parentId: 'quoted', createTime: '1000' } });
+  const task = state.enqueue(first.id, actor.text);
+  state.taskStatus(task.id, 'running');
+  state.diagnostic(task.id, 'Bridge rejected unsupported/toolApproval');
+  const target = state.select(actor, 'alpha', directory);
+  state.transaction(() => {
+    state.clearPending(first.owner);
+    state.routeTask(task.id, target.id, 'Query users\nUser clarified alpha');
+  });
+  state.close(); state = new State(directory);
+  assert.deepEqual({ ...state.routing(first.owner) }, { thread: 'router-thread', pending: null });
+  assert.equal(Boolean(state.queued(directory)!.routed), true);
+  assert.match(state.latestDiagnostic(target.id)!, /Bridge rejected/);
+  assert.equal(state.routing(JSON.stringify(['tenant', 'different-user', 'chat'])), undefined);
+  assert.equal(state.recover(), 1); assert.equal(state.queued(directory), undefined);
+  state.close();
+});
+
 test('restart preserves threads and deduplication while stopping unfinished work exactly once', t => {
   const directory = mkdtempSync(join(tmpdir(), 'codex-state-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -180,4 +204,20 @@ test('known secrets crossing reply boundaries are redacted before persistence an
   assert.equal(sent.filter(text => text.startsWith('a') || text.startsWith('z')).join(''), 'a'.repeat(2470) + '[redacted]' + 'z'.repeat(100));
   assert.ok(!sent.join('').includes(secret));
   assert.ok(sent.includes('Received [redacted]'));
+});
+
+test('recovery invalidates interrupted classification authority but preserves idle owner clarification', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'routing-recover-')); t.after(() => rmSync(directory,{recursive:true,force:true}));
+  let state = new State(directory); const actor = message('Modify obsolete files'); const session = state.select(actor,'alpha',directory);
+  const idle = state.select(message('Idle',{user:'ou_idle'}),'beta',directory);
+  const source = {id:'first-request',chatType:'group' as const,parentId:'quoted-error'};
+  state.setRouting(session.owner,'interrupted-router',actor.text,source);
+  state.setRouting(idle.owner,'idle-router','Idle request',source);
+  const task = state.enqueue(session.id,'beta, only inspect; do not modify',source,session.id,state.selectionRevision(session.owner));
+  state.taskStatus(task.id,'running','interrupted-turn');
+  state.close(); state = new State(directory);
+  assert.equal(state.recover(),1);
+  assert.equal(state.routing(session.owner)!.pending,null); assert.equal(state.routing(session.owner)!.source,undefined);
+  assert.equal(state.routing(idle.owner)!.pending,'Idle request'); assert.deepEqual(state.routing(idle.owner)!.source,source);
+  assert.equal(state.queued(directory),undefined); state.close();
 });
