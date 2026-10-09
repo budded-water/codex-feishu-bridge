@@ -165,3 +165,23 @@ test('explicit registered project labels skip the classifier without letting an 
  h.codex.complete(old.threadId,old.turnId,'completed',JSON.stringify({kind:'project',project:'alpha',text:'',continuePending:false}));await until(()=>h.turns().length===3);
  assert.equal(h.state.selected(message(''))!.project,'beta');assert.equal(h.turns()[2]!.params.cwd,h.config.projects.alpha);
 });
+
+test('pausing a routed task clears its execution queue, not the project selected before handoff', async t => {
+ const h=setup();t.after(h.close);h.config.projectRouting='automatic';h.deliveries();
+ const original=message('Work beta');h.bridge.receive(original);await until(()=>h.turns().length===1);const router=h.current();h.codex.complete(router.threadId,router.turnId,'completed',JSON.stringify({kind:'project',project:'beta',text:'',continuePending:false}));await until(()=>h.turns().length===2);
+ const beta=h.state.selected(message(''))!;
+ h.state.enqueue(beta.id,'Beta queued',{id:'om_beta_queued'},beta.id,undefined,true);
+ h.state.enqueue(h.session.id,'Alpha queued',{id:'om_alpha_queued'},h.session.id,undefined,true);
+ h.bridge.receive(message('先停一下',{parentId:original.id}));
+ assert.ok(!h.state.status(beta.id).some(x=>x.status==='queued'));
+ assert.ok(h.state.status(h.session.id).some(x=>x.status==='queued'));
+});
+
+test('quoted and explicit same-project classification supplements are never queued behind an unconstrained handoff', async t => {
+ const h=setup();t.after(h.close);h.config.projectRouting='automatic';h.deliveries();
+ const original=message('Work alpha');h.bridge.receive(original);await until(()=>h.turns().length===1);const router=h.current();
+ h.bridge.receive(message('补充：alpha 只读，不要修改',{parentId:original.id}));await until(()=>h.codex.calls.some(x=>x.method==='turn/steer'));
+ assert.equal(h.turns().length,1);assert.ok(!h.state.status(h.session.id).some(x=>x.status==='queued'));
+ h.codex.complete(router.threadId,router.turnId,'completed',JSON.stringify({kind:'project',project:'alpha',text:'',continuePending:false}));await until(()=>h.turns().length===2);
+ assert.match(JSON.stringify(h.turns()[1]!.params.input),/只读，不要修改/);
+});

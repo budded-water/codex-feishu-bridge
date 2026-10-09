@@ -178,10 +178,11 @@ export class Bridge {
         const owned = [...this.active.values()].filter(item => !item.done && item.session.owner === ownerKey(message));
         const reference = message.parentId ? this.state.referencedTask(message.parentId,ownerKey(message)) : undefined;
         const target = message.parentId ? owned.find(item=>item.task.id===reference) : owned.length===1 ? owned[0] : undefined;
-        const otherProject = intent === 'steer' && target && Object.keys(this.config.projects).some(alias=>alias !== target.session.project && text.includes(alias));
+        const explicitConstraint = /^(?:补充(?:一下|要求)?|更正)[：:\s]|^(?:先)?(?:别|不要)(?:改|修改|写|提交|发布)/.test(text);
+        const otherProject = intent === 'steer' && target && !target.routing && !message.parentId && !explicitConstraint && Object.keys(this.config.projects).some(alias=>alias !== target.session.project && text.includes(alias));
         if (target && !otherProject) {
           if (intent === 'stop' && /^(?:先)?停一下|^别继续了|^不要继续了/.test(text)) {
-            const count = this.state.cancelSessionQueued(target.task.routingOrigin ?? target.session.id);
+            const count = this.state.cancelSessionQueued(target.routing ? target.task.routingOrigin ?? target.session.id : target.session.id);
             if (count) target.routingAbort = `已停止当前任务，并取消后面的 ${count} 个排队请求。已经执行的操作不会自动撤回。`;
           }
           after = () => { void this.control(message,target.session,intent === 'stop' ? '/stop' : '/补充',text,target).catch(()=>{ if (!this.closed) this.state.send(message.chat,'补充或停止请求尚未确认，请查看 /status。',{replyTo:message.id}); }); }; return;
@@ -207,7 +208,7 @@ export class Bridge {
       const entry = alias ? this.state.select(message,alias,this.config.projects[alias]!) : this.config.projectRouting === 'automatic' ? this.state.select(message, '$chat', this.chatDirectory(message), false, false) : session;
       if (alias) this.state.clearPending(entry.owner);
       const queued = Boolean(this.active.get(entry.directory) || this.state.queued(entry.directory));
-      const task = this.state.enqueue(entry.id, text, { id: message.id, chatType: message.chatType, createTime: message.createTime, parentId: message.parentId }, this.config.projectRouting === 'automatic' ? session.id : undefined, this.config.projectRouting === 'automatic' ? this.state.selectionRevision(session.owner) : undefined,direct);
+      const task = this.state.enqueue(entry.id, text, { id: message.id, chatType: message.chatType, createTime: message.createTime, parentId: message.parentId }, this.config.projectRouting === 'automatic' && !direct ? session.id : undefined, this.config.projectRouting === 'automatic' ? this.state.selectionRevision(session.owner) : undefined,direct);
       if (queued) this.state.sendStatus(task.id, message.chat, '收到，这个新请求已排队。若要修改正在做的任务，请引用原提问发送“补充：…”；停止可说“先停一下”。');
       after = () => { this.kick(); };
     });
@@ -567,7 +568,7 @@ export class Bridge {
     if (approval) {
       const network = record(rpc.params.networkApprovalContext);
       const description = rpc.method.includes('commandExecution')
-        ? network.host ? `网络访问：${string(network.protocol)} ${string(network.host)}` : string(rpc.params.command)
+        ? [string(rpc.params.command),network.host ? `网络访问：${string(network.protocol)} ${string(network.host)}` : ''].filter(Boolean).join('\n')
         : `${active.changes.get(string(rpc.params.itemId)) ?? ''}${rpc.params.grantRoot ? `\n会话写入根目录：${string(rpc.params.grantRoot)}` : ''}`;
       const preview = fencedPreview(description);
       if (!description.trim() || !preview) {
