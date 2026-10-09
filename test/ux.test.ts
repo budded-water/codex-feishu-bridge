@@ -185,3 +185,21 @@ test('quoted and explicit same-project classification supplements are never queu
  h.codex.complete(router.threadId,router.turnId,'completed',JSON.stringify({kind:'project',project:'alpha',text:'',continuePending:false}));await until(()=>h.turns().length===2);
  assert.match(JSON.stringify(h.turns()[1]!.params.input),/只读，不要修改/);
 });
+
+
+test('an uncertain execution blocks pre-existing classifier handoffs to the same directory', async t => {
+ const h=setup();t.after(h.close);h.config.projectRouting='automatic';h.deliveries();
+ const first=message('alpha: Work');h.bridge.receive(first);await until(()=>h.turns().length===1);
+ h.bridge.receive(message('Another alpha request'));await until(()=>h.turns().length===2);const router=h.current();
+ const request=h.codex.request.bind(h.codex);h.codex.request=async <T>(method:string,params:unknown):Promise<T>=>{if(method==='turn/interrupt')throw new Error('unconfirmed stop');return request<T>(method,params);};
+ h.bridge.receive(message('停止当前任务',{parentId:first.id}));await until(()=>h.state.status(h.session.id).some(x=>x.status==='unknown'));
+ h.codex.complete(router.threadId,router.turnId,'completed',JSON.stringify({kind:'project',project:'alpha',text:'',continuePending:false}));await new Promise<void>(resolve=>setImmediate(resolve));
+ assert.equal(h.turns().length,2);assert.match(h.deliveries().join(''),/先核对本机结果/);assert.ok(!h.state.directories().length);
+});
+
+test('simplified question answers preserve newlines and leading code indentation', async t => {
+ const h=setup();t.after(h.close);h.deliveries();h.bridge.receive(message('Work'));await until(()=>h.turns().length===1);
+ h.codex.ask('question','item/tool/requestUserInput',{...h.current(),questions:[{id:'internal-id',question:'Provide code'}]});const token=h.deliveries().join('').match(/问题 ([a-f0-9]{8})/)![1]!;
+ const answer='\n    first()\n    second()';h.bridge.receive(message(`/回答 ${token} ${answer}`));
+ assert.deepEqual(h.codex.replies.at(-1),{id:'question',result:{answers:{'internal-id':{answers:[answer]}}}});
+});

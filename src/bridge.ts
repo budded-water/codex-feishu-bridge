@@ -327,6 +327,11 @@ export class Bridge {
       const project = decision.kind === 'answer' ? '$chat' : decision.project!;
       const directory = project === '$chat' ? this.chatDirectory(active.session) : this.config.projects[project]!;
       if (realpathSync(directory) !== directory) throw new Error('Project directory changed');
+      if (this.state.uncertainHandoff(active.task.id,directory)) {
+        this.state.clearPending(active.session.owner);
+        this.complete(active,'interrupted','同一项目的前一个操作结果尚未确认，这个请求已停止。请先核对本机结果，再发起新的请求。');
+        return;
+      }
       this.state.transaction(() => {
         const busy = this.active.get(directory);
         const queued = Boolean((busy && busy !== active) || this.state.queued(directory));
@@ -627,7 +632,7 @@ export class Bridge {
       return;
     }
     if (command === '/回答') {
-      if (prompt.kind === 'question' && question !== prompt.questions[0]) answer = argument.replace(/^\s*\S+\s*/, '');
+      if (prompt.kind === 'question' && question !== prompt.questions[0]) answer = argument.replace(/^\s*\S+(?:\r?\n|[ \t])/, '');
       if (prompt.kind !== 'question' || !answer.trim()) {
         this.state.send(message.chat, '请使用 /回答 编号 内容，或 /拒绝 编号。'); return;
       }

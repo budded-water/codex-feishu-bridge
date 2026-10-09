@@ -198,6 +198,12 @@ export class State {
     this.db.prepare('UPDATE tasks SET status=?, turn=COALESCE(?, turn), finished_at=CASE WHEN ? THEN COALESCE(finished_at,?) ELSE finished_at END WHERE id=?').run(status, turn, !['queued','running'].includes(status) ? 1 : 0, Date.now(), id);
   }
 
+  uncertainHandoff(task: string, directory: string): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 FROM tasks prior JOIN sessions ON sessions.id=prior.session
+      JOIN tasks incoming ON incoming.id=? WHERE sessions.directory=? AND prior.status='unknown'
+      AND prior.finished_at IS NOT NULL AND incoming.created_at <= prior.finished_at LIMIT 1`).get(task,directory));
+  }
+
   phase(task: string, phase: 'routing' | 'execution'): void {
     const field = phase === 'routing' ? 'routing_at' : 'execution_at';
     this.db.prepare(`UPDATE tasks SET ${field}=COALESCE(${field},?) WHERE id=?`).run(Date.now(),task);
