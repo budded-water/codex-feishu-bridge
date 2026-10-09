@@ -632,7 +632,7 @@ export class Bridge {
       return;
     }
     if (command === '/回答') {
-      if (prompt.kind === 'question' && question !== prompt.questions[0]) answer = argument.replace(/^\s*\S+(?:\r?\n|[ \t])/, '');
+      if (prompt.kind === 'question' && question !== prompt.questions[0]) answer = argument.match(/^\s*\S+(?:\r?\n|[ \t])([\s\S]*)$/)?.[1] ?? '';
       if (prompt.kind !== 'question' || !answer.trim()) {
         this.state.send(message.chat, '请使用 /回答 编号 内容，或 /拒绝 编号。'); return;
       }

@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { loadConfig } from '../src/config.js';
-const file = join(loadConfig().stateDirectory,'bridge.db');
+const file = join(loadConfig(process.env.BRIDGE_CONFIG ?? 'bridge.config.json').stateDirectory,'bridge.db');
 if (!existsSync(file)) { console.log('尚无运行数据；启动新版本后再查看。'); process.exit(0); }
 const db = new DatabaseSync(file,{readOnly:true});
 try {

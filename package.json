@@ -19,7 +19,7 @@
     "protocol:generate": "node scripts/generate-protocol.mjs",
     "service:print": "node scripts/launchd.mjs",
     "verify:routing": "node --import tsx scripts/verify-routing.ts",
-    "metrics": "node --import tsx scripts/metrics.ts"
+    "metrics": "node --env-file-if-exists=.env --import tsx scripts/metrics.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.74.0",

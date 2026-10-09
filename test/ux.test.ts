@@ -213,3 +213,12 @@ test('deleted reply HTTP errors prefer the Feishu business code over Axios trans
  }
  assert.equal(creates.length,2);assert.ok(creates.every(x=>record(record(x).data).uuid==='stable-uuid'));
 });
+
+
+test('question replies with no answer leave the prompt pending and accept a later answer', async t => {
+ const h=setup();t.after(h.close);h.deliveries();h.bridge.receive(message('Work'));await until(()=>h.turns().length===1);
+ h.codex.ask('question','item/tool/requestUserInput',{...h.current(),questions:[{id:'internal-id',question:'Provide answer'}]});const token=h.deliveries().join('').match(/问题 ([a-f0-9]{8})/)![1]!;
+ for(const text of [`/回答 ${token}`,`/回答 ${token} `,`/回答 ${token}\n   `])h.bridge.receive(message(text));
+ assert.equal(h.codex.replies.length,0);assert.match(h.deliveries().join(''),/请使用/);
+ h.bridge.receive(message(`/回答 ${token} confirmed`));assert.deepEqual(h.codex.replies.at(-1),{id:'question',result:{answers:{'internal-id':{answers:['confirmed']}}}});
+});
