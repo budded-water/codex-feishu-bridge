@@ -8,7 +8,7 @@ The workspace guard serializes requests mentioning different repositories as wel
 
 The shared Bridge selects the configured workspace for an owner without a workspace session. Workspace requests skip the tool-disabled project classifier. Native start and resume both receive general-workspace instructions. Project commands explain how to state the task target in this mode, and status identifies the general workspace. Automatic and manual workflows retain their existing behavior.
 
-The P1 runner retains the workspace mode when constructing its per-execution Bridge. Its request/conversation identity, default cwd, source assignment and canonical guard continue to use the configured workspace. Conversation references and controls follow the existing execution-ID contracts.
+P1 admission and the assigned runner receive the validated routing mode. Workspace admission preserves the full literal request, including a configured-alias prefix, through persistence and native input. The runner retains workspace mode when constructing its per-execution Bridge. Its request/conversation identity, default cwd, source assignment and canonical guard continue to use the configured workspace. Conversation references and controls follow the existing execution-ID contracts.
 
 ## Rollout
 

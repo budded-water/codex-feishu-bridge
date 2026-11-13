@@ -23,7 +23,7 @@ class ManagedFake extends FakeCodex implements ManagedCodex {
   async close() { this.closes++; await this.exitGate; this.exit(); }
 }
 
-function setup(t: TestContext) {
+function setup(t: TestContext, projectRouting: Config['projectRouting'] = 'manual') {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'native-assignment-test-')));
   const project = join(root, 'project'); mkdirSync(project);
   const state = join(root, 'admission');
@@ -31,8 +31,8 @@ function setup(t: TestContext) {
     pilot: 'pilot', hubInstance: 'hub', source: 'fixture', rule: 'pilot', agent: 'native', agentUse: 'bridge-native' };
   const config: Config = { allowedUsers: ['ou_owner', 'ou_admin'], accessMode: 'allowlist', allowedTenant: 'tenant', enableGroups: false,
     groupContextMessages: 0, groupContextImages: 0, approvalUsers: ['ou_admin'], approvalChat: 'admin-chat', codexExecutable: 'codex',
-    stateDirectory: state, approvalTimeoutSeconds: 300, projects: { pilot: project }, projectRouting: 'manual' };
-  const gateway = new PilotAdmission(state, scope);
+    stateDirectory: state, approvalTimeoutSeconds: 300, projects: { pilot: project }, projectRouting };
+  const gateway = new PilotAdmission(state, scope, config.projectRouting);
   const opened = [gateway];
   const actor = (text: string) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text });
   const accept = (input = 'Work') => {
@@ -42,7 +42,7 @@ function setup(t: TestContext) {
     if (grant.kind !== 'start') throw new Error('Missing grant');
     return grant;
   };
-  const reopen = () => { const next = new PilotAdmission(state, scope); opened.push(next); return next; };
+  const reopen = () => { const next = new PilotAdmission(state, scope, config.projectRouting); opened.push(next); return next; };
   t.after(() => { for (const item of opened) item.close(); rmSync(root, { recursive: true, force: true }); });
   return { root, state, scope, config, gateway, actor, accept, reopen };
 }
@@ -200,12 +200,16 @@ test('assigned execution preserves disabled group access before creating a nativ
 });
 
 test('assigned workspace execution preserves general instructions, scoped controls and uncertain guard ownership', async t => {
-  const h = setup(t); h.config.projectRouting = 'workspace';
-  const grant = h.accept('Review a task target identified in this request');
+  const h = setup(t, 'workspace');
+  const input = 'pilot: Review a task target identified in this request\n  Keep this literal prefix and indentation';
+  const grant = h.accept(input);
+  assert.equal(grant.request.input, input);
+  assert.equal(h.reopen().store.request(grant.request.id)!.input, input);
   const client = new ManagedFake(); const runtime = new NativeExecutions(h.gateway, h.config, () => client);
   t.after(() => runtime.stop());
   const running = runtime.run(grant.permit); const turn = await active(client);
   const start = client.calls.find(call => call.method === 'thread/start')!.params;
+  assert.deepEqual(client.calls.find(call => call.method === 'turn/start')!.params.input, [{ type: 'text', text: input, text_elements: [] }]);
   assert.ok(String(start.developerInstructions).includes('当前为通用工作区模式'));
   assert.ok(!String(start.developerInstructions).includes('availableProjects'));
   assert.equal(start.cwd, h.gateway.directory);

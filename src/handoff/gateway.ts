@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import type { Config } from '../config.js';
 import { record, type IncomingMessage } from '../types.js';
 import { AdmissionStore, type Permit } from './store.js';
 
@@ -28,7 +29,7 @@ export class PilotAdmission {
   readonly scope: Readonly<PilotScope>;
   readonly stateDirectory: string;
 
-  constructor(directory: string, scope: PilotScope) {
+  constructor(directory: string, scope: PilotScope, private readonly projectRouting: Config['projectRouting'] = 'manual') {
     for (const value of [scope.installation, scope.tenant, scope.operator, scope.chat, scope.pilot, scope.hubInstance, scope.source, scope.rule, scope.agent, scope.agentUse]) {
       if (typeof value !== 'string' || !value.trim() || value.length > 200) throw new Error('Invalid pilot scope');
     }
@@ -60,7 +61,7 @@ export class PilotAdmission {
     if (realpathSync(this.scope.projects[this.scope.pilot]!) !== this.directory) throw new Error('Pilot directory changed');
     let input = message.text;
     const prefix = /^([^\s:：]+)[:：]\s*([\s\S]+)$/.exec(text);
-    if (prefix && Object.hasOwn(this.scope.projects, prefix[1]!)) {
+    if (this.projectRouting !== 'workspace' && prefix && Object.hasOwn(this.scope.projects, prefix[1]!)) {
       if (realpathSync(this.scope.projects[prefix[1]!]!) !== this.directory) return { status: 'rejected', reason: 'outside_pilot' };
       input = prefix[2]!;
     }

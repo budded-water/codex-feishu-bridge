@@ -26,6 +26,11 @@ Workspace mode SHALL execute an authorized ordinary request in the owner's works
 - **THEN** it SHALL preserve that mode in the native instructions and status
 - **AND** live controls, approval ownership and uncertain outcomes SHALL follow their existing contracts
 
+#### Scenario: A request contains a configured alias prefix
+- **WHEN** a workspace request starts with a configured alias and a colon
+- **THEN** admission SHALL preserve the full literal request through persistence and native input
+- **AND** it SHALL NOT interpret the prefix as project selection
+
 ### Requirement: Workspace status and guidance
 Workspace status and guidance SHALL identify the general workspace and tell the user to state the task and its target.
 

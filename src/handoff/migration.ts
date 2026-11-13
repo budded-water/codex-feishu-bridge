@@ -120,7 +120,7 @@ function checkLegacy(path: string): void {
 }
 
 function seedPilot(plan: MigrationPlan, source: string, temporary: string, operation: string): void {
-  const admission = new PilotAdmission(temporary, plan.scope);
+  const admission = new PilotAdmission(temporary, plan.scope, plan.config.projectRouting);
   try {
     admission.store.bindChannel('feishu', plan.botOpenId);
     database(source, false, db => {
@@ -212,7 +212,7 @@ export async function stageHandoff(plan: MigrationPlan) {
 }
 
 async function checkPilot(plan: MigrationPlan): Promise<void> {
-  const admission = new PilotAdmission(plan.pilotDirectory, plan.scope);
+  const admission = new PilotAdmission(plan.pilotDirectory, plan.scope, plan.config.projectRouting);
   const transport = new State(join(plan.pilotDirectory, 'transport'));
   try {
     const status = admission.store.drainStatus();

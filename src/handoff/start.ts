@@ -50,7 +50,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       });
       if (stopping) return;
       verifyImportedState(directory, readFence(lease.root)!.operation);
-      admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope);
+      admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope, config.projectRouting);
       native = new NativeExecutions(admission, config);
       const source = new SourceOutbox(admission, new AutoloopSource(hubUrl, sourceKey));
       interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu);

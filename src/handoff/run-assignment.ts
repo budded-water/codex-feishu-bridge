@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     if (owner?.role !== 'pilot' || owner.data !== realpathSync(value.stateDirectory)) throw new Error('Worker no longer owns pilot state');
     verifyImportedState(owner.data, owner.operation);
   }
-  const gateway = new PilotAdmission(value.stateDirectory, record(value.scope) as unknown as PilotScope);
+  const gateway = new PilotAdmission(value.stateDirectory, record(value.scope) as unknown as PilotScope, config.projectRouting);
   let runtime: NativeExecutions | undefined;
   let progress: NodeJS.Timeout | undefined;
   let probing = false;

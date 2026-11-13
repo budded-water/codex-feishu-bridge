@@ -74,7 +74,7 @@ try {
   writeFileSync(privateConfig, JSON.stringify({ scope, stateDirectory: state, bridgeConfig, hubUrl: url }));
   Object.assign(env, { HANDOFF_CONFIG: privateConfig, HANDOFF_SOURCE_KEY: sourceKey,
     HANDOFF_CODEX_PREFIX: native ? '[]' : JSON.stringify([join(root, 'test/fixtures/codex-probe.mjs'), auditFile]) });
-  admission = new PilotAdmission(state, scope);
+  admission = new PilotAdmission(state, scope, loadConfig(bridgeConfig).projectRouting);
   const ingress = new FeishuAdmission(admission, 'ou_fixture_bot');
   const outbox = new SourceOutbox(admission, new AutoloopSource(url, sourceKey));
   runtime = new NativeExecutions(admission, loadConfig(bridgeConfig));
@@ -138,8 +138,10 @@ try {
     } finally { await reader.close(); }
     console.log('PASS: stored native history confirms two turns in one conversation with no tool execution items');
   } else {
-    const first = await submit('first', 'case-hold');
+    const first = await submit('first', 'pilot: case-hold');
+    assert.equal(first.input, 'pilot: case-hold');
     await until('active native owner', () => inspect(first));
+    assert.equal(audit().find(item => item.event === 'turn/start').text, first.input);
     assert.equal((await runtime.recover())[0].status, 'live');
     await stopUp('SIGKILL');
     assert.equal((await runtime.recover())[0].status, 'live');
