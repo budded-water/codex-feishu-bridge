@@ -186,6 +186,11 @@ export class State {
       .all() as { directory: string }[]).map(row => row.directory);
   }
 
+  executionForTrigger(message: string, owner: string): { id: string; status: string; thread: string | null; turn: string | null; directory: string } | undefined {
+    return this.db.prepare('SELECT tasks.id, tasks.status, sessions.thread, tasks.turn, sessions.directory FROM tasks JOIN sessions ON sessions.id=tasks.session WHERE tasks.trigger_message=? AND sessions.owner=? ORDER BY tasks.sequence DESC LIMIT 1')
+      .get(message, owner) as { id: string; status: string; thread: string | null; turn: string | null; directory: string } | undefined;
+  }
+
   status(session: string): { status: string; count: number }[] {
     return this.db.prepare('SELECT status, COUNT(*) AS count FROM tasks WHERE ((routing_origin IS NULL OR routed=1) AND session=?) OR (routed=0 AND routing_origin=?) GROUP BY status').all(session, session) as unknown as { status: string; count: number }[];
   }

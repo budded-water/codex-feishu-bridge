@@ -10,6 +10,10 @@ The team text-chat bridge is implemented. Automated checks and a real local Code
 | Interactive requests | Designated administrator chat, deciding-actor audit, correlated command/file approvals, timeout denial, stale invalidation, single-question replies, unsupported-request denial. | Live rejection and approval under the actual local policy. |
 | Host operation | Clean shutdown, heartbeat lock, bounded restart, doctor, challenge enrollment, and launchd generation. Owner foreground connection observed; owner-authorized service installation, background connection, state-lock heartbeat and a clean-exit launchd restart verified. See live acceptance for the private deployment evidence. | Subsequent login exercise and a fresh task round trip through the background instance. |
 
+## Agent-system milestones
+
+The [agent system plan](agent-system-plan.md) records the P0-P4 direction. The [P0 probe](autoloop-p0.md) implements version alignment and an isolated pinned Hub/Worker/plugin/native executor path, reusing Bridge/State. Required checks, protocol smoke, scripted recovery/interaction tests and bounded real-model continuation have passed; see [dated evidence](live-acceptance.md). Live-model approvals, steering and process-loss acceptance remain pending. The next step is a separate P1 handoff design, not production cutover. Existing deployed-bot gaps above remain applicable.
+
 ## Sharing and onboarding
 
 The public README and Chinese deployment/usage guides describe independent installations and colleagues using an existing host separately. All config fields/defaults, personal/team examples, protocol-version installation, enrollment/subscription order, feature/tool boundaries, identities, troubleshooting and update/service paths are documented. The initial implementation was merged through PR #1. Standard download instructions now use main; testing an unmerged follow-up PR requires selecting that PR branch. No runtime behavior or private deployment configuration is changed by this documentation work. New hosts still need their own real acceptance.

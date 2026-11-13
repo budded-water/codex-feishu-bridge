@@ -80,6 +80,7 @@ flowchart LR
 | [常见问题](docs/troubleshooting.md) | 部署者 / 同事：不回复、读不到前文、图片、版本、授权、恢复 |
 | [运行维护](docs/operation.md) | 维护者：前台进程、macOS launchd、数据、重试、日志 |
 | [架构](docs/architecture.md) / [团队访问](docs/team-access.md) | 开发者：实现与访问控制细节 |
+| [Agent 系统方案](docs/agent-system-plan.md) / [P0 执行探针](docs/autoloop-p0.md) / [OpenSpec 工作流](openspec/README.md) | 维护者：阶段规划、已实现的隔离验证入口及证据；生产调度尚未迁移 |
 | [实施状态](docs/implementation-plan.md) / [真实验收记录](docs/live-acceptance.md) | 维护者：已实现、已观察、待验收的区别 |
 
 ## 配置与授权

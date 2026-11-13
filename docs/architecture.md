@@ -4,6 +4,10 @@ This MVP is implemented and covered by simulated behavior tests. Application set
 
 User-facing onboarding: [installation](installation.md), [configuration](configuration.md), [usage](usage.md), [tools and identities](integrations.md), and [troubleshooting](troubleshooting.md).
 
+## Proposed evolution
+
+The [agent system plan](agent-system-plan.md) records the proposed production composition. The [isolated P0 probe](autoloop-p0.md) now exercises a pinned Autoloop Hub/Worker and the existing native Bridge through a standalone plugin. It uses temporary state and a synthetic transport; the production entry point does not import it. The components below remain the production architecture. P0 does not replace its queue, activate a bot or add a permanent service.
+
 ## Goal and boundary
 
 Expose the Codex already installed on the owner's computer through a Feishu application bot for colleagues using private text or group @mentions. Keep project execution, Codex configuration, and local tools on that computer.
@@ -103,6 +107,8 @@ Retain Codex's sandbox and approval settings. The bridge must not enable unrestr
 | Host sleep or network loss | New message handling is unavailable. Running work may finish and queue its result. Do not guarantee offline replay. |
 
 Write-capable tasks must not be automatically replayed after an uncertain outcome. Reconciliation checks the project or external service's live state before continuing.
+
+A rejected or lost `turn/start` response after submission remains `unknown` even when app-server is still responsive: readiness alone cannot prove non-acceptance. Shutdown waits for observed native child exit rather than treating a sent SIGKILL as settlement. These are shared executor fixes; they do not prove rollback of external effects or termination of independently detached services.
 
 ## Public repository and private runtime state
 
