@@ -1,7 +1,6 @@
-import { chmodSync, mkdirSync, realpathSync, lstatSync } from 'node:fs';
-import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { openPrivateDatabase } from './private-database.js';
 import { splitReply } from './reply.js';
 import { ownerKey, type IncomingMessage, type Session, type Task, type DeliveryOptions } from './types.js';
 
@@ -28,20 +27,8 @@ export class State {
 
   constructor(directory: string, secrets: string[] = []) {
     this.secrets = secrets.filter(secret => secret.length > 4).sort((a, b) => b.length - a.length);
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    if (lstatSync(directory).isSymbolicLink()) throw new Error('State directory must not be a symlink');
-    chmodSync(realpathSync(directory), 0o700);
-    try {
-      if (lstatSync(join(directory, 'bridge.db')).isSymbolicLink()) throw new Error('State database must not be a symlink');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-    this.db = new DatabaseSync(join(directory, 'bridge.db'));
-    chmodSync(join(directory, 'bridge.db'), 0o600);
+    this.db = openPrivateDatabase(directory, 'bridge.db');
     this.db.exec(`
-      PRAGMA journal_mode=DELETE;
-      PRAGMA foreign_keys=ON;
-      PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS seen (tenant TEXT, id TEXT, PRIMARY KEY (tenant, id));
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, owner TEXT, tenant TEXT, user TEXT, chat TEXT,

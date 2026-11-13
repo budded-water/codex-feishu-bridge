@@ -19,7 +19,7 @@ Read docs/agent-system-plan.md and openspec/README.md before working on the prop
 
 The isolated P0 entry point is documented in docs/autoloop-p0.md. It is not imported by the production application. Its explicit verification command uses temporary state and a pinned clean upstream checkout; default mode is scripted, while --native consumes real model usage. Do not infer production policy enforcement from Autoloop access metadata or treat fixture interaction/recovery as live-model acceptance.
 
-Read openspec/changes/integrate-feishu-autoloop-handoff before P1 runtime work. Its routing feasibility command tests actual pinned Hub behavior with synthetic worker requests; it does not implement or activate gateway handoff. Keep scheduling lanes, verified conversation ownership and canonical-project guards distinct. Preserve pending P0 native acceptance and prepare migration/rollback before requesting concrete activation approval.
+Read openspec/changes/integrate-feishu-autoloop-handoff before P1 runtime work. Its verification command exercises actual pinned Hub behavior and the admission/source/guard components with synthetic execution reports. Keep scheduling lanes, verified conversation ownership and canonical-project guards distinct. Connect component evidence declarations to authenticated native owners and startup process reconciliation in the subsequent execution slice. Preserve pending P0 native acceptance and prepare migration/rollback before requesting concrete activation approval.
 
 ## Implementation boundaries
 

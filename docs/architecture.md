@@ -8,7 +8,7 @@ User-facing onboarding: [installation](installation.md), [configuration](configu
 
 The [agent system plan](agent-system-plan.md) records the proposed production composition. The [isolated P0 probe](autoloop-p0.md) now exercises a pinned Autoloop Hub/Worker and the existing native Bridge through a standalone plugin. It uses temporary state and a synthetic transport; the production entry point does not import it. The components below remain the production architecture. P0 does not replace its queue, activate a bot or add a permanent service.
 
-The proposed [P1 handoff design](../openspec/changes/integrate-feishu-autoloop-handoff/design.md) separates scheduling lanes, verified native conversations and canonical-project resources. Its model-free Hub routing check is available; its gateway/guard/control/migration contracts are not yet production runtime behavior.
+The [P1 handoff design](../openspec/changes/integrate-feishu-autoloop-handoff/design.md) separates scheduling lanes, verified native conversations and canonical-project resources. Its component entry normalizes scoped events, persists request/source intent, verifies actual Hub assignments and holds canonical-project execution guards. The explicit Hub verification exercises these components with synthetic execution reports. Native runner/control wiring, startup process reconciliation and migration remain open tasks.
 
 ## Goal and boundary
 

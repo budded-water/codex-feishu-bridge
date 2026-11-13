@@ -1,15 +1,17 @@
-// P1 feasibility only: actual pinned Hub/public HTTP; synthetic worker, no native agent or Feishu.
+// Actual pinned Hub/public HTTP with durable gateway admission and synthetic execution evidence.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pinnedSource } from './pinned-source.mjs';
+import { PilotAdmission, REQUEST_EVENT } from '../../dist/handoff/gateway.js';
+import { AutoloopSource, SourceOutbox } from '../../dist/handoff/source.js';
 
 const source = pinnedSource(process.argv[2] ?? process.env.AUTOLOOP_SOURCE);
 process.umask(0o077);
-const scratch = mkdtempSync('/tmp/bridge-handoff-routing-');
+const scratch = realpathSync(mkdtempSync('/tmp/bridge-handoff-routing-'));
 const home = join(scratch, 'home');
 const alpha = join(scratch, 'alpha');
 const beta = join(scratch, 'beta');
@@ -17,6 +19,8 @@ const env = { PATH: process.env.PATH, HOME: process.env.HOME, AGENT_AUTOLOOP_HOM
 const cli = ['--disable-warning=ExperimentalWarning', join(source, 'bin/agent-autoloop.ts')];
 let up;
 let reservation;
+let admission;
+let ackProxy;
 try {
   for (const directory of [home, alpha, beta]) mkdirSync(directory, { mode: 0o700 });
   const agent = name => ({ name, worker: 'fixture-worker', use: 'command', command: [process.execPath, '-e', 'process.exit(99)'] });
@@ -27,7 +31,7 @@ try {
     channels: {},
     rules: [
       rule('baseline', 'baseline', alpha, { resume: true }),
-      rule('alpha', 'native', alpha, { group: 'project-alpha', parallel: 1, resume: false }),
+      { ...rule('alpha', 'native', alpha, { group: 'project-alpha', parallel: 1, resume: false }), when: { source: 'fixture', types: ['request.alpha', REQUEST_EVENT] } },
       rule('alpha-alias', 'native', alpha, { group: 'project-alpha', parallel: 1, resume: false }),
       rule('beta', 'native', beta, { group: 'project-beta', parallel: 1, resume: false }),
     ],
@@ -125,6 +129,69 @@ try {
   console.log('PASS: distinct request lanes, source deduplication, lost-claim lookup and canonical project-group serialization');
   console.log('PASS: independent projects remain dispatchable; resume:false prevents scheduler session inheritance');
 
+  const posted = [];
+  let loseAcknowledgement = true;
+  ackProxy = createServer(async (incoming, response) => {
+    try {
+      const chunks = []; for await (const chunk of incoming) chunks.push(chunk);
+      const body = Buffer.concat(chunks);
+      if (incoming.method === 'POST') posted.push(JSON.parse(body.toString()));
+      const remote = await fetch(url + incoming.url, { method: incoming.method,
+        headers: { authorization: incoming.headers.authorization ?? '', 'content-type': 'application/json' },
+        ...(body.length && { body }), signal: AbortSignal.timeout(5000) });
+      const text = await remote.text();
+      if (incoming.method === 'POST' && remote.ok && loseAcknowledgement) {
+        loseAcknowledgement = false; response.writeHead(503).end('{}');
+      } else response.writeHead(remote.status).end(text);
+    } catch { response.writeHead(503).end('{}'); }
+  });
+  await new Promise((done, fail) => { ackProxy.once('error', fail); ackProxy.listen(0, '127.0.0.1', done); });
+  const scope = { installation: 'fixture-installation', botOpenId: 'ou_fixture_bot', tenant: 'fixture-tenant', operator: 'ou_fixture_owner', chat: 'fixture-chat',
+    projects: { alpha, alias: alpha, beta }, pilot: 'alpha', hubInstance: 'fixture-hub', source: 'fixture', rule: 'alpha', agent: 'native', agentUse: 'command' };
+  const sourceClient = new AutoloopSource('http://127.0.0.1:' + ackProxy.address().port, sourceKey);
+  const raw = (id, text) => ({ tenant_key: scope.tenant, sender: { sender_type: 'user', sender_id: { open_id: scope.operator } },
+    message: { message_id: id, chat_id: scope.chat, chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text }) } });
+  admission = new PilotAdmission(join(scratch, 'admission'), scope);
+  let outbox = new SourceOutbox(admission, sourceClient);
+  const accepted = admission.receive(raw('admission-first', 'Private fixture prompt'));
+  assert.equal(accepted.status, 'accepted');
+  const firstRequest = accepted.request;
+  await outbox.flush();
+  assert.equal(admission.store.submission(firstRequest.id).status, 'pending');
+  const assigned = await select();
+  const permission = await outbox.claim(assigned);
+  assert.equal(permission.kind, 'start');
+  assert.deepEqual(posted[0], posted[1]);
+  assert.equal(posted[0].id, firstRequest.id);
+  assert.ok(!JSON.stringify(posted).includes('Private fixture prompt'));
+  admission.close();
+  admission = undefined;
+  admission = new PilotAdmission(join(scratch, 'admission'), scope);
+  outbox = new SourceOutbox(admission, sourceClient);
+  assert.equal((await outbox.claim(assigned)).kind, 'existing');
+  const queued = admission.receive(raw('admission-queued', 'alias: queued work'));
+  assert.equal(queued.status, 'accepted');
+  await outbox.flush();
+  admission.uncertain(permission.permit, 'owner_unreachable');
+  await finish(assigned);
+  const queuedJob = await select();
+  assert.equal((await outbox.claim(queuedJob)).kind, 'blocked');
+  await finish(queuedJob);
+  assert.equal(admission.receive(raw('admission-later', 'alias: later work')).status, 'blocked');
+  const decision = { execution: firstRequest.execution, processSettled: true, effectsChecked: true, reference: 'Synthetic execution has no native process or external effects' };
+  admission.reconcile(raw('admission-reconcile', '/reconcile ' + firstRequest.execution), decision);
+  const remaining = admission.receive(raw('admission-remaining', 'Authorized remaining work'));
+  assert.equal(remaining.status, 'accepted');
+  await outbox.flush();
+  const remainingJob = await select();
+  const remainingPermission = await outbox.claim(remainingJob);
+  assert.equal(remainingPermission.kind, 'start');
+  admission.terminal(remainingPermission.permit, { status: 'completed', processSettled: true, reference: 'fixture/terminal' });
+  await finish(remainingJob);
+  assert.equal(admission.store.unsettled().length, 0);
+  console.log('PASS: durable admission recovers a committed source POST, binds the active Hub run and retains execution identity after reopening');
+  console.log('PASS: project uncertainty blocks queued and alias requests; scoped recovery admits a fresh request');
+
   await request('/v1/rules/alpha/pause', owner, { reason: 'Synthetic admission check' });
   const paused = await event('alpha-paused', 'alpha');
   assert.deepEqual(paused.routed, []);
@@ -133,10 +200,20 @@ try {
   assert.deepEqual(retained.runs, []);
   assert.deepEqual(retained.paused, ['alpha']);
   assert.equal((await claim(randomUUID())).job, null);
+  const skipped = admission.receive(raw('admission-skipped', 'Work while route is paused'));
+  assert.equal(skipped.status, 'accepted');
+  await outbox.flush();
+  assert.equal(admission.store.submission(skipped.request.id).status, 'blocked');
+  assert.equal(admission.store.unsettled().length, 0);
   console.log('PASS: paused source events are retained as skipped, not scheduled; source outcome exposes the distinction');
   assert.ok((await request('/v1/state')).runs.every(run => run.state === 'done'));
-  console.log('Scope: pinned Hub/public HTTP and synthetic worker only; no gateway implementation, native model, Feishu, service change or cutover.');
+  console.log('Scope: pinned Hub HTTP, durable admission/source delivery and synthetic execution reports.');
 } finally {
+  admission?.close();
+  if (ackProxy) {
+    ackProxy.closeAllConnections();
+    await new Promise(done => ackProxy.close(done));
+  }
   if (up && up.exitCode === null && up.signalCode === null) {
     const exited = new Promise(done => up.once('exit', done));
     up.kill('SIGTERM'); await exited;

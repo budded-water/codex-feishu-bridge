@@ -7,10 +7,12 @@
 
 ## 2. Durable gateway admission
 
-- [ ] 2.1 Implement verified immutable request/conversation/project identity and atomic deduplication plus source outbox; validate one request per assignment and all bound registry fields.
-- [ ] 2.2 Implement idempotent source delivery and route-outcome reconciliation, including accepted-but-unacknowledged and paused/skipped events.
+- [x] 2.1 Implement verified immutable request/conversation/project identity and atomic deduplication plus source outbox; validate one request per assignment and all bound registry fields.
+- [x] 2.2 Implement idempotent source delivery and route-outcome reconciliation, including accepted-but-unacknowledged and paused/skipped events.
 - [ ] 2.3 Implement canonical-project guards, boot reconciliation and evidence-backed explicit recovery; cover new/queued requests, aliases, process loss and card-answer bypass attempts.
-- [ ] 2.4 Add meaningful persistence/concurrency tests using actual database transitions and preserve existing transport/owner contracts.
+- [x] 2.4 Add meaningful persistence/concurrency tests using actual database transitions and preserve existing transport/owner contracts.
+
+For 2.3, persisted active/uncertain guards, queued/new/alias admission, retained-record inspection, permit-bound terminal reports and scoped evidence-backed operator recovery are implemented. Boot-time probing of actual native owners and retained execution journals remains open with task 3.4. The current integration test uses synthetic execution reports.
 
 ## 3. Assigned native execution and controls
 

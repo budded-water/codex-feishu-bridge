@@ -64,7 +64,7 @@ This separates the scheduling lane (one request), native conversation (owner/cha
 
 Before any native start/resume with tool-capable work, atomically bind the execution and acquire the canonical project guard. A duplicate assignment returns the retained outcome or attaches to the proven live owner; it never calls `turn/start` again. Missing/unreachable owner, lost start response, incomplete journal or ambiguous cancellation retains the guard as uncertain. A Worker lease expiry, Hub `done`/`cancelled`, gateway reboot or elapsed timeout cannot release it.
 
-New requests for a guarded project are recorded as blocked/refused admission, with a specific explanation. Already published requests must recheck the guard at execution admission and remain blocked without native invocation. Hub rules must not be paused as a substitute for this guard: paused source events can be recorded as skipped. A reply to an Autoloop business card does not clear the guard or approve a native RPC.
+While an execution is active, subsequent normal requests retain independent queued admission. An uncertain execution blocks new requests for that canonical project. Already published requests recheck the guard at execution admission and retain a blocked outcome. Hub pause state can record new events as skipped, so the project guard supplies the durable execution boundary. Business-card answers retain their original authority scope.
 
 Reconciliation records who inspected what evidence and the resulting decision. Confirm native/process settlement and actual project/external effects, then distinguish: retained completion; known not-started work; explicitly authorized remaining work; or unresolved uncertainty. A controlled continuation gets its own identity and authority for remaining steps. It is not a replay of the original operation. Without evidence, keep the guard held.
 
@@ -110,3 +110,11 @@ The consumer transition has an unavailable interval. Do not assume Feishu replay
 First prove the kernel configuration. Then implement durable gateway admission/project guards, the single-assignment runner boundary and correlated control/result delivery against synthetic transport. Add migration/quiesce tooling and fixture rehearsals before touching deployment. Finish pending P0 native interaction/recovery acceptance, then request activation against the concrete prepared manifest when the pilot is ready.
 
 The pilot's actual bot/chat/project and rollout window are deployment inputs, not assumptions for source development. No current implementation is blocked on those private values. Model-based multi-project routing, business follow-up scheduling and broader concurrency remain outside this pilot; do not invent compatibility switches for them now.
+
+## Implemented admission slice
+
+The [component entry](../../../src/handoff/gateway.ts), [private store](../../../src/handoff/store.ts) and [source client/outbox](../../../src/handoff/source.ts) now implement durable request identity, registered assignment validation, active-run source lookup and atomic project reservation. The shared private-database opener preserves the existing State permissions and SQLite settings.
+
+The store serializes competing reservations with `BEGIN IMMEDIATE`, re-reads canonical request state inside that transaction and returns an execution permit once. It retains active/uncertain guard ownership through database reopening. Reported terminal evidence is permit-bound and idempotent. Operator recovery records its actor, source message and evidence while retaining the historical uncertain outcome. Fresh remaining work receives a new identity.
+
+The source outbox persists the numeric Hub event ID once known. Unconfirmed publication retries the same opaque request ID with backoff. Assignment admission checks the actual source event's active run through the authenticated source API before reserving execution. Paused/unrouted events retain a visible blocked submission. Native owner authentication and evidence collection, live process inspection at startup, human result delivery and cutover are the subsequent implementation tasks.
