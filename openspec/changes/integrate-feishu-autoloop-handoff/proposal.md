@@ -2,7 +2,7 @@
 
 P0 demonstrated an isolated native executor behind the pinned Autoloop plugin boundary. Production still has a Bridge-owned queue and Feishu listener. Connecting these components without a handoff contract could merge distinct user requests, share another user's native session, replay uncertain effects or run two consumers for one bot.
 
-The next milestone is one operator chat and one registered pilot project on one host. Ordinary task text in that chat targets the configured pilot project, so it needs no model classifier or mandatory alias prefix. Requests naming unregistered/out-of-pilot projects require clarification or rejection before scheduling. Broad existing multi-project/team behavior remains in the legacy entry point until explicitly migrated; restricting an existing bot's scope requires an approved cutover plan.
+The next milestone is one operator chat and one registered pilot project on one host. Ordinary task text in that chat targets the configured pilot project. Registered alias selectors must resolve to that same canonical project. Explicit project-selection commands for unknown or out-of-pilot identifiers receive clarification or rejection before scheduling. Free-form text retains the configured pilot target. Broader multi-project/team behavior has its own migration scope and activation plan.
 
 ## What Changes
 

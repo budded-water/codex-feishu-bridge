@@ -6,7 +6,7 @@ P0's standalone runner is a starting point, not the production gateway. Its per-
 
 ## Pilot boundary
 
-One host, one bot consumer, one operator chat and one canonical registered project. A designated approval chat may be separate. Natural task text targets that pilot project; no extra classifier inference is needed. Explicit out-of-pilot projects fail admission rather than falling back to an arbitrary directory. Automatic multi-project routing is not silently advertised as supported by the pilot. An existing shared bot cannot be narrowed without an impact inventory and owner-approved activation window; an isolated test must not connect to that bot by default.
+One host, one bot consumer, one operator chat and one canonical registered project. A designated approval chat may be separate. Natural task text uses the configured pilot target. A registered alias selector must resolve to that same canonical project. Project-selection commands for unknown or out-of-pilot identifiers require clarification or rejection before scheduling. A shared bot's audience and rollout window belong in the activation manifest.
 
 Native account, tools, sandbox and approval configuration remain native. Autoloop access metadata grants no additional native permission. Validate the assignment against the registered project and approved policy before `turn/start`; conflicting requirements fail visibly. Publication and business-data authority still come from the original task and project rules.
 

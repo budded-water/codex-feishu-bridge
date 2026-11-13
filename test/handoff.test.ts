@@ -55,6 +55,8 @@ test('verified input, immutable identity and source intent persist through reope
   assert.equal(reopened.store.pending().length, 2);
   assert.equal(statSync(h.state).mode & 0o777, 0o700);
   assert.equal(statSync(join(h.state, 'handoff.db')).mode & 0o777, 0o600);
+  const titled = h.accept('titled', 'Note: inspect the pilot');
+  assert.equal(titled.input, 'Note: inspect the pilot');
   assert.throws(() => new PilotAdmission(h.state, { ...h.scope, hubInstance: 'another-hub' }), /another installation/);
 });
 
