@@ -12,7 +12,9 @@ The team text-chat bridge is implemented. Automated checks and a real local Code
 
 ## Agent-system milestones
 
-The [agent system plan](agent-system-plan.md) records the P0-P4 direction. The [P0 probe](autoloop-p0.md) implements version alignment and an isolated pinned Hub/Worker/plugin/native executor path, reusing Bridge/State. Required checks, protocol smoke, scripted recovery/interaction tests and bounded real-model continuation have passed; see [dated evidence](live-acceptance.md). Live-model approvals, steering and process-loss acceptance remain pending. The next step is a separate P1 handoff design, not production cutover. Existing deployed-bot gaps above remain applicable.
+The [agent system plan](agent-system-plan.md) records the P0-P4 direction. The [P0 probe](autoloop-p0.md) implements version alignment and an isolated pinned Hub/Worker/plugin/native executor path, reusing Bridge/State. Required checks, protocol smoke, scripted recovery/interaction tests and bounded real-model continuation have passed; see [dated evidence](live-acceptance.md). Live-model approvals, steering and process-loss acceptance remain pending. The separate P1 handoff contract defines the next milestone; no production cutover is claimed. Existing deployed-bot gaps above remain applicable.
+
+The [P1 handoff contract](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) is now proposed. The explicit `npm run verify:handoff-routing -- <pinned-checkout>` command uses actual Hub HTTP and synthetic worker requests to verify distinct request lanes, project serialization, source deduplication, session-inheritance isolation and paused-event outcomes. This is executable routing feasibility evidence, not an implemented production gateway or migration. Durable gateway admission/guards, correlated native control/delivery, quiesce/export/import and authorized live cutover remain unchecked P1 tasks.
 
 ## Sharing and onboarding
 

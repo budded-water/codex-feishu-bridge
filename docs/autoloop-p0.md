@@ -58,6 +58,8 @@ Observed acceptance is recorded in [live acceptance](live-acceptance.md), separa
 
 Decision: the documented Autoloop plugin boundary is viable for this single-host execution probe. Continue to a separate P1 handoff design; retain the existing production scheduler until that design and its acceptance pass. This result does not establish production migration readiness.
 
+The [P1 contract and routing feasibility check](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) are now available for review. They do not close P0's pending native interaction/recovery acceptance or activate a new scheduler.
+
 P1 must resolve:
 
 - One Feishu consumer, verified identity-to-assignment mapping, and durable control/answer delivery with correlation and duplicate handling.

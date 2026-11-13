@@ -42,3 +42,7 @@ Future CLI upgrades must inspect supported commands and generated-file changes i
 ## Initial change
 
 [verify-codex-autoloop-execution-boundary](changes/verify-codex-autoloop-execution-boundary/proposal.md) covers P0 only: protocol readiness and an isolated native-execution integration probe. Production queue handoff, bot activation, UI acceptance, publication and proactive execution are outside that change. Later milestones receive their own changes when their scope is concrete.
+
+## P1 handoff change
+
+[integrate-feishu-autoloop-handoff](changes/integrate-feishu-autoloop-handoff/README.md) owns the proposed pilot admission, scheduling/identity split, controls, uncertainty guards and drain-first migration/rollback. Its model-free feasibility command is implemented; gateway runtime and activation tasks remain open. Validate this change separately from P0. Neither the new proposal nor the successful routing command closes pending native/live acceptance.

@@ -20,6 +20,7 @@
     "service:print": "node scripts/launchd.mjs",
     "verify:routing": "node --import tsx scripts/verify-routing.ts",
     "verify:autoloop": "npm run build && node experiments/autoloop/verify.mjs",
+    "verify:handoff-routing": "node experiments/autoloop/verify-handoff-routing.mjs",
     "metrics": "node --env-file-if-exists=.env --import tsx scripts/metrics.ts"
   },
   "dependencies": {

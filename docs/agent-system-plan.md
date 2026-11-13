@@ -87,7 +87,7 @@ Research, document and data tasks can use the same native executor with appropri
 
 P0-P2 form the first daily-use target. Later milestones extend the same boundaries. Create a separate OpenSpec change when a milestone becomes actionable; do not create a single permanently open checklist for every future capability.
 
-The first change is [verify-codex-autoloop-execution-boundary](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md). Its implementation tasks are pending. The installed CLI and generated bindings must be checked again when work starts; the source constant is [the compatibility authority](../src/codex/generated/version.ts), not a version copied into this roadmap.
+The first change is [verify-codex-autoloop-execution-boundary](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md). Its isolated implementation and scoped acceptance are recorded; live-model interaction/recovery acceptance remains open. The next [P1 handoff change](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) defines the production contract and verifies upstream routing feasibility; its runtime and cutover remain unimplemented. Check the installed CLI against [the compatibility authority](../src/codex/generated/version.ts) when work starts, rather than copying a version into this roadmap.
 
 ## Alternatives and deferred work
 

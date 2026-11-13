@@ -9,19 +9,11 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import plugin from './agent.ts';
+import { pinnedSource } from './pinned-source.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const native = process.argv.includes('--native');
-const source = realpathSync(process.argv[2] ?? process.env.AUTOLOOP_SOURCE ?? '');
-const pin = JSON.parse(readFileSync(join(root, 'experiments/autoloop/source.json'), 'utf8'));
-const git = args => {
-  const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' });
-  assert.equal(result.status, 0, 'Autoloop must be a verified Git checkout');
-  return result.stdout.trim();
-};
-assert.equal(git(['rev-parse', 'HEAD']), pin.commit, 'Autoloop checkout does not match reviewed pin');
-assert.equal(git(['status', '--porcelain']), '', 'Autoloop checkout must be clean, including untracked files');
-assert.equal(git(['remote', 'get-url', 'origin']).replace(/\.git$/, ''), pin.repository.replace(/\.git$/, ''));
+const source = pinnedSource(process.argv[2] ?? process.env.AUTOLOOP_SOURCE);
 assert.ok(existsSync(join(root, 'dist/probes/autoloop-runner.js')), 'Run npm run build first');
 const cli = join(source, 'bin/agent-autoloop.ts');
 const scratch = realpathSync(mkdtempSync('/tmp/bridge-autoloop-p0-'));
