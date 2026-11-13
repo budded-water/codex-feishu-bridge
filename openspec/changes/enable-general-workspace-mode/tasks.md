@@ -8,6 +8,6 @@
 ## 2. Verification and delivery
 
 - [x] 2.1 Pass required local checks, strict OpenSpec validation and applicable native/runtime checks.
-- [ ] 2.2 Synchronize configuration, architecture, usage, implementation status and PR description.
+- [x] 2.2 Synchronize configuration, architecture, usage, implementation status and PR description.
 - [ ] 2.3 Obtain independent review of the current candidate and resolve findings.
 - [ ] 2.4 Roll out the captured candidate to the authorized M6 instance and verify the owner-chat mode and continuation.
