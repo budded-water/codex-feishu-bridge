@@ -97,9 +97,10 @@ test('expired approvals decline; cancellation invalidates pending decisions', as
   const h = setup(t, 'assignment-1', 0.03);
   const result = h.probe.run('Work', null);
   const active = await h.active();
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   h.codex.ask('expiry', 'item/commandExecution/requestApproval', { ...active, command: 'echo expiry' });
   const token = h.token();
-  await until(() => h.codex.replies.length === 1);
+  t.mock.timers.tick(31);
   h.probe.control(h.message('/批准 ' + token, PROBE_ADMIN));
   assert.deepEqual(h.codex.replies, [{ id: 'expiry', result: { decision: 'decline' } }]);
   h.codex.ask('cancelled', 'item/commandExecution/requestApproval', { ...active, command: 'echo cancelled' });
