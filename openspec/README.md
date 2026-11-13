@@ -49,4 +49,4 @@ Future CLI upgrades must inspect supported commands and generated-file changes i
 
 ## General workspace change
 
-[enable-general-workspace-mode](changes/enable-general-workspace-mode/proposal.md) adds explicit neutral-workspace execution, direct task targeting through native Codex and workspace status. It preserves one canonical resource and existing native authorization. Track implementation, review and the authorized M6 rollout in its tasks.
+[enable-general-workspace-mode](changes/enable-general-workspace-mode/proposal.md) adds explicit neutral-workspace execution, direct task targeting through native Codex and workspace status. It preserves one canonical resource and existing native authorization. Implementation and independent review passed. The authorized M6 workspace deployment is running; its actual owner-chat check remains in the tasks.
