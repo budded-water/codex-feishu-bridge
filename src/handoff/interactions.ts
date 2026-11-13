@@ -40,6 +40,11 @@ export class PilotInteractions {
       if (result.status === 'rejected' && result.reason === 'maintenance') this.transport.state.transaction(() => {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '系统正在维护，这条新请求没有开始。恢复后请重新发送需求。', { replyTo: message.id });
       });
+      if (result.status === 'rejected' && result.reason === 'control_requires_live_gateway' && this.config.projectRouting === 'workspace' && /^\/project(?:\s|$)/.test(message.text.trim())) {
+        this.transport.state.transaction(() => {
+          if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '当前为通用工作区。直接说明任务，需要操作仓库时请说明目标目录或项目。', { replyTo: message.id });
+        });
+      }
       return result;
     }
     if (message.unsupported || message.text.length > 30_000 || (message.chatType === 'group' && !this.config.enableGroups)) return { status: 'rejected' as const };
@@ -55,7 +60,7 @@ export class PilotInteractions {
         const queued = this.admission.store.requests().filter(request => !request.blocked && !this.admission.store.execution(request.execution) &&
           this.admission.store.submission(request.id)?.status !== 'blocked').length;
         const body = /^\/status(?:\s|$)/.test(message.text.trim()) && !execution
-          ? `当前没有运行任务。${queued ? `还有 ${queued} 个已接收的请求等待派活。` : ''}未确认的结果需要先核对，不会自动重跑。`
+          ? `${this.config.projectRouting === 'workspace' ? '当前：通用工作区。\n' : ''}当前没有运行任务。${queued ? `还有 ${queued} 个已接收的请求等待派活。` : ''}未确认的结果需要先核对，不会自动重跑。`
           : execution ? '未能确定这条引用对应的运行任务，请引用自己的原提问。' : '当前没有可控制的运行任务。已接收的排队请求会保留；未确认的结果需要先核对。';
         this.transport.state.send(message.chat, body, { replyTo: message.id });
       });

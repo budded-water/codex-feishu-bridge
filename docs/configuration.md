@@ -34,7 +34,7 @@
 | `codexReasoningEffort` | none / minimal / low / medium / high / xhigh / null | null | 单独覆盖此 bot 每次新请求的推理强度；null 或省略不覆盖；实际支持等级取决于所选模型 |
 | `stateDirectory` | 非空路径 | .local/state | JSON 所在目录下的持久化状态；多实例必须独立 |
 | `approvalTimeoutSeconds` | 整数 10–3600 | 300 | 审批 / 单个问题超时后拒绝，不能靠等待获得授权 |
-| `projectRouting` | automatic / manual | automatic | Codex 判断明确项目、直接回答或澄清；manual 保留手动选项目流程 |
+| `projectRouting` | automatic / manual / workspace | automatic | automatic 判断登记项目；manual 手动选择；workspace 使用通用工作区并由当前请求确定任务目标 |
 | `projects` | 非空 alias → 目录映射 | 必填 | 目录必须存在且绝对；别名 1–64 个字母、数字、下划线或连字符 |
 
 `allowedUsers` / `approvalUsers` 使用**本应用对应的用户 open ID**。即使同一个人，在另一个应用下拿到的 ID 也不能直接复用。通过 [identify 登记流程](installation.md) 获取 owner、tenant 和审批聊天；登记其他用户时也要核对本应用身份。
@@ -65,6 +65,19 @@
 资源图片最多 8 次尝试，10 MiB / 张、20 MiB 总量，PNG / JPEG / GIF / WebP；优先最近的合规图片。下载新资源有时间预算，单个在途请求受 SDK 超时约束。图片失败保留未读说明，不把文件 key 当图片内容。此能力不等于 OCR 服务、附件解析或任意链接下载。
 
 ## 项目、会话和审批
+
+`projectRouting: "workspace"` 适用于通用 Agent。`projects` 中的目录用作原生进程的默认工作区，所有别名需指向同一真实目录。你可以直接交办资料整理、工具操作或代码任务，并在当次需求中说明目标仓库或目录。Codex 按本机权限与原生审批策略处理目标访问，歧义时澄清。任务共用该工作区的串行队列和不确定结果保护，原生会话按使用者与聊天延续。
+
+在现有配置中可设置以下字段，提前创建对应工作区目录。
+
+```json
+{
+  "projectRouting": "workspace",
+  "projects": { "workspace": "/absolute/path/to/workspace" }
+}
+```
+
+切换到 workspace 模式前排空已有任务。该模式清除旧项目分类留下的待澄清请求，并使用当前任务的目标说明。
 
 项目别名供 `/project alias` 使用，选择属于每个用户 / 聊天；`projectRouting` 默认为 automatic：Codex 根据本次请求和已登记别名判断目标，确有歧义时提问；manual 使用手动选择流程。没有 defaultProject。两个别名指向同一真实目录时共用一条串行队列。thread 创建和恢复时只向 Codex 提供实际别名及当前选择，不提供目录清单；看到别名不等于已经选择项目。
 

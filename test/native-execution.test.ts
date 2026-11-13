@@ -198,3 +198,26 @@ test('assigned execution preserves disabled group access before creating a nativ
   assert.equal(client.starts, 0);
   assert.equal(h.gateway.store.unsettled().length, 1);
 });
+
+test('assigned workspace execution preserves general instructions, scoped controls and uncertain guard ownership', async t => {
+  const h = setup(t); h.config.projectRouting = 'workspace';
+  const grant = h.accept('Review a task target identified in this request');
+  const client = new ManagedFake(); const runtime = new NativeExecutions(h.gateway, h.config, () => client);
+  t.after(() => runtime.stop());
+  const running = runtime.run(grant.permit); const turn = await active(client);
+  const start = client.calls.find(call => call.method === 'thread/start')!.params;
+  assert.ok(String(start.developerInstructions).includes('当前为通用工作区模式'));
+  assert.ok(!String(start.developerInstructions).includes('availableProjects'));
+  assert.equal(start.cwd, h.gateway.directory);
+  assert.ok(!Object.hasOwn(start, 'approvalPolicy') && !Object.hasOwn(start, 'sandbox'));
+  await runtime.control(grant.permit.execution, h.actor('/status'));
+  assert.ok((await runtime.projection(grant.permit.execution)).messages.some(row => row.body.includes('当前：通用工作区')));
+  await runtime.control(grant.permit.execution, { ...h.actor('/补充 other target'), user: 'ou_intruder' });
+  assert.ok(!client.calls.some(call => call.method === 'turn/steer'));
+  await runtime.control(grant.permit.execution, h.actor('/补充 Keep the target explicit'));
+  assert.equal(client.calls.find(call => call.method === 'turn/steer')!.params.expectedTurnId, turn.turn);
+  client.exit(); assert.equal((await running).outcome.status, 'unknown');
+  assert.equal(h.gateway.store.unsettled()[0]!.id, grant.permit.execution);
+  assert.equal((await runtime.run(grant.permit)).outcome.status, 'unknown');
+  assert.equal(client.starts, 1);
+});

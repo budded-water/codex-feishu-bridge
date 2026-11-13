@@ -305,7 +305,7 @@ class NativeOwner {
       this.gateway.store.startableRequest(this.permit);
       this.state = new State(this.folder);
       const config: Config = { ...this.config, allowedTenant: this.gateway.scope.tenant, stateDirectory: this.folder,
-        projects: { [this.gateway.scope.pilot]: this.gateway.directory }, projectRouting: 'manual' };
+        projects: { [this.gateway.scope.pilot]: this.gateway.directory }, projectRouting: this.config.projectRouting === 'workspace' ? 'workspace' : 'manual' };
       const session = this.state.select(this.request.message, this.gateway.scope.pilot, this.gateway.directory);
       const thread = this.gateway.store.conversationThread(this.request.conversation);
       if (thread) this.state.setThread(session.id, thread);

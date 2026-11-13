@@ -364,3 +364,15 @@ test('sealed uncertain group execution retains its reference snapshot and projec
   assert.equal(h.admission.store.unsettled().length, 1);
   assert.equal(h.admission.store.reference(admitted.request.execution, message)!.context!.messages[0]!.text, 'Retained quote');
 });
+
+test('workspace gateway identifies its idle mode and explains task-based target selection', async t => {
+  const h = setup(t); h.config.projectRouting = 'workspace';
+  h.interactions.receive(h.actor('/status')); await drain(h);
+  assert.ok(h.sent.some(row => row.text.includes('当前：通用工作区')));
+  const selection = h.actor('/project another-repository');
+  h.interactions.receive(selection); h.interactions.receive(selection); await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === selection.id).length, 1);
+  assert.ok(h.sent.some(row => row.text.includes('直接说明任务')));
+  assert.equal(h.admission.store.requests().length, 0);
+  assert.equal(h.codex.calls.length, 0);
+});

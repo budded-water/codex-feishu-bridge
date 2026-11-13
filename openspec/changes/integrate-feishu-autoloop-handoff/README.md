@@ -27,6 +27,8 @@ The gateway also prepares private execution/message-bound group reference snapsh
 
 Call and await PilotInteractions.start() before attaching normalized Feishu ingress; it performs strict retained-owner recovery before starting periodic synchronization. Programmatic fixtures may call recover()/flush() explicitly. Steady polling preserves the newly granted worker startup window. The prepared runtime entry now connects the SDK under the shared state-root lock and committed pilot role. The default entry enforces its legacy role. The [migration guide](../../../docs/handoff-migration.md) covers quiesce, import and reverse fact transfer. Its runtime connections require the deployment acceptance tracked in the remaining tasks. Private IPC previews remain diagnostics. This is a single-host implementation: read-only native journal access is not a remote-worker protocol.
 
+The optional [general workspace mode](../enable-general-workspace-mode/design.md) uses the configured canonical directory as the default execution workspace. Native Codex resolves business targets from the current request and relevant conversation under its native permissions. All requests share that workspace guard and owner/chat conversation. Automatic/manual project workflows retain their existing scope.
+
 ## Reproduce the scoped checks
 
 Use Node 24 and a clean checkout matching [the shared upstream pin](../../../experiments/autoloop/source.json). No global Autoloop installation is required.
@@ -39,7 +41,7 @@ npm run verify:handoff-routing -- /absolute/path/to/pinned-autoloop
 npm run verify:assigned-native -- /absolute/path/to/pinned-autoloop
 ```
 
-The routing command uses actual Hub HTTP with synthetic execution reports. The assigned-native command also starts the actual Worker and standalone plugin with a scripted Codex RPC child. It covers Worker/gateway restart, lost control acknowledgement with lookup-only recovery, duplicate controls, retained checkpoint reuse, same-conversation continuation, administrator approval ownership, full native prompt/final projection, observed stop, lost start acknowledgement, native/owner process loss and orchestration-environment isolation. Synthetic message and reaction ports verify delivery identity and terminal cleanup. Database tests additionally exercise concurrent reservation and a lost gateway terminal update. All use temporary state and no Feishu messages.
+The assigned-native verifier uses workspace mode and checks its instruction propagation through native start and resume. The routing command uses actual Hub HTTP with synthetic execution reports. The assigned-native command also starts the actual Worker and standalone plugin with a scripted Codex RPC child. It covers Worker/gateway restart, lost control acknowledgement with lookup-only recovery, duplicate controls, retained checkpoint reuse, same-conversation continuation, administrator approval ownership, full native prompt/final projection, observed stop, lost start acknowledgement, native/owner process loss and orchestration-environment isolation. Synthetic message and reaction ports verify delivery identity and terminal cleanup. Database tests additionally exercise concurrent reservation and a lost gateway terminal update. All use temporary state and no Feishu messages.
 
 Explicit bounded real-model acceptance:
 

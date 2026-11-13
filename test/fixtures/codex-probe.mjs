@@ -33,7 +33,7 @@ lines.on('line', line => {
     reply(message, {});
   } else if (method === 'thread/start' || method === 'thread/resume') {
     thread = params.threadId ?? randomUUID();
-    audit({ event: method, thread });
+    audit({ event: method, thread, workspaceMode: params.developerInstructions?.includes('当前为通用工作区模式') === true });
     reply(message, { thread: { id: thread } });
   } else if (method === 'turn/start') {
     turn = randomUUID();

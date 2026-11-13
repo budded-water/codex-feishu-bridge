@@ -68,3 +68,7 @@ Observe acknowledgment/completion latency, pending delivery age, retry frequency
 ## Pilot migration maintenance
 
 The local `npm run handoff` commands inspect session IDs, quiesce admission, report drainage and prepare closed-state migration or rollback. Both managed runtime entries validate the shared consumer ownership root. Follow [the migration guide](handoff-migration.md) and the private deployment manifest when operating the pilot.
+
+## Routing-mode updates
+
+Drain current work and retain a compatible artifact/configuration pair before changing routing mode. A retained migration plan hashes the parsed bridge configuration. Preserve an equivalent frozen configuration snapshot for that plan, verify it against the original backup identity, and point the plan at that snapshot before changing the active configuration. The runtime handoff configuration continues to reference the active bridge configuration. Record the effective artifact, mode and recovery pair in the private deployment manifest.

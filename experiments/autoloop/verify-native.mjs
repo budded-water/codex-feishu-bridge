@@ -69,7 +69,7 @@ try {
   const bridgeConfig = join(scratch, 'bridge.config.json');
   writeFileSync(bridgeConfig, JSON.stringify({ allowedUsers: [scope.operator, 'ou_fixture_admin'], allowedTenant: scope.tenant, enableGroups: false,
     approvalUsers: ['ou_fixture_admin'], approvalChat: 'oc_fixture_admin', codexExecutable: native ? 'codex' : process.execPath,
-    stateDirectory: state, projects: scope.projects, projectRouting: 'manual' }));
+    stateDirectory: state, projects: scope.projects, projectRouting: 'workspace' }));
   const privateConfig = join(scratch, 'handoff.config.json');
   writeFileSync(privateConfig, JSON.stringify({ scope, stateDirectory: state, bridgeConfig, hubUrl: url }));
   Object.assign(env, { HANDOFF_CONFIG: privateConfig, HANDOFF_SOURCE_KEY: sourceKey,
@@ -201,6 +201,7 @@ try {
         reference: 'Inspected scripted fixture process loss and absence of external effects' });
     }
     assert.ok(audit().filter(item => item.event === 'initialize').every(item => item.schedulerSecrets === false));
+    assert.ok(audit().filter(item => ['thread/start', 'thread/resume'].includes(item.event)).every(item => item.workspaceMode === true));
     console.log('PASS: app-server loss, lost native start acknowledgement and owner-process loss retain project guards');
   }
   for (let i = 0; i < 10; i++) await interactions.flush();
