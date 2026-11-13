@@ -17,6 +17,8 @@ This independent TypeScript project bridges Feishu private chat and group @menti
 
 Read docs/agent-system-plan.md and openspec/README.md before working on the proposed Autoloop integration. Use a bounded OpenSpec change for new orchestration, native lifecycle, authorization, recovery or evidence contracts; keep routine wording edits and fixes preserving an established contract lightweight. Proposed changes are not current capabilities. Keep current architecture and delivery status synchronized with implemented code, and keep observed deployment evidence in docs/live-acceptance.md. Existing task authorization, PR, no-merge and live-test rules still apply.
 
+The isolated P0 entry point is documented in docs/autoloop-p0.md. It is not imported by the production application. Its explicit verification command uses temporary state and a pinned clean upstream checkout; default mode is scripted, while --native consumes real model usage. Do not infer production policy enforcement from Autoloop access metadata or treat fixture interaction/recovery as live-model acceptance.
+
 ## Implementation boundaries
 
 - Use TypeScript for the bridge and the official Feishu SDK for transport.

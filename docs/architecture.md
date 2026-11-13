@@ -6,7 +6,7 @@ User-facing onboarding: [installation](installation.md), [configuration](configu
 
 ## Proposed evolution
 
-The [agent system plan](agent-system-plan.md) records a proposed Autoloop/native Codex composition and phased rollout. Its [P0 OpenSpec change](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md) is not applied. The components and behavior below remain the current implementation; this planning work does not replace the queue or add a running orchestration service.
+The [agent system plan](agent-system-plan.md) records the proposed production composition. The [isolated P0 probe](autoloop-p0.md) now exercises a pinned Autoloop Hub/Worker and the existing native Bridge through a standalone plugin. It uses temporary state and a synthetic transport; the production entry point does not import it. The components below remain the production architecture. P0 does not replace its queue, activate a bot or add a permanent service.
 
 ## Goal and boundary
 
@@ -107,6 +107,8 @@ Retain Codex's sandbox and approval settings. The bridge must not enable unrestr
 | Host sleep or network loss | New message handling is unavailable. Running work may finish and queue its result. Do not guarantee offline replay. |
 
 Write-capable tasks must not be automatically replayed after an uncertain outcome. Reconciliation checks the project or external service's live state before continuing.
+
+A rejected or lost `turn/start` response after submission remains `unknown` even when app-server is still responsive: readiness alone cannot prove non-acceptance. Shutdown waits for observed native child exit rather than treating a sent SIGKILL as settlement. These are shared executor fixes; they do not prove rollback of external effects or termination of independently detached services.
 
 ## Public repository and private runtime state
 

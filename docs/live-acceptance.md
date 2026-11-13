@@ -78,3 +78,23 @@ The owner supplied a reply containing unresolved mention placeholders and a quot
 ## Conversational UX acceptance boundary
 
 Durable reply association, concrete-action approvals, scoped natural controls, explicit native mentions and local timing collection are implemented and covered by fictional behavioral tests. No bot activation, approval, member notification or new Feishu test message was performed for these tests. Real reply placement, notification visibility and colleague/admin UX still require acceptance. Metadata/source and service-connectivity evidence do not prove those end-to-end behaviors or faster responses.
+
+## 2026-11-13: isolated Autoloop P0
+
+This evidence belongs to an isolated source checkout and temporary test state, not the running Feishu deployment. The native executable matched the regenerated [release constant](../src/codex/generated/version.ts). The reviewed changes were optional initialization/turn/tool-output fields and an audio input representation; supported text and interactive behavior passed the local type/behavior/build check. The real no-inference stdio/model-catalog/tool-disabled-routing-thread smoke passed outside the filesystem sandbox; its initial sandboxed child start failed and is not counted as a successful handshake.
+
+Using the clean source revision in [source.json](../experiments/autoloop/source.json), the explicit verifier ran the actual Autoloop Hub and Worker with the standalone plugin and a scripted native RPC process. It verified:
+
+- Worker/Hub process loss and restart while the original native turn remained alive, followed by owner steering and completion without another start.
+- Started and result acknowledgements lost after Hub acceptance; persisted result delivery retried without native replay.
+- A different attempt folder reading the same completed assignment, source-event deduplication, and the next logical round resuming the original thread with a new turn.
+- A native command-approval request reaching the synthetic administrator chat; a submitter response had no effect, while the designated administrator's response produced one native decision.
+- Interrupt acknowledgement remaining nonterminal until the later native interruption event.
+- Native process loss and accepted start without an acknowledgement remaining uncertain; reading either assignment again did not start another native turn.
+- Worker cancellation settling its owned process group, with the scripted native PID absent afterward; the native child had no orchestration/control environment secrets.
+
+The normal test suite additionally covered stale/duplicate/expired approvals, process-generation invalidation, owner/chat isolation and shutdown requiring SIGKILL. A submitted but unconfirmed native start is now recorded as unknown even while app-server remains responsive. Shutdown awaits observed native exit.
+
+The explicit native mode then ran two fixed-text model rounds through the pinned Hub/Worker/plugin and actual native app-server. Both produced the exact requested marker, used one thread and distinct turn IDs, and completed successfully. A fresh no-inference `thread/read` of that test conversation confirmed exactly two stored turns and no tool execution items. Authentication/configuration files were neither copied nor changed. This is real model/continuation evidence, not a real native approval, active-model steering or external-side-effect recovery test.
+
+Required local checks, strict OpenSpec validation and the separate no-inference smoke passed for this implementation. No Feishu listener/channel adapter was activated, no test message was sent, and no service or production queue was migrated. The original application checkout remained untouched. Keep live-model interactive/recovery acceptance open, and use the separate P1 handoff requirements in [the probe document](autoloop-p0.md); do not infer production readiness from this result.

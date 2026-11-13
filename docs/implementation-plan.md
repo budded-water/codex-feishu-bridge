@@ -10,9 +10,9 @@ The team text-chat bridge is implemented. Automated checks and a real local Code
 | Interactive requests | Designated administrator chat, deciding-actor audit, correlated command/file approvals, timeout denial, stale invalidation, single-question replies, unsupported-request denial. | Live rejection and approval under the actual local policy. |
 | Host operation | Clean shutdown, heartbeat lock, bounded restart, doctor, challenge enrollment, and launchd generation. Owner foreground connection observed; owner-authorized service installation, background connection, state-lock heartbeat and a clean-exit launchd restart verified. See live acceptance for the private deployment evidence. | Subsequent login exercise and a fresh task round trip through the background instance. |
 
-## Proposed agent-system milestones
+## Agent-system milestones
 
-The [agent system plan](agent-system-plan.md) records the proposed P0-P4 direction. The initial [P0 change](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md) covers version alignment and an isolated execution-boundary probe; its implementation tasks are pending. No Autoloop integration, production handoff, new live acceptance or deployment is claimed by these planning artifacts. Existing status and live-acceptance gaps above remain applicable.
+The [agent system plan](agent-system-plan.md) records the P0-P4 direction. The [P0 probe](autoloop-p0.md) implements version alignment and an isolated pinned Hub/Worker/plugin/native executor path, reusing Bridge/State. Required checks, protocol smoke, scripted recovery/interaction tests and bounded real-model continuation have passed; see [dated evidence](live-acceptance.md). Live-model approvals, steering and process-loss acceptance remain pending. The next step is a separate P1 handoff design, not production cutover. Existing deployed-bot gaps above remain applicable.
 
 ## Sharing and onboarding
 

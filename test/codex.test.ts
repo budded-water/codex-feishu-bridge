@@ -6,6 +6,14 @@ import { until } from './helpers.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url));
 
+test('close waits for observed exit even when native shutdown needs SIGKILL', async t => {
+  const client = new CodexClient(process.execPath, [fixture]); t.after(() => client.close());
+  await client.start();
+  const { pid } = await client.request<{ pid: number }>('stubborn', {});
+  await client.close();
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+});
+
 test('stdio client initializes and correlates out-of-order replies', async t => {
   const client = new CodexClient(process.execPath, [fixture]); t.after(() => client.close());
   await client.start();

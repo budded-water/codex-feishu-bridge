@@ -15,7 +15,7 @@ OpenSpec is used here for proposed changes to execution, orchestration, authoriz
 | [Current architecture](../docs/architecture.md) and [implementation status](../docs/implementation-plan.md) | What the repository currently implements |
 | [Live acceptance](../docs/live-acceptance.md) | What was actually observed in a deployment |
 
-No delivered OpenSpec baseline is introduced by this documentation change. Existing current-behavior documents continue to apply. Proposed Autoloop behavior stays under changes until it has been implemented and verified.
+No production orchestration baseline has been archived. The isolated P0 probe is implemented with scoped evidence, but its change remains open for pending real-model interaction/recovery acceptance. Existing production-behavior documents continue to apply; proposed production migration stays under a separate change until implemented and verified.
 
 ## Working method
 

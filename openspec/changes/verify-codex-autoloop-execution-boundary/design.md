@@ -59,10 +59,10 @@ Keep fixture tests, real no-inference handshake, authorized inference, live inte
 
 This change does not migrate production state. Retain the existing listener, mappings, queue and outbox. A later handoff proposal must describe draining/in-flight work, state mapping, the single-consumer cutover, backup and rollback. Fixture state can be discarded only after its owned work is settled and its sanitized result is recorded.
 
-## Open Questions To Resolve In P0
+## Implementation decisions and remaining acceptance
 
-- Which process/control topology preserves native requests while fitting Autoloop worker supervision?
-- Which installed protocol changes affect existing supported interactions?
-- What can be conclusively reconciled after each lost-acknowledgement window, and what must remain unknown?
+The standalone plugin launches a runner inside the Worker's detached process group; native app-server remains a direct child of that runner. A token-authenticated private Unix socket forwards only fixture controls through the existing Bridge. State is keyed by logical run rather than attempt directory. Native answers are normalized into fixed receipts; they do not become scheduler instructions. See [the implemented topology and limits](../../../docs/autoloop-p0.md).
 
-Resolving these questions is part of the technical probe; this design does not claim an already-working transport or recovery protocol.
+The selected CLI and generated bindings are aligned. Reviewed binding differences add optional initialization/turn/tool-output fields and a user-audio representation; supported text/approval behavior remains covered. The generated version file is canonical.
+
+Retained completion can be returned without another native call, including after acknowledgement loss or attempt-folder change. Unconfirmed starts and process loss remain uncertain rather than authorizing replay. Actual Hub/Worker restart and receipt retries are tested with a scripted native process. Two bounded real-model rounds establish model access and continuation, not live interactive/recovery acceptance. Production control delivery, lane admission after uncertainty and migration/rollback remain separate P1 work.

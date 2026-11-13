@@ -1,6 +1,6 @@
 # Agent system direction and delivery plan
 
-Status: proposed implementation direction. This document records the planning discussion; it does not establish that Autoloop is integrated, a deployment has changed, or live acceptance has passed.
+Status: proposed production direction, with an implemented [isolated P0 execution probe](autoloop-p0.md). This document records the planning discussion; production routing and deployment have not migrated. Consult the probe's scoped evidence before relying on any acceptance claim.
 
 ## Intended outcome
 

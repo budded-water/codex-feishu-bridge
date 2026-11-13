@@ -37,6 +37,7 @@ interface Active {
   routingCancelled?: boolean;
   routingAbort?: string;
   executionStarting?: boolean;
+  executionSubmitted?: boolean;
   executionCancelled?: boolean;
   routingStarting?: boolean;
   routingEvents?: RpcEvent[];
@@ -430,6 +431,7 @@ export class Bridge {
         };
         active.stage = context?.status === 'available' ? '群聊参考资料已读取，正在等待 Codex 回复' : '正在等待 Codex 回复';
         active.executionStarting = true;
+        active.executionSubmitted = true;
         let response: {turn:{id:string;status:string}};
         try { response = await this.codex.request('turn/start', params); } finally { active.executionStarting = false; }
         if (!response.turn?.id) throw new Error('Invalid turn response');
@@ -443,7 +445,7 @@ export class Bridge {
           await completion;
         }
       } catch {
-        if (!active.done) this.complete(active, this.codex.ready ? 'failed' : 'unknown', '任务未确认完成。请检查实际结果；恢复历史失败时可用 /new 创建会话。');
+        if (!active.done) this.complete(active, !this.codex.ready || active.executionSubmitted ? 'unknown' : 'failed', '任务未确认完成。请检查实际结果；恢复历史失败时可用 /new 创建会话。');
       } finally {
         if (this.active.get(directory) === active) this.active.delete(directory);
       }
