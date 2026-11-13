@@ -28,12 +28,12 @@ For 3.1–3.2, verify:assigned-native connects the public plugin Turn/context, a
 
 - [x] 4.1 Implement quiesce/drain and a versioned closed-state exporter/importer preserving ownership, deduplication, native conversations and immutable reply associations.
 - [x] 4.2 Rehearse single-consumer handoff and both rollback windows on fixture state; require post-cutover fact import before resuming an old scheduler after new acceptance.
-- [ ] 4.3 Run complete candidate checks, native compatibility smoke, fault acceptance and independent review; synchronize current implementation and evidence claims.
+- [x] 4.3 Run complete candidate checks, native compatibility smoke, fault acceptance and independent review; synchronize current implementation and evidence claims.
 - [ ] 4.4 Prepare the private activation manifest and verify the actual bot/project/audience, artifact compatibility, service inventory, backup and recovery path.
 - [ ] 4.5 Only after explicit activation/live-test authorization, perform the owner-chat pilot acceptance and cutover; record actual deployment and remaining gaps.
 
 The migration CLI and supported runtime role checks have been exercised through controlled processes and temporary databases. Rehearsals cover both rollback windows, replay suppression, native conversation continuation, explicit fresh conversations, archived nullable records, interrupted role publication, snapshot integrity, source ownership and drainage. Real service shutdown, private host/bot manifest verification and a live consumer transition remain 4.4–4.5 inputs.
 
-The initial migration review found four defects. Their regression coverage now exercises the managed pilot recovery entry, first-turn owner loss with journal-based conversation retention, older-session rollback selection through alias lookup, and assigned group history/text/image context including quoted steering and independent stop. Complete candidate review continues under 4.3.
+The initial migration review found four defects. Their regression coverage now exercises the managed pilot recovery entry, first-turn owner loss with journal-based conversation retention, older-session rollback selection through alias lookup, and assigned group history/text/image context including quoted steering and independent stop. Complete candidate checks and independent review passed under 4.3. Native interactive acceptance remains under 3.5.
 
 These unchecked runtime/activation tasks are not claims of shipped P1 behavior. Contract/feasibility work can be reviewed independently while P0 remains open for its unexecuted native acceptance.

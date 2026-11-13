@@ -89,6 +89,11 @@ The gateway SHALL allocate an execution identity before effects and SHALL retain
 - **THEN** the gateway SHALL reject a still-reachable native owner or record the local operator recovery decision
 - **AND** it SHALL preserve the original uncertain outcome and release only that execution's guard
 
+#### Scenario: An old launch permit outlives its authority
+- **WHEN** its execution is uncertain or no longer holds the canonical project guard
+- **THEN** that permit SHALL NOT launch fresh native work
+- **AND** a retained owner descriptor SHALL select inspection rather than replay
+
 ### Requirement: Assigned group reference context
 The gateway SHALL preserve the configured group history and explicit quote contract across assignment, including admitted image inputs and original source scope.
 
@@ -101,11 +106,6 @@ The gateway SHALL preserve the configured group history and explicit quote contr
 #### Scenario: Native output becomes a settled transport projection
 - **WHEN** the gateway imports sealed completed or interrupted evidence
 - **THEN** it SHALL retire reference snapshot bodies while retaining their identity for duplicate outcome lookup
-
-#### Scenario: An old launch permit outlives its authority
-- **WHEN** its execution is uncertain or no longer holds the canonical project guard
-- **THEN** that permit SHALL NOT launch fresh native work
-- **AND** a retained owner descriptor SHALL select inspection rather than replay
 
 ### Requirement: Durable correlated live controls
 Live controls SHALL preserve verified ownership, target identity and delivery identity through private IPC, and the native owner SHALL revalidate them at dispatch. A control transport acknowledgement SHALL NOT prove native acceptance or settlement.
