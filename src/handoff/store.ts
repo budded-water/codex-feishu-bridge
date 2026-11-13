@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { Maintenance } from '../maintenance.js';
 import { openPrivateDatabase } from '../private-database.js';
 import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition } from '../types.js';
 
@@ -21,11 +22,14 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 
 export class AdmissionStore {
   private db: DatabaseSync;
+  readonly maintenance: Maintenance;
 
   constructor(directory: string, binding: string) {
     this.db = openPrivateDatabase(directory, 'handoff.db');
     try {
+      this.maintenance = new Maintenance(this.db);
       this.db.exec(`
+        CREATE TABLE IF NOT EXISTS retained_receipts (tenant TEXT, message TEXT, reason TEXT NOT NULL, PRIMARY KEY(tenant,message));
         CREATE TABLE IF NOT EXISTS binding (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS channel_binding (kind TEXT PRIMARY KEY, external_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS conversations (
@@ -99,12 +103,16 @@ export class AdmissionStore {
     return row && { ...row, message: JSON.parse(row.message) as IncomingMessage };
   }
 
-  accept(message: IncomingMessage, input: string, project: string): { duplicate: boolean; request: RequestRecord } {
+  accept(message: IncomingMessage, input: string, project: string): { duplicate: boolean; request: RequestRecord } | { paused: true } {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=?').get(origin, origin)) throw new Error('Message identity already belongs to recovery');
       const previous = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(origin) as { id: string } | undefined;
       if (previous) return { duplicate: true, request: this.request(previous.id)! };
+      if (this.maintenance.paused) {
+        this.db.prepare('INSERT OR IGNORE INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, 'maintenance');
+        return { paused: true };
+      }
       const owner = ownerKey(message);
       this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)').run(randomUUID(), owner, project);
       const conversation = this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=?').get(owner, project) as { id: string };
@@ -116,6 +124,31 @@ export class AdmissionStore {
       if (!request.blocked) this.db.prepare("INSERT INTO submissions(request,status) VALUES (?,'pending')").run(request.id);
       return { duplicate: false, request };
     });
+  }
+
+  retained(message: Pick<IncomingMessage, 'tenant' | 'id'>): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM retained_receipts WHERE tenant=? AND message=?').get(message.tenant, message.id));
+  }
+
+  importLegacy(seen: { tenant: string; id: string }[], conversation: { id: string; owner: string; project: string; thread: string | null } | null): void {
+    this.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM requests UNION SELECT 1 FROM controls').get()) throw new Error('Pilot already accepted traffic');
+      for (const item of seen) this.db.prepare("INSERT OR IGNORE INTO retained_receipts VALUES (?,?,'legacy')").run(item.tenant, item.id);
+      if (conversation) this.db.prepare('INSERT INTO conversations(id,owner,project,thread) VALUES (?,?,?,?)')
+        .run(conversation.id, conversation.owner, conversation.project, conversation.thread);
+      this.maintenance.quiesce();
+    });
+  }
+
+  drainStatus(): Record<string, number | boolean> {
+    const count = (sql: string) => Number((this.db.prepare(sql).get() as { n: number }).n);
+    return {
+      paused: this.maintenance.paused,
+      guards: count('SELECT COUNT(*) AS n FROM guards'),
+      queued: count("SELECT COUNT(*) AS n FROM requests WHERE blocked IS NULL AND NOT EXISTS(SELECT 1 FROM executions WHERE executions.request=requests.id) AND NOT EXISTS(SELECT 1 FROM submissions WHERE submissions.request=requests.id AND status='blocked')"),
+      publication: count("SELECT COUNT(*) AS n FROM submissions WHERE status='pending'"),
+      controls: count("SELECT COUNT(*) AS n FROM controls WHERE status IN ('received','dispatching') AND EXISTS(SELECT 1 FROM guards WHERE guards.execution=controls.execution)"),
+    };
   }
 
   requests(): RequestRecord[] {

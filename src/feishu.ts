@@ -86,13 +86,20 @@ export class Feishu implements ContextPort, ReactionPort {
     });
   }
 
+  async botIdentity(): Promise<string> {
+    if (this.closed) throw new Error('Feishu connection stopped');
+    const response = await this.client.request<{ code: number; bot?: { open_id?: string } }>({ method: 'GET', url: '/open-apis/bot/v3/info/' });
+    const id = response.bot?.open_id;
+    if (this.closed) throw new Error('Feishu connection stopped');
+    if (response.code !== 0 || !id || !/^ou_[\w-]+$/.test(id)) throw new Error('Cannot verify bot identity');
+    return id;
+  }
+
   async start(receive: (message: IncomingMessage) => void): Promise<void> {
     if (this.closed || this.startup) throw new Error('Feishu connection cannot be started');
     let botOpenId: string | undefined;
     if (this.enableGroups) {
-      const response = await this.client.request<{ code: number; bot?: { open_id?: string } }>({ method: 'GET', url: '/open-apis/bot/v3/info/' });
-      botOpenId = response.bot?.open_id;
-      if (response.code !== 0 || !botOpenId || !/^ou_[\w-]+$/.test(botOpenId)) throw new Error('Cannot verify bot identity for group mentions');
+      botOpenId = await this.botIdentity();
     }
     if (this.closed) throw new Error('Feishu connection stopped');
     await new Promise<void>((resolve, reject) => {

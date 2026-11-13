@@ -98,6 +98,10 @@ export class Bridge {
       const command = end < 0 ? text : text.slice(0, end);
       // Remove only the command separator, preserving free-form code/indentation.
       const argument = end < 0 ? '' : text.slice(end + 1);
+      if (this.state.maintenance.paused && !['/status', '/stop', '/补充', '/批准', '/拒绝', '/回答', '/clear', '/help', '/project', '/chat'].includes(command) && !naturalControl(text)) {
+        this.state.send(message.chat, '系统正在维护，这条新请求没有开始。恢复后请重新发送需求。', { replyTo: message.id });
+        return;
+      }
       if (['/批准', '/拒绝', '/回答'].includes(command!)) {
         after = () => this.replyPrompt(message, command!, argument);
         return;
@@ -179,6 +183,10 @@ export class Bridge {
       if (text.startsWith('/')) { this.state.send(message.chat, '没识别这个命令。你可以直接说明需求，或用 /help 查看命令。', {replyTo:message.id}); return; }
       if (!this.codex.ready) {
         this.state.send(message.chat, 'Codex 当前不可用，请恢复本机进程后重新发送；这条消息不会自动执行。');
+        return;
+      }
+      if (this.state.maintenance.paused) {
+        this.state.send(message.chat, '系统正在维护，这条新请求没有开始。恢复后请重新发送需求。', { replyTo: message.id });
         return;
       }
       const explicit = text.match(/^([a-zA-Z0-9_-]{1,64})\s*[:：]\s*([\s\S]+)$/);

@@ -13,7 +13,9 @@ export function openPrivateDatabase(directory: string, filename: 'bridge.db' | '
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   const db = new DatabaseSync(path);
-  chmodSync(path, 0o600);
-  db.exec('PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
-  return db;
+  try {
+    chmodSync(path, 0o600);
+    db.exec('PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
+    return db;
+  } catch (error) { db.close(); throw error; }
 }

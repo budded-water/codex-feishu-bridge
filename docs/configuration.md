@@ -89,3 +89,5 @@
 本轮交互改动不增加配置字段，两份示例配置继续使用相同默认值。审批截止时间显示本机时区；通知固定上限以 `MAX_NOTIFICATION_MEMBERS` 为准。本地任务库记录分段时间，不向外部分析服务上传。
 
 `别名：具体需求` 是明确选择已登记目录的可选入口，自动与手动模式都支持；普通自然提问的自动分类由 `projectRouting` 控制。该前缀代表独立新任务，会清除旧待澄清请求，并保留人工选择版本防止旧分类覆盖。
+
+The experimental prepared pilot entry uses a private handoff configuration and migration plan. Its fields and managed startup are documented in [the migration guide](handoff-migration.md). Existing bridge configuration fields and both installation templates retain their current defaults.

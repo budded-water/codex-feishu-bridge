@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
-import lockfile from 'proper-lockfile';
+import { acquireRoot, openRuntimeControl } from './handoff/ownership.js';
+import { record } from './types.js';
 import { loadConfig, credentials } from './config.js';
 import { CodexClient, checkVersion } from './codex/client.js';
 import { Bridge } from './bridge.js';
@@ -9,7 +10,8 @@ import { Feedback } from './feedback.js';
 import { Outbox } from './outbox.js';
 
 async function main(): Promise<void> {
-  const config = loadConfig(process.env.BRIDGE_CONFIG ?? 'bridge.config.json');
+  const configPath = process.env.BRIDGE_CONFIG ?? 'bridge.config.json';
+  const config = loadConfig(configPath);
   const auth = credentials();
   if (process.argv[2] === 'doctor') {
     await checkVersion(config.codexExecutable);
@@ -17,25 +19,41 @@ async function main(): Promise<void> {
     console.log('Doctor does not connect to Feishu, run inference, or verify external app permissions.');
     return;
   }
-  if (process.argv[2]) throw new Error('Usage: bridge [doctor]');
+  if (process.argv[2] === 'handoff') {
+    const { startPilot } = await import('./handoff/start.js');
+    await startPilot(config, auth, configPath);
+    return;
+  }
+  if (process.argv[2]) throw new Error('Usage: bridge [doctor|handoff]');
   process.umask(0o077);
   mkdirSync(config.stateDirectory, { recursive: true, mode: 0o700 });
   let compromised = false;
   let shutdown: (() => Promise<void>) | undefined;
-  const release = await lockfile.lock(config.stateDirectory, {
-    retries: 0, stale: 10_000,
-    onCompromised: () => {
-      compromised = true;
-      console.error('State lock lost; shutting down to prevent duplicate execution');
-      void shutdown?.();
-    },
+  const lease = await acquireRoot(config.stateDirectory, 'legacy', config.stateDirectory, () => {
+    compromised = true;
+    console.error('State lock lost, shutting down');
+    void shutdown?.();
   });
+  const release = lease.release;
+  let state: State | undefined;
+  const control = await openRuntimeControl(lease, request => {
+    if (!state) throw new Error('Runtime is opening');
+    if (request.command === 'quiesce') state.maintenance.quiesce();
+    else if (request.command === 'resume') state.maintenance.resume();
+    else if (request.command === 'reconcile') {
+      const value = record(request);
+      if (typeof value.task !== 'string' || typeof value.reference !== 'string') throw new Error('Missing recovery evidence');
+      state.reconcileForMigration(value.task, value.reference);
+    } else if (request.command !== 'status') throw new Error('Unsupported maintenance operation');
+    return state.drainStatus();
+  }).catch(async error => { await release(); throw error; });
   const secrets = [auth.appSecret, process.env.OPENAI_API_KEY ?? ''];
-  let state: State;
   try {
     state = new State(config.stateDirectory, secrets);
     state.recover();
   } catch {
+    state?.close();
+    await control.close(true);
     await release();
     throw new Error('Cannot initialize local state');
   }
@@ -86,7 +104,8 @@ async function main(): Promise<void> {
       await codex.close();
       await outbox.close();
       await feedback.close();
-      state.close();
+      state!.close();
+      await control.close(true);
       await release().catch(() => {});
       console.log('Bridge stopped');
     })();
@@ -98,6 +117,7 @@ async function main(): Promise<void> {
   process.once('SIGTERM', stop);
   try {
     if (compromised) throw new Error('State lock unavailable');
+    lease.assertHeld();
     await codex.start();
     if (stopping) return;
     outbox.start();

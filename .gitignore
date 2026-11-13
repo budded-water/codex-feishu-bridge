@@ -26,3 +26,11 @@ node_modules/
 dist/
 coverage/
 .DS_Store
+
+# Private handoff ownership and export bundles
+handoff-owner.json
+runtime-control.json
+handoff-bundle.json
+handoff-operation.json
+*.json.*.tmp
+handoff-plan.json

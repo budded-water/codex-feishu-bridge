@@ -62,3 +62,7 @@ On restart, queued and running tasks are interrupted rather than replayed. Check
 ## Metrics after live setup
 
 Observe acknowledgment/completion latency, pending delivery age, retry frequency, approval expirations, and Codex restart counts. The runtime has received reactions, quiet waiting, connection logs and `/status` with active stage/event age, but no exported dashboard or metric time series. Track reaction failures/cleanup backlog alongside answer delivery latency. A live process is not proof of model/network health.
+
+## Pilot migration maintenance
+
+The local `npm run handoff` commands inspect session IDs, quiesce admission, report drainage and prepare closed-state migration or rollback. Both managed runtime entries validate the shared consumer ownership root. Follow [the migration guide](handoff-migration.md) and the private deployment manifest when operating the pilot.

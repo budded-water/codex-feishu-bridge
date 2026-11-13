@@ -52,7 +52,7 @@ export class PilotAdmission {
 
   receive(inputMessage: IncomingMessage): Admission {
     const message = this.operator(inputMessage);
-    if (!message) return { status: 'ignored' };
+    if (!message || this.store.retained(message)) return { status: 'ignored' };
     if (message.unsupported || message.text.length > 30_000) return { status: 'rejected', reason: 'unsupported_input' };
     const text = message.text.trim();
     if (/^pair\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return { status: 'ignored' };
@@ -65,6 +65,7 @@ export class PilotAdmission {
       input = prefix[2]!;
     }
     const accepted = this.store.accept(message, input, this.project);
+    if ('paused' in accepted) return { status: 'rejected', reason: 'maintenance' };
     return { status: accepted.duplicate ? 'duplicate' : accepted.request.blocked ? 'blocked' : 'accepted', request: accepted.request };
   }
 

@@ -25,6 +25,7 @@ export class PilotInteractions {
 
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
+    if (this.admission.store.retained(message)) return { status: 'ignored' as const };
     const operator = message.tenant === this.admission.scope.tenant && message.user === this.admission.scope.operator && message.chat === this.admission.scope.chat;
     const approval = /^\/(?:批准|拒绝|回答)(?:\s|$)/.test(message.text.trim());
     const admin = approval && message.tenant === this.admission.scope.tenant && this.config.approvalUsers.includes(message.user) &&
@@ -36,6 +37,9 @@ export class PilotInteractions {
     if (!command && !natural) {
       const result = this.admission.receive(message);
       if ('request' in result) this.transport.admit(result.request);
+      if (result.status === 'rejected' && result.reason === 'maintenance') this.transport.state.transaction(() => {
+        if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '系统正在维护，这条新请求没有开始。恢复后请重新发送需求。', { replyTo: message.id });
+      });
       return result;
     }
     if (message.unsupported || message.text.length > 30_000 || (message.chatType === 'group' && !this.config.enableGroups)) return { status: 'rejected' as const };

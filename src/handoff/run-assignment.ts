@@ -7,6 +7,7 @@ import { PilotAdmission, type PilotScope } from './gateway.js';
 import { AutoloopSource, SourceOutbox } from './source.js';
 import { NativeExecutions, type NativeReport } from './native.js';
 import { validateNativeRegistry } from './registry.js';
+import { readFence, verifyImportedState } from './ownership.js';
 import { executionReceipt } from './receipt.js';
 
 async function main(): Promise<void> {
@@ -26,6 +27,11 @@ async function main(): Promise<void> {
   const prefix: unknown = JSON.parse(process.env.HANDOFF_CODEX_PREFIX ?? '[]');
   if (!Array.isArray(prefix) || prefix.some(item => typeof item !== 'string')) throw new Error('Invalid native executable prefix');
   const config = loadConfig(value.bridgeConfig);
+  if (realpathSync(config.stateDirectory) !== realpathSync(value.stateDirectory)) {
+    const owner = readFence(realpathSync(config.stateDirectory));
+    if (owner?.role !== 'pilot' || owner.data !== realpathSync(value.stateDirectory)) throw new Error('Worker no longer owns pilot state');
+    verifyImportedState(owner.data, owner.operation);
+  }
   const gateway = new PilotAdmission(value.stateDirectory, record(value.scope) as unknown as PilotScope);
   let runtime: NativeExecutions | undefined;
   let progress: NodeJS.Timeout | undefined;

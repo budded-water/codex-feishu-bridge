@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { Maintenance } from './maintenance.js';
 import { openPrivateDatabase } from './private-database.js';
 import type { RequestRecord, ControlRecord } from './handoff/store.js';
 import type { JournalProjection } from './handoff/journal.js';
@@ -26,61 +27,85 @@ export interface FeedbackRecord {
 export class State {
   private db: DatabaseSync;
   private secrets: string[];
+  readonly maintenance: Maintenance;
 
   constructor(directory: string, secrets: string[] = []) {
     this.secrets = secrets.filter(secret => secret.length > 4).sort((a, b) => b.length - a.length);
     this.db = openPrivateDatabase(directory, 'bridge.db');
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS seen (tenant TEXT, id TEXT, PRIMARY KEY (tenant, id));
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY, owner TEXT, tenant TEXT, user TEXT, chat TEXT,
-        project TEXT, directory TEXT, thread TEXT
-      );
-      CREATE TABLE IF NOT EXISTS selections (owner TEXT PRIMARY KEY, session TEXT REFERENCES sessions(id));
-      CREATE TABLE IF NOT EXISTS routing (owner TEXT PRIMARY KEY, thread TEXT, pending TEXT, source TEXT);
-      CREATE TABLE IF NOT EXISTS tasks (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, session TEXT REFERENCES sessions(id),
-        input TEXT, status TEXT, turn TEXT
-      );
-      CREATE TABLE IF NOT EXISTS outbox (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, chat TEXT, body TEXT,
-        attempts INTEGER DEFAULT 0, next INTEGER DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS feedback (
-        task TEXT PRIMARY KEY REFERENCES tasks(id), message TEXT, reaction TEXT,
-        uncertain INTEGER DEFAULT 0, fallback INTEGER DEFAULT 0,
-        attempts INTEGER DEFAULT 0, next INTEGER DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS projected_control_notices (origin TEXT NOT NULL, status TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(origin,status));
-      CREATE TABLE IF NOT EXISTS projected_tasks (execution TEXT PRIMARY KEY, checkpoint TEXT, notified INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS projected_deliveries (id TEXT PRIMARY KEY, execution TEXT NOT NULL, live INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS relayed_controls (origin TEXT PRIMARY KEY, message TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS approvals (
-        id TEXT PRIMARY KEY, task TEXT, method TEXT, status TEXT, created INTEGER
-      );
-    `);
-    if (!(this.db.prepare('PRAGMA table_info(selections)').all() as { name: string }[]).some(column => column.name === 'revision')) this.db.exec('ALTER TABLE selections ADD COLUMN revision INTEGER DEFAULT 0');
-    if (!(this.db.prepare('PRAGMA table_info(routing)').all() as { name: string }[]).some(column => column.name === 'source')) this.db.exec('ALTER TABLE routing ADD COLUMN source TEXT');
-    const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
-    if (!taskColumns.some(column => column.name === 'source')) this.db.exec('ALTER TABLE tasks ADD COLUMN source TEXT');
-    if (!taskColumns.some(column => column.name === 'routed')) this.db.exec('ALTER TABLE tasks ADD COLUMN routed INTEGER DEFAULT 0');
-    if (!taskColumns.some(column => column.name === 'diagnostic')) this.db.exec('ALTER TABLE tasks ADD COLUMN diagnostic TEXT');
-    if (!taskColumns.some(column => column.name === 'routing_revision')) this.db.exec('ALTER TABLE tasks ADD COLUMN routing_revision INTEGER');
-    if (!taskColumns.some(column => column.name === 'routing_origin')) this.db.exec('ALTER TABLE tasks ADD COLUMN routing_origin TEXT');
-    const outboxColumns = this.db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[];
-    if (!outboxColumns.some(column => column.name === 'task')) this.db.exec('ALTER TABLE outbox ADD COLUMN task TEXT');
-    for (const [name, definition] of Object.entries({ reply_to: 'TEXT', mentions: 'TEXT', response_task: 'TEXT', final: 'INTEGER DEFAULT 0', prompt_id: 'TEXT' })) {
-      if (!outboxColumns.some(column => column.name === name)) this.db.exec(`ALTER TABLE outbox ADD COLUMN ${name} ${definition}`);
-    }
-    this.db.exec('CREATE TABLE IF NOT EXISTS task_messages (message TEXT PRIMARY KEY, task TEXT REFERENCES tasks(id), chat TEXT)');
-    if (!taskColumns.some(column => column.name === 'trigger_message')) this.db.exec('ALTER TABLE tasks ADD COLUMN trigger_message TEXT');
-    if (!(this.db.prepare('PRAGMA table_info(task_messages)').all() as {name:string}[]).some(column=>column.name==='chat')) this.db.exec('ALTER TABLE task_messages ADD COLUMN chat TEXT');
-    for (const field of ['created_at','routing_at','routed_at','execution_at','finished_at','feedback_at','delivered_at']) {
-      if (!taskColumns.some(column => column.name === field)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${field} INTEGER`);
-    }
-    const approvalColumns = this.db.prepare('PRAGMA table_info(approvals)').all() as { name: string }[];
-    if (!approvalColumns.some(column => column.name === 'expires')) this.db.exec('ALTER TABLE approvals ADD COLUMN expires INTEGER');
-    if (!approvalColumns.some(column => column.name === 'actor')) this.db.exec('ALTER TABLE approvals ADD COLUMN actor TEXT');
+    try {
+      this.maintenance = new Maintenance(this.db);
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS migration_reconciliations (task TEXT PRIMARY KEY, reference TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS seen (tenant TEXT, id TEXT, PRIMARY KEY (tenant, id));
+        CREATE TABLE IF NOT EXISTS sessions (
+          id TEXT PRIMARY KEY, owner TEXT, tenant TEXT, user TEXT, chat TEXT,
+          project TEXT, directory TEXT, thread TEXT
+        );
+        CREATE TABLE IF NOT EXISTS selections (owner TEXT PRIMARY KEY, session TEXT REFERENCES sessions(id));
+        CREATE TABLE IF NOT EXISTS routing (owner TEXT PRIMARY KEY, thread TEXT, pending TEXT, source TEXT);
+        CREATE TABLE IF NOT EXISTS tasks (
+          sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, session TEXT REFERENCES sessions(id),
+          input TEXT, status TEXT, turn TEXT
+        );
+        CREATE TABLE IF NOT EXISTS outbox (
+          sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, chat TEXT, body TEXT,
+          attempts INTEGER DEFAULT 0, next INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS feedback (
+          task TEXT PRIMARY KEY REFERENCES tasks(id), message TEXT, reaction TEXT,
+          uncertain INTEGER DEFAULT 0, fallback INTEGER DEFAULT 0,
+          attempts INTEGER DEFAULT 0, next INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS projected_control_notices (origin TEXT NOT NULL, status TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(origin,status));
+        CREATE TABLE IF NOT EXISTS projected_tasks (execution TEXT PRIMARY KEY, checkpoint TEXT, notified INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS projected_deliveries (id TEXT PRIMARY KEY, execution TEXT NOT NULL, live INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS relayed_controls (origin TEXT PRIMARY KEY, message TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS approvals (
+          id TEXT PRIMARY KEY, task TEXT, method TEXT, status TEXT, created INTEGER
+        );
+      `);
+      if (!(this.db.prepare('PRAGMA table_info(selections)').all() as { name: string }[]).some(column => column.name === 'revision')) this.db.exec('ALTER TABLE selections ADD COLUMN revision INTEGER DEFAULT 0');
+      if (!(this.db.prepare('PRAGMA table_info(routing)').all() as { name: string }[]).some(column => column.name === 'source')) this.db.exec('ALTER TABLE routing ADD COLUMN source TEXT');
+      const taskColumns = this.db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
+      if (!taskColumns.some(column => column.name === 'source')) this.db.exec('ALTER TABLE tasks ADD COLUMN source TEXT');
+      if (!taskColumns.some(column => column.name === 'routed')) this.db.exec('ALTER TABLE tasks ADD COLUMN routed INTEGER DEFAULT 0');
+      if (!taskColumns.some(column => column.name === 'diagnostic')) this.db.exec('ALTER TABLE tasks ADD COLUMN diagnostic TEXT');
+      if (!taskColumns.some(column => column.name === 'routing_revision')) this.db.exec('ALTER TABLE tasks ADD COLUMN routing_revision INTEGER');
+      if (!taskColumns.some(column => column.name === 'routing_origin')) this.db.exec('ALTER TABLE tasks ADD COLUMN routing_origin TEXT');
+      const outboxColumns = this.db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[];
+      if (!outboxColumns.some(column => column.name === 'task')) this.db.exec('ALTER TABLE outbox ADD COLUMN task TEXT');
+      for (const [name, definition] of Object.entries({ reply_to: 'TEXT', mentions: 'TEXT', response_task: 'TEXT', final: 'INTEGER DEFAULT 0', prompt_id: 'TEXT' })) {
+        if (!outboxColumns.some(column => column.name === name)) this.db.exec(`ALTER TABLE outbox ADD COLUMN ${name} ${definition}`);
+      }
+      this.db.exec('CREATE TABLE IF NOT EXISTS task_messages (message TEXT PRIMARY KEY, task TEXT REFERENCES tasks(id), chat TEXT)');
+      if (!taskColumns.some(column => column.name === 'trigger_message')) this.db.exec('ALTER TABLE tasks ADD COLUMN trigger_message TEXT');
+      if (!(this.db.prepare('PRAGMA table_info(task_messages)').all() as {name:string}[]).some(column=>column.name==='chat')) this.db.exec('ALTER TABLE task_messages ADD COLUMN chat TEXT');
+      for (const field of ['created_at','routing_at','routed_at','execution_at','finished_at','feedback_at','delivered_at']) {
+        if (!taskColumns.some(column => column.name === field)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${field} INTEGER`);
+      }
+      const approvalColumns = this.db.prepare('PRAGMA table_info(approvals)').all() as { name: string }[];
+      if (!approvalColumns.some(column => column.name === 'expires')) this.db.exec('ALTER TABLE approvals ADD COLUMN expires INTEGER');
+      if (!approvalColumns.some(column => column.name === 'actor')) this.db.exec('ALTER TABLE approvals ADD COLUMN actor TEXT');
+    } catch (error) { this.db.close(); throw error; }
+  }
+
+  drainStatus(): Record<string, number | boolean> {
+    const count = (sql: string) => Number((this.db.prepare(sql).get() as { n: number }).n);
+    return {
+      paused: this.maintenance.paused,
+      queued: count("SELECT COUNT(*) AS n FROM tasks WHERE status='queued'"),
+      running: count("SELECT COUNT(*) AS n FROM tasks WHERE status='running'"),
+      unknown: count("SELECT COUNT(*) AS n FROM tasks WHERE status='unknown' AND NOT EXISTS(SELECT 1 FROM migration_reconciliations WHERE task=tasks.id)"),
+      prompts: count("SELECT COUNT(*) AS n FROM approvals WHERE status='pending'"),
+      outbox: count('SELECT COUNT(*) AS n FROM outbox'),
+      reactions: count('SELECT COUNT(*) AS n FROM feedback'),
+      clarifications: count('SELECT COUNT(*) AS n FROM routing WHERE pending IS NOT NULL'),
+    };
+  }
+
+  reconcileForMigration(task: string, reference: string): void {
+    if (!reference.trim() || reference.length > 2000 || !this.db.prepare("SELECT 1 FROM tasks WHERE id=? AND status='unknown'").get(task)) throw new Error('Migration recovery needs an uncertain task and inspection reference');
+    this.db.prepare('INSERT INTO migration_reconciliations VALUES (?,?) ON CONFLICT(task) DO UPDATE SET reference=excluded.reference').run(task, reference);
   }
 
   transaction<T>(work: () => T): T {
