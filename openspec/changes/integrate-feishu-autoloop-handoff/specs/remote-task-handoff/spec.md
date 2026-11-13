@@ -69,6 +69,16 @@ The gateway SHALL allocate an execution identity before effects and SHALL retain
 - **THEN** the system SHALL record the evidence and decision before releasing the guard
 - **AND** it SHALL distinguish new authorized continuation from replay of the original operation
 
+#### Scenario: A retained owner or checkpoint survives a gateway restart
+- **WHEN** recovery finds authenticated live ownership or a terminal checkpoint bound to the retained execution
+- **THEN** it SHALL inspect that owner or validate the closed native journal and observed child settlement
+- **AND** it SHALL NOT invoke another native turn to recreate missing gateway state
+
+#### Scenario: An old launch permit outlives its authority
+- **WHEN** its execution is uncertain or no longer holds the canonical project guard
+- **THEN** that permit SHALL NOT launch fresh native work
+- **AND** a retained owner descriptor SHALL select inspection rather than replay
+
 ### Requirement: Durable correlated live controls
 Live controls SHALL preserve verified ownership, target identity and delivery identity through private IPC, and the native owner SHALL revalidate them at dispatch. A control transport acknowledgement SHALL NOT prove native acceptance or settlement.
 

@@ -1,15 +1,45 @@
 # P1: Feishu and Autoloop handoff
 
-Status: durable admission, source delivery and project-guard components are implemented and exercised through the pinned Hub. Native runner/control wiring, startup process reconciliation and migration/activation remain open. P0 real-model interaction/recovery acceptance remains in the task list.
+Status: durable admission/source/guards and single-assignment native execution are implemented. The pinned Hub/Worker, authenticated owner/checkpoint recovery and bounded native conversation continuation are verified. Durable gateway controls/result projection, migration and activation remain open. P0 real-model interaction/recovery acceptance remains in the task list.
 
-Read [proposal](proposal.md), [design](design.md), [requirements](specs/remote-task-handoff/spec.md) and [tasks](tasks.md). The design owns P1's proposed handoff contract; [current architecture](../../../docs/architecture.md) continues to describe the delivered runtime. Do not archive this change or mark runtime tasks complete based on the routing check alone.
+Read [proposal](proposal.md), [design](design.md), [requirements](specs/remote-task-handoff/spec.md) and [tasks](tasks.md). The design owns the complete proposed handoff contract; [current architecture](../../../docs/architecture.md) distinguishes implemented isolated entry points from the production runtime. Keep this change open until its remaining tasks pass.
 
-## Admission component
+## Responsibilities and implementation
 
-[PilotAdmission](../../../src/handoff/gateway.ts) normalizes flattened SDK callback events with the existing normalizeMessage function. Its programmatic PilotScope binds installation, operator/chat, canonical project and Hub source/rule/agent. [AdmissionStore](../../../src/handoff/store.ts) atomically retains original messages, request/conversation/execution IDs and source intent in a private SQLite database. [SourceOutbox](../../../src/handoff/source.ts) publishes stable opaque events and verifies the source event's claimed Hub run before reserving execution.
+| Component | Current responsibility |
+| --- | --- |
+| [FeishuAdmission](../../../src/channels/feishu-admission.ts) | Existing SDK event normalization and stable bot binding before channel-neutral admission |
+| [PilotAdmission](../../../src/handoff/gateway.ts) / [AdmissionStore](../../../src/handoff/store.ts) | Immutable original message/request/conversation/execution, source intent, canonical-project guards, retained native conversation and explicit recovery decisions |
+| [SourceOutbox](../../../src/handoff/source.ts) | Stable opaque event delivery, routing reconciliation and verification of the source event's actual claimed run |
+| Pinned Autoloop Hub/Worker | One request lane, project group serialization, process supervision and receipt delivery |
+| [Native plugin](../../../experiments/autoloop/native-agent.ts) / [assignment entry](../../../src/handoff/run-assignment.ts) | Public Turn/context validation against documented rules and source APIs; one retained request per execution; normalized receipt after runner exit |
+| [NativeExecutions](../../../src/handoff/native.ts) | Existing Bridge/State for one assigned task; verified native thread continuation, private owner challenge, terminal checkpoint and recovery without replay |
+| Native Codex | Existing host identity, policy, reasoning, tools and conversation history |
 
-Run `npm run verify:handoff-routing -- <pinned-checkout>` for the executable component path. It covers actual Hub delivery, lost acknowledgement, reopening, project blocking and recovery with synthetic execution reports. Run `npm run check` for database concurrency, ownership, immutable identity and existing behavior regressions.
+The production listener still uses its original queue. The new entry does not connect a second Feishu consumer. Its private configuration supplies scope, stateDirectory, bridgeConfig and hubUrl; HANDOFF_CONFIG selects that file, HANDOFF_SOURCE_KEY supplies the private source credential, and HANDOFF_RUNNER selects the built assignment entry. The verifier creates all of these with synthetic identities and temporary state. They are implementation inputs, not a completed deployment interface.
 
-Active work permits subsequent queue admission. An uncertain execution holds the canonical project across aliases and reopening. The execution owner can report verified terminal evidence with its retained permit. The operator can alternatively record an explicit recovery decision with a scoped event and evidence reference, then authorize a fresh request. Repeated decisions and terminal reports preserve newer guards.
+Active work permits subsequent queue admission. Uncertain work holds the canonical project across aliases and reopening. An authenticated owner checkpoint can settle its exact execution after child exit. Alternatively, the operator can record explicit settlement/effects inspection evidence and authorize fresh remaining work. Repeated/stale reports preserve newer guards. A revoked or uncertain permit cannot start another native process/turn.
 
-Execution reports and operator evidence declarations currently enter through the component API. Task 3 connects them to authenticated native owners, actual lifecycle evidence and live controls. Task 2.3 retains the startup process-reconciliation work. The current executable verification supplies synthetic reports.
+Native final answers and pending prompts remain in the execution State. IPC message previews are bounded diagnostics. The durable gateway control ledger, acknowledgement reconciliation and full result/reaction projection into the human transport outbox remain tasks 3.3–3.4. This slice supplies the owner/evidence boundary those tasks need.
+
+## Reproduce the scoped checks
+
+Use Node 24 and a clean checkout matching [the shared upstream pin](../../../experiments/autoloop/source.json). No global Autoloop installation is required.
+
+```bash
+npm ci
+npm run check
+npm run smoke:codex
+npm run verify:handoff-routing -- /absolute/path/to/pinned-autoloop
+npm run verify:assigned-native -- /absolute/path/to/pinned-autoloop
+```
+
+The routing command uses actual Hub HTTP with synthetic execution reports. The assigned-native command also starts the actual Worker and standalone plugin with a scripted Codex RPC child. It covers Worker restart, duplicate controls, retained checkpoint reuse, same-conversation continuation, administrator approval ownership, observed stop, lost start acknowledgement, native/owner process loss and orchestration-environment isolation. Database tests additionally exercise concurrent reservation and a lost gateway terminal update. All use temporary state and no Feishu messages.
+
+Explicit bounded real-model acceptance:
+
+```bash
+npm run verify:assigned-native -- /absolute/path/to/pinned-autoloop --native
+```
+
+This uses the existing native Codex identity/configuration for two fixed-text rounds in one new conversation. It consumes native service usage and leaves ordinary native conversation history. It checks exact replies, completed native references, same-thread continuation and absence of tool execution items. It does not establish real-model active steering, approval/rejection, external-side-effect recovery or owner-chat readiness. See [observed evidence](../../../docs/live-acceptance.md).

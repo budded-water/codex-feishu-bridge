@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto';
-import { realpathSync } from 'node:fs';
-import { normalizeMessage } from '../feishu.js';
+import { realpathSync, statSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { record, type IncomingMessage } from '../types.js';
 import { AdmissionStore, type Permit } from './store.js';
 
 export const REQUEST_EVENT = 'bridge.request';
 export interface PilotScope {
   installation: string;
-  botOpenId: string;
   tenant: string;
   operator: string;
   chat: string;
@@ -27,10 +26,14 @@ export class PilotAdmission {
   readonly directory: string;
   readonly project: string;
   readonly scope: Readonly<PilotScope>;
+  readonly stateDirectory: string;
 
   constructor(directory: string, scope: PilotScope) {
-    for (const value of [scope.installation, scope.botOpenId, scope.tenant, scope.operator, scope.chat, scope.hubInstance, scope.source, scope.rule, scope.agent, scope.agentUse]) {
+    for (const value of [scope.installation, scope.tenant, scope.operator, scope.chat, scope.pilot, scope.hubInstance, scope.source, scope.rule, scope.agent, scope.agentUse]) {
       if (typeof value !== 'string' || !value.trim() || value.length > 200) throw new Error('Invalid pilot scope');
+    }
+    for (const [alias, path] of Object.entries(record(scope.projects))) {
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(alias) || typeof path !== 'string' || !isAbsolute(path) || !statSync(path).isDirectory()) throw new Error('Invalid project registry');
     }
     if (!Object.hasOwn(scope.projects, scope.pilot)) throw new Error('Unknown pilot project');
     this.scope = Object.freeze({ ...scope, projects: Object.freeze({ ...scope.projects }) });
@@ -39,16 +42,16 @@ export class PilotAdmission {
     const { projects: _projects, pilot: _pilot, ...binding } = this.scope;
     const fields = { ...binding, directory: this.directory };
     this.store = new AdmissionStore(directory, JSON.stringify(Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b)))));
+    this.stateDirectory = realpathSync(directory);
   }
 
-  private operator(event: unknown): IncomingMessage | undefined {
-    const message = normalizeMessage(event, this.scope.botOpenId);
+  private operator(message: IncomingMessage): IncomingMessage | undefined {
     if (!message || message.tenant !== this.scope.tenant || message.user !== this.scope.operator || message.chat !== this.scope.chat) return;
     return message;
   }
 
-  receive(event: unknown): Admission {
-    const message = this.operator(event);
+  receive(inputMessage: IncomingMessage): Admission {
+    const message = this.operator(inputMessage);
     if (!message) return { status: 'ignored' };
     if (message.unsupported || message.text.length > 30_000) return { status: 'rejected', reason: 'unsupported_input' };
     const text = message.text.trim();
@@ -69,10 +72,14 @@ export class PilotAdmission {
     const job = record(value);
     const rule = record(job.rule);
     const agent = record(job.agent);
-    const context = record(job.context);
     if (!Number.isSafeInteger(job.run) || Number(job.run) < 1 || !Number.isSafeInteger(job.attempt) || Number(job.attempt) < 1 ||
-      rule.name !== this.scope.rule || rule.cwd !== this.directory || agent.id !== this.scope.agent || agent.use !== this.scope.agentUse ||
-      !Array.isArray(context.events) || context.events.length !== 1 ||
+      rule.name !== this.scope.rule || agent.id !== this.scope.agent || agent.use !== this.scope.agentUse) throw new Error('Assignment does not match pilot registry');
+    return this.assignmentContext(Number(job.run), rule.cwd, job.context);
+  }
+
+  assignmentContext(run: number, cwd: unknown, value: unknown) {
+    const context = record(value);
+    if (!Number.isSafeInteger(run) || run < 1 || cwd !== this.directory || !Array.isArray(context.events) || context.events.length !== 1 ||
       !Array.isArray(context.answers) || context.answers.length || !Array.isArray(context.timers) || context.timers.length) {
       throw new Error('Assignment does not match pilot registry');
     }
@@ -84,7 +91,7 @@ export class PilotAdmission {
     if (!request || request.project !== this.project || realpathSync(this.scope.projects[this.scope.pilot]!) !== this.directory) {
       throw new Error('Assignment has no admitted request');
     }
-    return { request, run: Number(job.run) };
+    return { request, run };
   }
 
   uncertain(permit: Permit, reason: 'owner_unreachable' | 'start_unconfirmed' | 'completion_unconfirmed' | 'cancellation_unconfirmed') {
@@ -97,8 +104,8 @@ export class PilotAdmission {
     return this.store.terminal(permit, evidence.status, evidence.reference);
   }
 
-  reconcile(event: unknown, decision: { execution: string; processSettled: true; effectsChecked: true; reference: string }): void {
-    const message = this.operator(event);
+  reconcile(inputMessage: IncomingMessage, decision: { execution: string; processSettled: true; effectsChecked: true; reference: string }): void {
+    const message = this.operator(inputMessage);
     if (!message || message.unsupported || message.text.trim() !== '/reconcile ' + decision.execution ||
       decision.processSettled !== true || decision.effectsChecked !== true || typeof decision.reference !== 'string' ||
       !decision.reference.trim() || decision.reference.length > 2000) throw new Error('Recovery requires a scoped operator decision and evidence');

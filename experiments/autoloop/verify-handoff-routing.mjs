@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { pinnedSource } from './pinned-source.mjs';
 import { PilotAdmission, REQUEST_EVENT } from '../../dist/handoff/gateway.js';
+import { FeishuAdmission } from '../../dist/channels/feishu-admission.js';
 import { AutoloopSource, SourceOutbox } from '../../dist/handoff/source.js';
 
 const source = pinnedSource(process.argv[2] ?? process.env.AUTOLOOP_SOURCE);
@@ -146,14 +147,15 @@ try {
     } catch { response.writeHead(503).end('{}'); }
   });
   await new Promise((done, fail) => { ackProxy.once('error', fail); ackProxy.listen(0, '127.0.0.1', done); });
-  const scope = { installation: 'fixture-installation', botOpenId: 'ou_fixture_bot', tenant: 'fixture-tenant', operator: 'ou_fixture_owner', chat: 'fixture-chat',
+  const scope = { installation: 'fixture-installation', tenant: 'fixture-tenant', operator: 'ou_fixture_owner', chat: 'fixture-chat',
     projects: { alpha, alias: alpha, beta }, pilot: 'alpha', hubInstance: 'fixture-hub', source: 'fixture', rule: 'alpha', agent: 'native', agentUse: 'command' };
   const sourceClient = new AutoloopSource('http://127.0.0.1:' + ackProxy.address().port, sourceKey);
   const raw = (id, text) => ({ tenant_key: scope.tenant, sender: { sender_type: 'user', sender_id: { open_id: scope.operator } },
     message: { message_id: id, chat_id: scope.chat, chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text }) } });
   admission = new PilotAdmission(join(scratch, 'admission'), scope);
+  let ingress = new FeishuAdmission(admission, 'ou_fixture_bot');
   let outbox = new SourceOutbox(admission, sourceClient);
-  const accepted = admission.receive(raw('admission-first', 'Private fixture prompt'));
+  const accepted = ingress.receive(raw('admission-first', 'Private fixture prompt'));
   assert.equal(accepted.status, 'accepted');
   const firstRequest = accepted.request;
   await outbox.flush();
@@ -167,9 +169,10 @@ try {
   admission.close();
   admission = undefined;
   admission = new PilotAdmission(join(scratch, 'admission'), scope);
+  ingress = new FeishuAdmission(admission, 'ou_fixture_bot');
   outbox = new SourceOutbox(admission, sourceClient);
   assert.equal((await outbox.claim(assigned)).kind, 'existing');
-  const queued = admission.receive(raw('admission-queued', 'alias: queued work'));
+  const queued = ingress.receive(raw('admission-queued', 'alias: queued work'));
   assert.equal(queued.status, 'accepted');
   await outbox.flush();
   admission.uncertain(permission.permit, 'owner_unreachable');
@@ -177,10 +180,10 @@ try {
   const queuedJob = await select();
   assert.equal((await outbox.claim(queuedJob)).kind, 'blocked');
   await finish(queuedJob);
-  assert.equal(admission.receive(raw('admission-later', 'alias: later work')).status, 'blocked');
+  assert.equal(ingress.receive(raw('admission-later', 'alias: later work')).status, 'blocked');
   const decision = { execution: firstRequest.execution, processSettled: true, effectsChecked: true, reference: 'Synthetic execution has no native process or external effects' };
-  admission.reconcile(raw('admission-reconcile', '/reconcile ' + firstRequest.execution), decision);
-  const remaining = admission.receive(raw('admission-remaining', 'Authorized remaining work'));
+  ingress.reconcile(raw('admission-reconcile', '/reconcile ' + firstRequest.execution), decision);
+  const remaining = ingress.receive(raw('admission-remaining', 'Authorized remaining work'));
   assert.equal(remaining.status, 'accepted');
   await outbox.flush();
   const remainingJob = await select();
@@ -200,7 +203,7 @@ try {
   assert.deepEqual(retained.runs, []);
   assert.deepEqual(retained.paused, ['alpha']);
   assert.equal((await claim(randomUUID())).job, null);
-  const skipped = admission.receive(raw('admission-skipped', 'Work while route is paused'));
+  const skipped = ingress.receive(raw('admission-skipped', 'Work while route is paused'));
   assert.equal(skipped.status, 'accepted');
   await outbox.flush();
   assert.equal(admission.store.submission(skipped.request.id).status, 'blocked');

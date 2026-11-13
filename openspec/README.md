@@ -45,4 +45,4 @@ Future CLI upgrades must inspect supported commands and generated-file changes i
 
 ## P1 handoff change
 
-[integrate-feishu-autoloop-handoff](changes/integrate-feishu-autoloop-handoff/README.md) owns pilot admission, the scheduling/identity split, controls, project guards and drain-first migration/rollback. Durable admission/source/guard components and their Hub verification are implemented. Native owner/control wiring, startup process reconciliation and activation remain open. Validate this change separately from P0 and retain the pending native/live acceptance tasks.
+[integrate-feishu-autoloop-handoff](changes/integrate-feishu-autoloop-handoff/README.md) owns pilot admission, the scheduling/identity split, controls, project guards and drain-first migration/rollback. Durable admission/source/guards and single-assignment native execution are implemented, including authenticated owner/checkpoint recovery and actual Hub/Worker verification. Durable gateway controls/result projection, migration and activation remain open. Validate this change separately from P0 and retain the pending native/live acceptance tasks.

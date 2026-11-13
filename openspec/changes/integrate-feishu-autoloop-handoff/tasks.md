@@ -9,18 +9,20 @@
 
 - [x] 2.1 Implement verified immutable request/conversation/project identity and atomic deduplication plus source outbox; validate one request per assignment and all bound registry fields.
 - [x] 2.2 Implement idempotent source delivery and route-outcome reconciliation, including accepted-but-unacknowledged and paused/skipped events.
-- [ ] 2.3 Implement canonical-project guards, boot reconciliation and evidence-backed explicit recovery; cover new/queued requests, aliases, process loss and card-answer bypass attempts.
+- [x] 2.3 Implement canonical-project guards, boot reconciliation and evidence-backed explicit recovery; cover new/queued requests, aliases, process loss and card-answer bypass attempts.
 - [x] 2.4 Add meaningful persistence/concurrency tests using actual database transitions and preserve existing transport/owner contracts.
 
-For 2.3, persisted active/uncertain guards, queued/new/alias admission, retained-record inspection, permit-bound terminal reports and scoped evidence-backed operator recovery are implemented. Boot-time probing of actual native owners and retained execution journals remains open with task 3.4. The current integration test uses synthetic execution reports.
+For 2.3, recovery now authenticates live owner endpoints or validates sealed native checkpoints before new dispatch. Missing owners, lost start acknowledgement and native process loss retain uncertain guards; revoked/uncertain permits cannot launch new work. The routing command uses synthetic reports, while verify:assigned-native exercises real Worker/plugin processes and native journals. Full deployed gateway startup and human outbox projection remain part of 3.4 and activation.
 
 ## 3. Assigned native execution and controls
 
-- [ ] 3.1 Introduce the single-assignment execution port without exposing the legacy global queue as a second scheduler; resolve native threads from verified conversation records.
-- [ ] 3.2 Implement execution-ID deduplication across Hub runs/attempts and retained completion/unknown lookup before any native effects.
+- [x] 3.1 Introduce the single-assignment execution port without exposing the legacy global queue as a second scheduler; resolve native threads from verified conversation records.
+- [x] 3.2 Implement execution-ID deduplication across Hub runs/attempts and retained completion/unknown lookup before any native effects.
 - [ ] 3.3 Implement durable correlated control relay with point-of-dispatch actor/pending/generation checks, uncertain acknowledgement handling and no automatic approval replay.
 - [ ] 3.4 Project final results/reactions/native prompts into the existing transport outbox idempotently; exercise gateway outage, Worker loss, delivery retries and stop/completion races.
 - [ ] 3.5 Complete P0's pending bounded native steering, approval/rejection and process-loss acceptance in the dedicated pilot scope.
+
+For 3.1–3.2, verify:assigned-native connects the public plugin Turn/context, actual claimed source run, retained request and native conversation. It verifies Worker restart, checkpoint reuse, native continuation, approval ownership, observed stop and uncertain process outcomes. The --native mode verifies two fixed-text turns in one native conversation with no tool execution items. Private IPC controls reuse existing Bridge checks but do not yet provide the durable gateway relay/acknowledgement contract in 3.3. Final answers remain in the sealed execution State; gateway transport projection in 3.4 is pending. Real-model steering/approval/rejection/process-loss acceptance in 3.5 remains open.
 
 ## 4. Migration tooling and acceptance
 

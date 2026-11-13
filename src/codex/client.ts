@@ -54,6 +54,9 @@ export class CodexClient implements CodexPort {
     // The local agent does not need the chat gateway credentials.
     delete env.FEISHU_APP_ID;
     delete env.FEISHU_APP_SECRET;
+    for (const name of Object.keys(env)) {
+      if (name.startsWith('HANDOFF_') || name.startsWith('AGENT_AUTOLOOP_')) delete env[name];
+    }
     this.closed = false;
     const child = spawn(this.executable, [...this.prefix, 'app-server', '--listen', 'stdio://'], {
       env, stdio: ['pipe', 'pipe', 'pipe'], shell: false,

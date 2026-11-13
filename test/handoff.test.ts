@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Worker } from 'node:worker_threads';
+import { FeishuAdmission } from '../src/channels/feishu-admission.js';
 import { PilotAdmission, REQUEST_EVENT, type PilotScope } from '../src/handoff/gateway.js';
 import { AutoloopSource, SourceOutbox } from '../src/handoff/source.js';
 
@@ -19,30 +20,31 @@ function setup(t: TestContext) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'handoff-test-')));
   const project = join(root, 'project'); const other = join(root, 'other');
   mkdirSync(project); mkdirSync(other); symlinkSync(project, join(root, 'alias'));
-  const scope: PilotScope = { installation: 'fixture-installation', botOpenId: 'ou_fixture_bot', tenant: 'fixture-tenant', operator: 'ou_fixture_owner', chat: 'fixture-chat',
+  const scope: PilotScope = { installation: 'fixture-installation', tenant: 'fixture-tenant', operator: 'ou_fixture_owner', chat: 'fixture-chat',
     projects: { pilot: project, alias: join(root, 'alias'), other }, pilot: 'pilot', hubInstance: 'fixture-hub', source: 'fixture', rule: 'pilot', agent: 'native', agentUse: 'bridge-native' };
   const state = join(root, 'state');
   const gateway = new PilotAdmission(state, scope);
+  const ingress = new FeishuAdmission(gateway, 'ou_fixture_bot');
   const opened = [gateway];
   const reopen = () => { const next = new PilotAdmission(state, scope); opened.push(next); return next; };
   t.after(() => { for (const item of opened) item.close(); rmSync(root, { recursive: true, force: true }); });
   const accept = (id: string, text?: string) => {
-    const result = gateway.receive(event(id, text));
+    const result = ingress.receive(event(id, text));
     assert.ok('request' in result);
     return result.request;
   };
   const job = (id: string, run = 1) => ({ run, attempt: 1, session: 'untrusted-scheduler-session', rule: { name: scope.rule, cwd: project },
     agent: { id: scope.agent, use: scope.agentUse }, context: { events: [{ id, subject: id, source: scope.source, type: REQUEST_EVENT }], answers: [], timers: [] } });
-  return { root, state, gateway, scope, accept, job, reopen };
+  return { root, state, gateway, ingress, scope, accept, job, reopen };
 }
 
 test('verified input, immutable identity and source intent persist through reopen and alias changes', t => {
   const h = setup(t);
-  for (const changes of [{ user: 'ou_other' }, { tenant: 'other' }, { chat: 'other' }, { type: 'group' }]) assert.equal(h.gateway.receive(event('ignored', undefined, changes)).status, 'ignored');
-  assert.equal(h.gateway.receive(event('control', '/批准 stale')).status, 'rejected');
-  assert.equal(h.gateway.receive(event('outside', 'other: work')).status, 'rejected');
+  for (const changes of [{ user: 'ou_other' }, { tenant: 'other' }, { chat: 'other' }, { type: 'group' }]) assert.equal(h.ingress.receive(event('ignored', undefined, changes)).status, 'ignored');
+  assert.equal(h.ingress.receive(event('control', '/批准 stale')).status, 'rejected');
+  assert.equal(h.ingress.receive(event('outside', 'other: work')).status, 'rejected');
   const first = h.accept('first', 'alias: Preserve this task');
-  const original = h.gateway.receive(event('first', 'different redelivered content'));
+  const original = h.ingress.receive(event('first', 'different redelivered content'));
   assert.ok('request' in original);
   assert.equal(original.status, 'duplicate');
   assert.equal(original.request.input, 'Preserve this task');
@@ -51,6 +53,9 @@ test('verified input, immutable identity and source intent persist through reope
   assert.equal(next.conversation, first.conversation);
   assert.notEqual(next.execution, first.execution);
   const reopened = h.reopen();
+  const ingress = new FeishuAdmission(reopened, 'ou_fixture_bot');
+  assert.equal(ingress.receive(event('first')).status, 'duplicate');
+  assert.throws(() => new FeishuAdmission(reopened, 'ou_different_bot'), /identity/);
   assert.equal(reopened.store.request(first.id)!.execution, first.execution);
   assert.equal(reopened.store.pending().length, 2);
   assert.equal(statSync(h.state).mode & 0o777, 0o700);
@@ -86,20 +91,21 @@ test('uncertainty holds a project across aliases, queued work, restarts and dupl
   assert.throws(() => h.gateway.uncertain({ ...reserved.permit, token: 'wrong' }, 'start_unconfirmed'), /owner/);
   h.gateway.uncertain(reserved.permit, 'start_unconfirmed');
   const reopened = h.reopen();
+  const ingress = new FeishuAdmission(reopened, 'ou_fixture_bot');
   assert.equal(reopened.store.unsettled()[0]!.status, 'unknown');
   assert.equal(reopened.store.reserve(first.id, 7).kind, 'existing');
   assert.equal(reopened.store.reserve(queued.id, 2).kind, 'blocked');
-  const later = reopened.receive(event('later', 'alias: more work')); assert.equal(later.status, 'blocked');
+  const later = ingress.receive(event('later', 'alias: more work')); assert.equal(later.status, 'blocked');
   assert.throws(() => reopened.terminal(reserved.permit, { status: 'completed', processSettled: false as never, reference: 'late-report' }), /evidence/);
   const proof = { execution: first.execution, processSettled: true as const, effectsChecked: true as const, reference: 'fixture inspection of native journal and project effects' };
-  assert.throws(() => reopened.reconcile(event('first', '/reconcile ' + first.execution), proof), /identity/);
-  assert.throws(() => reopened.reconcile(event('recover', '/reconcile ' + first.execution, { user: 'ou_other' }), proof));
-  reopened.reconcile(event('recover', '/reconcile ' + first.execution), proof);
+  assert.throws(() => ingress.reconcile(event('first', '/reconcile ' + first.execution), proof), /identity/);
+  assert.throws(() => ingress.reconcile(event('recover', '/reconcile ' + first.execution, { user: 'ou_other' }), proof));
+  ingress.reconcile(event('recover', '/reconcile ' + first.execution), proof);
   assert.equal(reopened.store.unsettled().length, 0);
   assert.equal(reopened.store.reserve(queued.id, 2).kind, 'blocked', 'A held old request does not gain fresh authorization');
-  const fresh = reopened.receive(event('remaining', 'Perform only the remaining authorized work')); assert.ok('request' in fresh);
+  const fresh = ingress.receive(event('remaining', 'Perform only the remaining authorized work')); assert.ok('request' in fresh);
   const freshPermit = reopened.store.reserve(fresh.request.id, 8); assert.equal(freshPermit.kind, 'start');
-  reopened.reconcile(event('recover', '/reconcile ' + first.execution), proof);
+  ingress.reconcile(event('recover', '/reconcile ' + first.execution), proof);
   assert.equal(reopened.store.unsettled()[0]!.id, fresh.request.execution, 'Duplicate old recovery cannot clear a newer guard');
   assert.equal(reopened.store.reserve(first.id, 9).kind, 'existing');
 });

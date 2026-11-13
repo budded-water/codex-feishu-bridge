@@ -25,15 +25,19 @@ test('stdio client initializes and correlates out-of-order replies', async t => 
 });
 
 test('server requests receive one correlated response; gateway credentials are not inherited', async t => {
-  const previous = process.env.FEISHU_APP_SECRET;
-  process.env.FEISHU_APP_SECRET = 'private-test-secret';
+  const names = ['FEISHU_APP_SECRET', 'HANDOFF_SOURCE_KEY', 'HANDOFF_CONFIG', 'AGENT_AUTOLOOP_KEY', 'OPENAI_TEST_NATIVE_IDENTITY'];
+  const previous = names.map(name => process.env[name]);
+  for (const name of names) process.env[name] = 'private-test-value';
   const client = new CodexClient(process.execPath, [fixture]);
-  t.after(async () => { await client.close(); if (previous === undefined) delete process.env.FEISHU_APP_SECRET; else process.env.FEISHU_APP_SECRET = previous; });
+  t.after(async () => {
+    await client.close();
+    names.forEach((name, index) => { if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index]; });
+  });
   let acknowledged = false;
   client.onRequest(request => { client.reply(request.id, { decision: 'decline' }); client.reply(request.id, { decision: 'accept' }); });
   client.onNotification(event => { if (event.method === 'approval/responded') { assert.equal(event.params.decision, 'decline'); acknowledged = true; } });
   await client.start();
-  assert.deepEqual(await client.request('env', {}), { secretPresent: false });
+  assert.deepEqual(await client.request('env', {}), { secretPresent: false, schedulerPresent: false, nativeIdentityPresent: true });
   await client.request('ask', {});
   await until(() => acknowledged);
 });

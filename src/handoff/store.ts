@@ -25,6 +25,7 @@ export class AdmissionStore {
     try {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS binding (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS channel_binding (kind TEXT PRIMARY KEY, external_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS conversations (
           id TEXT PRIMARY KEY, owner TEXT NOT NULL, project TEXT NOT NULL, UNIQUE(owner,project)
         );
@@ -52,9 +53,23 @@ export class AdmissionStore {
         );
       `);
       this.transaction(() => {
+        for (const [table, columns] of Object.entries({ conversations: ['thread', 'last_execution'], executions: ['native_thread', 'native_turn', 'native_generation'] })) {
+          const present = this.db.prepare('PRAGMA table_info(' + table + ')').all() as { name: string }[];
+          for (const name of columns) if (!present.some(column => column.name === name)) this.db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + name + ' TEXT');
+        }
         this.db.prepare('INSERT OR IGNORE INTO binding VALUES (1,?)').run(binding);
         const saved = this.db.prepare('SELECT value FROM binding WHERE id=1').get() as { value: string };
-        if (saved.value !== binding) throw new Error('Admission state belongs to another installation or registry');
+        if (saved.value !== binding) {
+          const legacy = JSON.parse(saved.value) as Record<string, unknown>;
+          const bot = legacy.botOpenId;
+          delete legacy.botOpenId;
+          const migrated = JSON.stringify(Object.fromEntries(Object.entries(legacy).sort(([a], [b]) => a.localeCompare(b))));
+          if (typeof bot !== 'string' || migrated !== binding) throw new Error('Admission state belongs to another installation or registry');
+          this.db.prepare('INSERT OR IGNORE INTO channel_binding VALUES (?,?)').run('feishu', bot);
+          const channel = this.db.prepare('SELECT external_id FROM channel_binding WHERE kind=?').get('feishu') as { external_id: string };
+          if (channel.external_id !== bot) throw new Error('Channel identity changed');
+          this.db.prepare('UPDATE binding SET value=? WHERE id=1').run(binding);
+        }
       });
     } catch (error) { this.db.close(); throw error; }
   }
@@ -63,6 +78,14 @@ export class AdmissionStore {
     this.db.exec('BEGIN IMMEDIATE');
     try { const result = work(); this.db.exec('COMMIT'); return result; }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  bindChannel(kind: string, externalId: string): void {
+    this.transaction(() => {
+      this.db.prepare('INSERT OR IGNORE INTO channel_binding VALUES (?,?)').run(kind, externalId);
+      const saved = this.db.prepare('SELECT external_id FROM channel_binding WHERE kind=?').get(kind) as { external_id: string };
+      if (saved.external_id !== externalId) throw new Error('Channel identity changed');
+    });
   }
 
   request(id: string): RequestRecord | undefined {
@@ -77,7 +100,7 @@ export class AdmissionStore {
       const previous = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(origin) as { id: string } | undefined;
       if (previous) return { duplicate: true, request: this.request(previous.id)! };
       const owner = ownerKey(message);
-      this.db.prepare('INSERT OR IGNORE INTO conversations VALUES (?,?,?)').run(randomUUID(), owner, project);
+      this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)').run(randomUUID(), owner, project);
       const conversation = this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=?').get(owner, project) as { id: string };
       const uncertain = this.db.prepare("SELECT 1 FROM guards JOIN executions ON executions.id=guards.execution WHERE guards.project=? AND executions.status='unknown'").get(project);
       const request: RequestRecord = { id: randomUUID(), execution: randomUUID(), conversation: conversation.id, project,
@@ -149,6 +172,43 @@ export class AdmissionStore {
     const row = this.db.prepare('SELECT token_hash FROM executions WHERE id=?').get(permit.execution) as { token_hash: string } | undefined;
     if (!row || row.token_hash !== digest(permit.token)) throw new Error('Invalid execution owner');
     return this.execution(permit.execution)!;
+  }
+
+  ownedRequest(permit: Permit): RequestRecord {
+    return this.request(this.validatePermit(permit).request)!;
+  }
+
+  startableRequest(permit: Permit): RequestRecord {
+    const execution = this.validatePermit(permit);
+    if (execution.status !== 'active' || !this.db.prepare('SELECT 1 FROM guards WHERE execution=? AND project=?').get(execution.id, execution.project)) {
+      throw new Error('Execution no longer holds launch authority');
+    }
+    return this.request(execution.request)!;
+  }
+
+  conversationThread(id: string): string | null {
+    const row = this.db.prepare('SELECT thread FROM conversations WHERE id=?').get(id) as { thread: string | null } | undefined;
+    if (!row) throw new Error('Unknown conversation');
+    return row.thread;
+  }
+
+  nativeSnapshot(permit: Permit, snapshot: { thread: string; turn: string | null; generation: string }): void {
+    this.transaction(() => {
+      const request = this.ownedRequest(permit);
+      const prior = this.db.prepare('SELECT native_thread,native_turn,native_generation FROM executions WHERE id=?').get(permit.execution) as
+        { native_thread: string | null; native_turn: string | null; native_generation: string | null };
+      if ((prior.native_thread && prior.native_thread !== snapshot.thread) || (prior.native_turn && prior.native_turn !== snapshot.turn) ||
+        (prior.native_generation && prior.native_generation !== snapshot.generation)) throw new Error('Native execution identity changed');
+      this.db.prepare('UPDATE executions SET native_thread=?,native_turn=?,native_generation=? WHERE id=?')
+        .run(snapshot.thread, snapshot.turn, snapshot.generation, permit.execution);
+      this.db.prepare(`UPDATE conversations SET thread=?,last_execution=? WHERE id=? AND
+        (last_execution=? OR EXISTS(SELECT 1 FROM guards WHERE guards.execution=? AND guards.project=conversations.project))`)
+        .run(snapshot.thread, permit.execution, request.conversation, permit.execution, permit.execution);
+    });
+  }
+
+  ownerUnconfirmed(execution: string): void {
+    this.db.prepare("UPDATE executions SET status='unknown',problem='owner_unreachable' WHERE id=? AND status='active' AND EXISTS(SELECT 1 FROM guards WHERE guards.execution=executions.id)").run(execution);
   }
 
   uncertain(permit: Permit, problem: string): ExecutionRecord {

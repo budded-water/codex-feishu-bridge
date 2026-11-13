@@ -3,6 +3,8 @@ import { Bridge } from '../bridge.js';
 import { State } from '../state.js';
 import type { Config } from '../config.js';
 import { ownerKey, type CodexPort, type IncomingMessage } from '../types.js';
+import { executionReceipt as probeReceipt } from '../handoff/receipt.js';
+export { executionReceipt as probeReceipt } from '../handoff/receipt.js';
 
 export const PROBE_ACTOR = { tenant: 'probe-tenant', user: 'probe-owner', chat: 'probe-chat', id: 'fixture-owner', text: '' };
 export const PROBE_ADMIN = { tenant: 'probe-tenant', user: 'probe-admin', chat: 'probe-admin-chat', id: 'fixture-admin', text: '' };
@@ -13,21 +15,6 @@ export type ProbeOutcome = {
   status: string;
   receipt: string;
 };
-
-export function probeReceipt(status: string): string {
-  if (status === 'completed') return 'Native Codex round completed; business acceptance is not declared.';
-  if (status === 'interrupted') return 'NOTHING: Native Codex round interrupted; completed effects were not rolled back.';
-  // Never turn uncertainty or a partially failed native task into a retry instruction.
-  return 'Native execution requires reconciliation; no automatic replay.\n\n```agent-autoloop\n' +
-    JSON.stringify({ ask: [{
-      key: 'native-outcome-unconfirmed',
-      title: 'Check the previous execution before continuing',
-      text: 'The execution outcome is not confirmed. Inspect actual effects and the native conversation before authorizing further work.',
-      options: ['Keep paused', 'Investigate without repeating the operation'],
-      recommend: 0,
-      about: 'Reconcile the previous execution. This response does not authorize replay of the original operation.',
-    }] }) + '\n```';
-}
 
 export class AutoloopExecutionProbe {
   private bridge: Bridge;

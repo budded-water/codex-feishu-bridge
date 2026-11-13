@@ -73,7 +73,14 @@ export class SourceOutbox {
   }
 
   async claim(value: unknown): Promise<Reservation> {
-    const { request, run } = this.gateway.assignment(value);
+    return this.reserve(this.gateway.assignment(value));
+  }
+
+  async claimContext(run: number, cwd: string, context: unknown): Promise<Reservation> {
+    return this.reserve(this.gateway.assignmentContext(run, cwd, context));
+  }
+
+  private async reserve({ request, run }: ReturnType<PilotAdmission['assignment']>): Promise<Reservation> {
     const submission = this.gateway.store.submission(request.id);
     if (request.blocked || submission?.status === 'blocked') return { kind: 'blocked' };
     if (!submission) throw new Error('Assignment has no submission intent');

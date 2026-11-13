@@ -29,7 +29,7 @@ lines.on('line', line => {
   const message = JSON.parse(line);
   const { method, params } = message;
   if (method === 'initialize') {
-    audit({ event: 'initialize', schedulerSecrets: Object.keys(process.env).some(key => /^(AGENT_AUTOLOOP_|BRIDGE_PROBE_)/.test(key)) });
+    audit({ event: 'initialize', schedulerSecrets: Object.keys(process.env).some(key => /^(AGENT_AUTOLOOP_|BRIDGE_PROBE_|HANDOFF_)/.test(key)) });
     reply(message, {});
   } else if (method === 'thread/start' || method === 'thread/resume') {
     thread = params.threadId ?? randomUUID();

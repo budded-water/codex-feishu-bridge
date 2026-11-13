@@ -16,7 +16,11 @@ lines.on('line', line => {
   else if (message.method === 'initialized') initialized = true;
   else if (message.method === 'echo') setTimeout(() => send({ id: message.id, result: { value: message.params.value, initialized } }), message.params.delay ?? 0);
   else if (['turn/start', 'thread/resume', 'turn/steer'].includes(message.method)) send({ id: message.id, result: message.params });
-  else if (message.method === 'env') send({ id: message.id, result: { secretPresent: Boolean(process.env.FEISHU_APP_SECRET) } });
+  else if (message.method === 'env') send({ id: message.id, result: {
+    secretPresent: Boolean(process.env.FEISHU_APP_SECRET),
+    schedulerPresent: Object.keys(process.env).some(key => /^(HANDOFF_|AGENT_AUTOLOOP_)/.test(key)),
+    nativeIdentityPresent: process.env.OPENAI_TEST_NATIVE_IDENTITY === 'private-test-value',
+  } });
   else if (message.method === 'stubborn') {
     stubborn = true;
     process.on('SIGTERM', () => {});
