@@ -23,6 +23,8 @@ Read openspec/changes/integrate-feishu-autoloop-handoff before P1 runtime work. 
 
 ## Implementation boundaries
 
+Assigned group references are prepared by the gateway using the existing ContextPort scope and image budgets. Keep their original execution/message identity, separate image inputs and stop independence. Preserve live/journal conversation references through owner loss, and use the supported evidence-backed maintenance recovery path before releasing uncertain guards. Reverse conversion must preserve the selected conversation across legacy project and alias lookup.
+
 - Use TypeScript for the bridge and the official Feishu SDK for transport.
 - Use the locally installed `codex app-server` over stdio with version-matched protocol bindings.
 - Retain the local Codex configuration, sandbox, and approval policies.

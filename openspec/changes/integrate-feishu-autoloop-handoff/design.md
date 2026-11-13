@@ -68,6 +68,8 @@ While an execution is active, subsequent normal requests retain independent queu
 
 Reconciliation records who inspected what evidence and the resulting decision. Confirm native/process settlement and actual project/external effects, then distinguish: retained completion; known not-started work; explicitly authorized remaining work; or unresolved uncertainty. A controlled continuation gets its own identity and authority for remaining steps. It is not a replay of the original operation. Without evidence, keep the guard held.
 
+The managed pilot exposes scoped recovery through its authenticated local maintenance endpoint. It requires an uncertain execution and inspection reference, rejects a reachable native owner and records the local capability holder as actor. Authenticated live probes persist conversation references independently of settlement. An execution-bound journal can recover thread/turn references after owner loss while preserving uncertainty.
+
 Persist native terminal outcome/final answer before producing the normalized scheduler receipt. Retain native round status, business acceptance and reply delivery as separate fields. Raw model output cannot schedule events by accidental receipt syntax. P1 retains a deterministic receipt adapter and uses the gateway's original-owner reply; model-authored follow-up events and evidence-based objective completion are P3/P4 contracts.
 
 ## Live controls and human responses
@@ -81,6 +83,8 @@ Execution State is canonical for native dispatch, pending prompts and completion
 Stop remains pending until native terminal/process evidence confirms settlement, or explicitly becomes unknown with the guard held. Cancel the Hub run when required to remove queued dispatch, but do not equate that scheduling status with native settlement. `/clear` affects only the requesting session's not-started work; `/new` cannot bypass outstanding work or project guards.
 
 A gateway restart reconciles retained execution references and live runners before admitting new work. Runner IPC loss may delay control and delivery while native work continues; it is not proof of termination. The runner persists completion locally even when the gateway is unavailable. Reconcile and project native evidence into the gateway outbox idempotently when connectivity returns.
+
+The Feishu gateway prepares immutable, execution/message-bound group reference snapshots before source publication and explicit quoted steering. It reuses the configured ContextPort scopes, cutoff and image budgets. The assigned Bridge reads those snapshots through ContextPort and supplies actual image inputs separately from reference JSON. Explicit quoted supplements may reference chat material while retaining the unique owned execution target. Stop dispatch proceeds independently of a pending reference fetch. Sealed terminal projection retires snapshot bodies while retaining message/execution identity.
 
 ## Delivery and retained state
 

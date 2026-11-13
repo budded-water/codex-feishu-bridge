@@ -31,6 +31,11 @@ The executor SHALL resolve the intended native conversation from the verified ow
 #### Scenario: The same owner continues a completed conversation
 - **WHEN** the next admitted request targets that verified conversation after prior work settles
 - **THEN** it SHALL resume that conversation's associated native thread
+
+#### Scenario: Rollback imports an older selected conversation
+- **WHEN** the imported conversation precedes another historical session for the same owner and canonical project
+- **THEN** legacy routing and alias selection SHALL resume the imported conversation
+- **AND** a subsequent explicit new-session action SHALL select a fresh conversation
 - **AND** it SHALL create a distinct native turn and retain the new request's identity
 
 #### Scenario: Another owner or session is selected by scheduling metadata
@@ -73,6 +78,29 @@ The gateway SHALL allocate an execution identity before effects and SHALL retain
 - **WHEN** recovery finds authenticated live ownership or a terminal checkpoint bound to the retained execution
 - **THEN** it SHALL inspect that owner or validate the closed native journal and observed child settlement
 - **AND** it SHALL NOT invoke another native turn to recreate missing gateway state
+
+#### Scenario: The first native owner disappears before terminal sealing
+- **WHEN** an authenticated live observation or execution-bound journal identifies the native thread and turn
+- **THEN** recovery SHALL retain those conversation references independently of terminal settlement
+- **AND** the uncertain outcome and project guard SHALL remain until an explicit supported recovery decision
+
+#### Scenario: A local operator reconciles an uncertain pilot execution
+- **WHEN** the authenticated maintenance caller supplies the scoped execution and process/effects inspection reference
+- **THEN** the gateway SHALL reject a still-reachable native owner or record the local operator recovery decision
+- **AND** it SHALL preserve the original uncertain outcome and release only that execution's guard
+
+### Requirement: Assigned group reference context
+The gateway SHALL preserve the configured group history and explicit quote contract across assignment, including admitted image inputs and original source scope.
+
+#### Scenario: Assigned group work or steering carries an explicit reference
+- **WHEN** an admitted group request or explicit supplement requires reference context
+- **THEN** the gateway SHALL retain a bounded execution/message-bound snapshot before publication or dispatch
+- **AND** the assigned Bridge SHALL supply images separately from reference JSON through the existing context contract
+- **AND** a pending reference fetch SHALL allow independent stop dispatch
+
+#### Scenario: Native output becomes a settled transport projection
+- **WHEN** the gateway imports sealed completed or interrupted evidence
+- **THEN** it SHALL retire reference snapshot bodies while retaining their identity for duplicate outcome lookup
 
 #### Scenario: An old launch permit outlives its authority
 - **WHEN** its execution is uncertain or no longer holds the canonical project guard

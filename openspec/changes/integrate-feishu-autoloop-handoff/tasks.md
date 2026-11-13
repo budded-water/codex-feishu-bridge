@@ -34,4 +34,6 @@ For 3.1–3.2, verify:assigned-native connects the public plugin Turn/context, a
 
 The migration CLI and supported runtime role checks have been exercised through controlled processes and temporary databases. Rehearsals cover both rollback windows, replay suppression, native conversation continuation, explicit fresh conversations, archived nullable records, interrupted role publication, snapshot integrity, source ownership and drainage. Real service shutdown, private host/bot manifest verification and a live consumer transition remain 4.4–4.5 inputs.
 
+The initial migration review found four defects. Their regression coverage now exercises the managed pilot recovery entry, first-turn owner loss with journal-based conversation retention, older-session rollback selection through alias lookup, and assigned group history/text/image context including quoted steering and independent stop. Complete candidate review continues under 4.3.
+
 These unchecked runtime/activation tasks are not claims of shipped P1 behavior. Contract/feasibility work can be reviewed independently while P0 remains open for its unexecuted native acceptance.

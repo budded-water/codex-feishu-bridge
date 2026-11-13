@@ -256,6 +256,9 @@ function mergePilot(plan: MigrationPlan, source: string, transportPath: string, 
   database(source, false, pilot => database(transportPath, false, transport => database(target, true, legacy => {
     legacy.exec('BEGIN IMMEDIATE');
     try {
+      legacy.exec(`CREATE TABLE IF NOT EXISTS migration_conversations (
+        owner TEXT, directory TEXT, session TEXT NOT NULL REFERENCES sessions(id), PRIMARY KEY(owner,directory)
+      )`);
       const requests = rows(pilot, 'requests');
       const conversations = new Map(rows(pilot, 'conversations').map(row => [column(row, 'id'), row]));
       const incomingTasks = new Set<string>();
@@ -294,6 +297,8 @@ function mergePilot(plan: MigrationPlan, source: string, transportPath: string, 
         }
         legacy.prepare(`INSERT INTO selections(owner,session,revision) VALUES (?,?,1)
           ON CONFLICT(owner) DO UPDATE SET session=excluded.session,revision=selections.revision+1`).run(column(conversation, 'owner'), column(conversation, 'id'));
+        legacy.prepare(`INSERT INTO migration_conversations(owner,directory,session) VALUES (?,?,?)
+          ON CONFLICT(owner,directory) DO UPDATE SET session=excluded.session`).run(column(conversation, 'owner'), plan.config.projects[plan.scope.pilot]!, column(conversation, 'id'));
       }
       for (const row of rows(transport, 'task_messages')) {
         if (!incomingTasks.has(String(column(row, 'task')))) continue;

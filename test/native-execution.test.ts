@@ -11,6 +11,8 @@ import { FeishuAdmission } from '../src/channels/feishu-admission.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { probeOwner } from '../src/handoff/owner-channel.js';
 import { validateNativeRegistry } from '../src/handoff/registry.js';
+import { pilotMaintenance } from '../src/handoff/maintenance.js';
+import { State } from '../src/state.js';
 import { FakeCodex, until } from './helpers.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
@@ -61,9 +63,19 @@ test('one assigned native turn keeps its conversation and waits for child settle
   t.after(async () => { release(); await runtime.stop(); });
   const running = runtime.run(first.permit);
   const turn = await active(firstClient);
+  await runtime.inspect(first.permit.execution);
+  assert.equal(h.gateway.store.conversationThread(first.request.conversation), turn.thread);
+  assert.equal(h.gateway.store.execution(first.permit.execution)!.status, 'active');
+  h.gateway.uncertain(first.permit, 'owner_unreachable');
+  const transport = new State(join(h.root, 'transport'));
+  try {
+    await assert.rejects(pilotMaintenance(h.gateway, runtime, transport, { command: 'reconcile', task: first.permit.execution,
+      nonce: randomUUID(), reference: 'Fixture attempted recovery while owner remains live' }), /still reachable/);
+    assert.equal(h.gateway.store.unsettled().length, 1);
+  } finally { transport.close(); }
   firstClient.complete(turn.thread, turn.turn, 'completed', 'Large final answer '.repeat(10_000));
   await until(() => firstClient.closes > 0);
-  assert.equal(h.gateway.store.execution(first.permit.execution)!.status, 'active');
+  assert.equal(h.gateway.store.execution(first.permit.execution)!.status, 'unknown');
   assert.equal((await runtime.recover())[0]!.status, 'live');
   const preview = await runtime.inspect(first.permit.execution);
   assert.ok((preview.messages as { truncated: boolean }[]).some(message => message.truncated));

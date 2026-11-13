@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { Maintenance } from '../maintenance.js';
 import { openPrivateDatabase } from '../private-database.js';
-import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition } from '../types.js';
+import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition, type ChatContext } from '../types.js';
 
 export type RequestRecord = {
   id: string; execution: string; conversation: string; project: string;
@@ -60,6 +60,9 @@ export class AdmissionStore {
         CREATE TABLE IF NOT EXISTS recoveries (
           origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES executions(id), actor TEXT NOT NULL,
           evidence TEXT NOT NULL, created INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS reference_context (
+          origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES requests(execution), body TEXT
         );
       `);
       this.transaction(() => {
@@ -177,6 +180,26 @@ export class AdmissionStore {
     return (this.db.prepare('SELECT message FROM controls ORDER BY rowid').all() as { message: string }[]).map(row => this.control(JSON.parse(row.message))!);
   }
 
+  saveReference(execution: string, message: Pick<IncomingMessage, 'tenant' | 'id'>, context: ChatContext): void {
+    const origin = JSON.stringify([message.tenant, message.id]);
+    const admitted = this.db.prepare('SELECT execution FROM requests WHERE origin=? UNION SELECT execution FROM controls WHERE origin=?').all(origin, origin) as { execution: string }[];
+    if (admitted.length !== 1 || admitted[0]!.execution !== execution) throw new Error('Reference does not belong to admitted input');
+    const body = JSON.stringify(context);
+    const previous = this.reference(execution, message);
+    if (previous) return;
+    this.db.prepare('INSERT INTO reference_context VALUES (?,?,?)').run(origin, execution, body);
+  }
+
+  reference(execution: string, message: Pick<IncomingMessage, 'tenant' | 'id'>): { context: ChatContext | null } | undefined {
+    const row = this.db.prepare('SELECT body FROM reference_context WHERE origin=? AND execution=?')
+      .get(JSON.stringify([message.tenant, message.id]), execution) as { body: string | null } | undefined;
+    return row ? { context: row.body === null ? null : JSON.parse(row.body) as ChatContext } : undefined;
+  }
+
+  retireReferences(execution: string): void {
+    this.db.prepare('UPDATE reference_context SET body=NULL WHERE execution=?').run(execution);
+  }
+
   pendingControls(): ControlRecord[] {
     return (this.db.prepare(`SELECT message FROM controls WHERE status='received' OR (status IN ('dispatching','unknown') AND
       (EXISTS(SELECT 1 FROM guards WHERE guards.execution=controls.execution) OR
@@ -280,14 +303,14 @@ export class AdmissionStore {
     return row.thread;
   }
 
-  nativeSnapshot(permit: Permit, snapshot: { thread: string; turn: string | null; generation: string }): void {
+  nativeSnapshot(permit: Permit, snapshot: { thread: string; turn: string | null; generation: string | null }): void {
     this.transaction(() => {
       const request = this.ownedRequest(permit);
       const prior = this.db.prepare('SELECT native_thread,native_turn,native_generation FROM executions WHERE id=?').get(permit.execution) as
         { native_thread: string | null; native_turn: string | null; native_generation: string | null };
-      if ((prior.native_thread && prior.native_thread !== snapshot.thread) || (prior.native_turn && prior.native_turn !== snapshot.turn) ||
-        (prior.native_generation && prior.native_generation !== snapshot.generation)) throw new Error('Native execution identity changed');
-      this.db.prepare('UPDATE executions SET native_thread=?,native_turn=?,native_generation=? WHERE id=?')
+      if ((prior.native_thread && prior.native_thread !== snapshot.thread) || (prior.native_turn && snapshot.turn && prior.native_turn !== snapshot.turn) ||
+        (prior.native_generation && snapshot.generation && prior.native_generation !== snapshot.generation)) throw new Error('Native execution identity changed');
+      this.db.prepare('UPDATE executions SET native_thread=?,native_turn=COALESCE(?,native_turn),native_generation=COALESCE(?,native_generation) WHERE id=?')
         .run(snapshot.thread, snapshot.turn, snapshot.generation, permit.execution);
       this.db.prepare(`UPDATE conversations SET thread=?,last_execution=? WHERE id=? AND
         (last_execution=? OR EXISTS(SELECT 1 FROM guards WHERE guards.execution=? AND guards.project=conversations.project))`)
@@ -319,8 +342,15 @@ export class AdmissionStore {
   }
 
   reconcile(message: IncomingMessage, execution: string, evidence: string): void {
+    this.recordRecovery(JSON.stringify([message.tenant, message.id]), ownerKey(message), execution, evidence);
+  }
+
+  reconcileLocal(nonce: string, execution: string, evidence: string): void {
+    this.recordRecovery(JSON.stringify(['local-maintenance', nonce]), 'local-runtime-operator', execution, evidence);
+  }
+
+  private recordRecovery(origin: string, actor: string, execution: string, evidence: string): void {
     this.transaction(() => {
-      const origin = JSON.stringify([message.tenant, message.id]);
       if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=?').get(origin, origin)) throw new Error('Message identity already belongs to a task');
       const previous = this.db.prepare('SELECT execution,evidence FROM recoveries WHERE origin=?').get(origin) as { execution: string; evidence: string } | undefined;
       if (previous) {
@@ -328,7 +358,7 @@ export class AdmissionStore {
         return;
       }
       if (this.execution(execution)?.status !== 'unknown') throw new Error('Only uncertain execution can be reconciled');
-      this.db.prepare('INSERT INTO recoveries VALUES (?,?,?,?,?)').run(origin, execution, ownerKey(message), evidence, Date.now());
+      this.db.prepare('INSERT INTO recoveries VALUES (?,?,?,?,?)').run(origin, execution, actor, evidence, Date.now());
       this.db.prepare('DELETE FROM guards WHERE execution=?').run(execution);
       // Keep the original uncertain outcome. A new request carries any remaining-work authorization.
     });

@@ -117,11 +117,10 @@ export class NativeExecutions {
         continue;
       } catch { /* A live owner may still be producing its checkpoint. */ }
       try {
-        const owner = this.owner(execution.id);
-        const snapshot = await probeOwner(owner.socket, owner.permit.token, execution.id);
-        if (snapshot.pid !== owner.pid || snapshot.execution !== execution.id) throw new Error('Owner identity changed');
+        await this.inspect(execution.id);
         recovered.push({ execution: execution.id, status: 'live' });
       } catch {
+        this.recoverReferences(execution.id);
         this.gateway.store.ownerUnconfirmed(execution.id);
         recovered.push({ execution: execution.id, status: 'unknown' });
       }
@@ -139,7 +138,7 @@ export class NativeExecutions {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
       }
       try { await this.inspect(execution.id); }
-      catch { this.gateway.store.ownerUnconfirmed(execution.id); }
+      catch { this.recoverReferences(execution.id); this.gateway.store.ownerUnconfirmed(execution.id); }
     }
   }
 
@@ -156,6 +155,7 @@ export class NativeExecutions {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         this.gateway.store.startableRequest(permit);
         if (request.message.chatType === 'group' && !this.config.enableGroups) throw new Error('Native configuration does not admit the pilot chat');
+        if (request.message.chatType === 'group' && !this.gateway.store.reference(request.execution, request.message)?.context) throw new Error('Missing retained group references');
         const codex = this.createCodex?.() ?? new CodexClient(this.config.codexExecutable, [], 30_000, this.config.codexReasoningEffort);
         this.active = new NativeOwner(this.gateway, this.config, request, permit, folder, codex);
         if (this.stopping) await this.active.stop();
@@ -227,7 +227,23 @@ export class NativeExecutions {
 
   async inspect(execution: string): Promise<Record<string, unknown>> {
     const owner = this.owner(execution);
-    return probeOwner(owner.socket, owner.permit.token, execution);
+    const snapshot = await probeOwner(owner.socket, owner.permit.token, execution);
+    if (snapshot.pid !== owner.pid || snapshot.execution !== execution) throw new Error('Owner identity changed');
+    if (typeof snapshot.thread === 'string' && snapshot.thread && typeof snapshot.generation === 'string' && snapshot.generation &&
+      (snapshot.turn === null || typeof snapshot.turn === 'string')) this.gateway.store.nativeSnapshot(owner.permit, {
+      thread: snapshot.thread, turn: snapshot.turn, generation: snapshot.generation,
+    });
+    return snapshot;
+  }
+
+  recoverReferences(execution: string): void {
+    try {
+      const owner = this.owner(execution);
+      const request = this.gateway.store.ownedRequest(owner.permit);
+      const task = journalProjection(join(this.folder(execution), 'bridge.db')).task;
+      if (!task || task.owner !== ownerKey(request.message) || task.trigger !== request.message.id || task.directory !== this.gateway.directory || !task.thread) return;
+      this.gateway.store.nativeSnapshot(owner.permit, { thread: task.thread, turn: task.turn, generation: null });
+    } catch { /* Missing or conflicting journal identity cannot supply a conversation reference. */ }
   }
 
   stop(): Promise<void> { this.stopping = true; return this.active?.stop() ?? Promise.resolve(); }
@@ -293,7 +309,13 @@ class NativeOwner {
       const session = this.state.select(this.request.message, this.gateway.scope.pilot, this.gateway.directory);
       const thread = this.gateway.store.conversationThread(this.request.conversation);
       if (thread) this.state.setThread(session.id, thread);
-      this.bridge = new Bridge(config, this.state, this.codex);
+      this.bridge = new Bridge(config, this.state, this.codex, {
+        context: async (session, source) => {
+          const saved = this.gateway.store.reference(this.permit.execution, { tenant: session.tenant, id: source.id });
+          if (!saved?.context) throw new Error('Missing retained group references');
+          return saved.context;
+        },
+      });
       this.state.transaction(() => {
         if (!this.state!.remember(this.request.message)) throw new Error('Assigned request already exists');
         const { id, chatType, createTime, parentId } = this.request.message;

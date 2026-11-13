@@ -96,7 +96,11 @@ test('closed import and rollback before traffic preserve native ownership and ol
 });
 
 test('post-traffic rollback imports deduplication, native continuation and delivered reply associations', async t => {
-  const h = await fixture(t); await stageHandoff(h.plan);
+  const h = await fixture(t);
+  const history = new State(h.plan.legacyDirectory);
+  const newer = history.select(h.message, 'pilot', h.session.directory, true);
+  history.setThread(newer.id, 'newer-unselected-thread'); history.close();
+  await stageHandoff(h.plan);
   const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope);
   admission.store.maintenance.resume();
   const codex = new ManagedFake(); const native = new NativeExecutions(admission, h.plan.config, () => codex);
@@ -135,10 +139,16 @@ test('post-traffic rollback imports deduplication, native continuation and deliv
   const nextCodex = new FakeCodex(); const nextBridge = new Bridge(h.plan.config, continued, nextCodex);
   nextBridge.receive(message); nextBridge.receive(controlMessage);
   assert.equal(nextCodex.calls.length, 0);
-  nextBridge.receive({ ...message, id: 'fresh-after-rollback', text: 'Continue after rollback' });
+  nextBridge.receive({ ...message, id: 'fresh-after-rollback', text: 'pilot: Continue after rollback' });
   await until(() => nextCodex.calls.some(call => call.method === 'turn/start'));
   assert.equal(nextCodex.calls.find(call => call.method === 'thread/resume')!.params.threadId, 'retained-native-thread');
   nextCodex.complete('retained-native-thread', 'turn-1'); await nextBridge.close(); continued.close();
+  const selection = new State(h.plan.legacyDirectory);
+  assert.equal(selection.select(message, 'alternate-alias', h.session.directory).thread, 'retained-native-thread');
+  const fresh = selection.select(message, 'pilot', h.session.directory, true);
+  assert.notEqual(fresh.id, h.session.id);
+  assert.equal(selection.select(message, 'pilot', h.session.directory).id, fresh.id);
+  selection.close();
   assert.equal((await rollbackHandoff(h.plan)).repeated, true);
 });
 
@@ -285,4 +295,55 @@ test('a missing prepared database is rejected without recreating an empty pilot'
   await assert.rejects(stageHandoff(h.plan), /ENOENT|missing/);
   assert.throws(() => readFileSync(join(h.plan.pilotDirectory, 'handoff.db')), { code: 'ENOENT' });
   assert.equal(readFence(h.plan.legacyDirectory)!.role, 'pilot');
+});
+
+test('managed pilot recovers first-turn conversation after owner death and supports audited reconciliation before rollback', async t => {
+  const h = await fixture(t);
+  writeFileSync(h.planPath, JSON.stringify({ ...h.raw, sourceSession: null }));
+  const plan = loadMigrationPlan(h.planPath); await stageHandoff(plan);
+  const admission = new PilotAdmission(plan.pilotDirectory, plan.scope);
+  admission.store.maintenance.resume();
+  const message = { ...h.message, id: 'lost-first-turn', text: 'Begin a fresh conversation' };
+  const accepted = admission.receive(message); assert.ok('request' in accepted);
+  admission.store.rememberEvent(accepted.request.id, 1); admission.store.routed(accepted.request.id, true);
+  const grant = admission.store.reserve(accepted.request.id, 1); assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw new Error('Missing grant');
+  const assignment = join(h.root, 'assignment.json');
+  writeFileSync(assignment, JSON.stringify({ config: plan.config, scope: plan.scope, directory: plan.pilotDirectory, permit: grant.permit }));
+  const owner = spawn(process.execPath, ['--import', 'tsx', 'test/fixtures/assigned-owner.ts', assignment], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let ready = false; owner.stdout.on('data', data => { if (String(data).includes('READY')) ready = true; });
+  t.after(() => { if (owner.exitCode === null) owner.kill('SIGKILL'); });
+  await until(() => ready);
+  assert.equal(admission.store.conversationThread(accepted.request.conversation), null);
+  const exited = new Promise(resolve => owner.once('exit', resolve)); owner.kill('SIGKILL'); await exited;
+  const native = new NativeExecutions(admission, plan.config);
+  const interactions = new PilotInteractions(admission, plan.config, { flush: async () => {} }, native,
+    { send: async (_chat, _text, id) => id }, { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
+  await interactions.recover(); for (let i = 0; i < 3; i++) await interactions.flush();
+  const thread = admission.store.conversationThread(accepted.request.conversation);
+  assert.equal(thread, 'thread-1');
+  assert.equal(admission.store.execution(grant.permit.execution)!.status, 'unknown');
+  assert.equal(admission.store.unsettled().length, 1);
+  await interactions.close(); admission.close();
+  const runtime = spawn(process.execPath, ['--import', 'tsx', 'test/fixtures/managed-runtime.ts', plan.legacyDirectory, h.planPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+  ready = false; runtime.stdout.on('data', data => { if (String(data).includes('READY')) ready = true; });
+  t.after(() => { if (runtime.exitCode === null) runtime.kill('SIGKILL'); });
+  await until(() => ready);
+  assert.deepEqual((await manageRuntime(plan.legacyDirectory, 'status')).uncertain, [grant.permit.execution]);
+  await assert.rejects(manageRuntime(plan.legacyDirectory, 'reconcile', grant.permit.execution), /reply/);
+  const result = await manageRuntime(plan.legacyDirectory, 'reconcile', grant.permit.execution, 'Inspected killed fixture owner, native journal and project effects');
+  assert.equal(result.guards, 0);
+  assert.equal((await manageRuntime(plan.legacyDirectory, 'quiesce')).paused, true);
+  const closed = new Promise(resolve => runtime.once('exit', resolve)); runtime.kill('SIGTERM'); await closed;
+  assert.equal((await rollbackHandoff(plan)).window, 'after-traffic');
+  const restored = new State(plan.legacyDirectory);
+  assert.equal(restored.select(message, 'pilot', h.session.directory).thread, thread);
+  assert.equal(restored.drainStatus().unknown, 0);
+  restored.maintenance.resume();
+  const continued = new FakeCodex(); const bridge = new Bridge(plan.config, restored, continued);
+  bridge.receive({ ...message, id: 'continue-inspected-loss', text: 'pilot: Continue the inspected remaining work' });
+  await until(() => continued.calls.some(call => call.method === 'turn/start'));
+  assert.equal(continued.calls.find(call => call.method === 'thread/resume')!.params.threadId, thread);
+  continued.complete(thread!, 'turn-1'); await bridge.close();
+  restored.close();
 });

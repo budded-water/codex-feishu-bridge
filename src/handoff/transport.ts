@@ -34,12 +34,18 @@ export class HandoffTransport {
   async sync(): Promise<void> {
     for (const request of this.gateway.store.requests()) {
       this.admit(request);
-      if (!this.gateway.store.execution(request.execution) || this.state.projectedFinal(request.execution)) continue;
+      const execution = this.gateway.store.execution(request.execution);
+      if (!execution) continue;
+      if (this.state.projectedFinal(request.execution)) {
+        if (['completed', 'interrupted'].includes(execution.status)) this.gateway.store.retireReferences(request.execution);
+        continue;
+      }
       try {
         const projection = await this.native.projection(request.execution);
         this.state.projectAssignedTask(request, this.gateway.scope.pilot, this.gateway.directory,
           projection.sealed ? String(projection.outcome.status) : this.gateway.store.execution(request.execution)!.status === 'unknown' ? 'unknown' : 'running');
         this.state.projectNativeMessages(request, projection);
+        if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.gateway.store.retireReferences(request.execution);
         if (projection.sealed && !projection.task) this.state.projectAdmissionNotice(request, '任务在开始执行前已取消，没有启动模型任务。');
       } catch {
         if (this.gateway.store.execution(request.execution)?.status === 'unknown') this.state.projectAdmissionNotice(request, '本机执行器当前无法核实，任务结果尚未确认。请先检查实际结果；不会自动重跑。');

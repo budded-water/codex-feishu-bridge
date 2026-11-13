@@ -49,6 +49,8 @@ Approval audits store request IDs, task IDs, methods, deciding actor IDs, and de
 
 Reference image bytes are streamed into bounded memory and passed as inline inputs; the bridge does not persist downloaded image files or put base64 into the SQLite outbox. Codex/model transcript storage may retain image inputs. Canonical caps are in src/context-limits.ts. Downloads stop starting new resources after their time budget; an in-flight request can finish under the SDK timeout.
 
+The prepared pilot gateway saves bounded group reference snapshots, including admitted inline image inputs, in its private admission database before publication or quoted steering. The assigned process reads these snapshots through the existing ContextPort contract. Sealed terminal projection retires snapshot bodies and retains message/execution identity for deduplication. Uncertain executions retain their snapshots for inspection. Include this database in the private application-data handling described in the migration guide.
+
 There is no automatic data expiry yet. Stop before managing or deleting state. Database deletion loses mappings and deduplication history. Treat backups as private task data.
 
 Logs cover connection, restart, and delivery state. Raw SDK responses, Codex stderr, shell output, and credentials are not printed. Known gateway/API secrets are redacted from complete new outbound text before chunk splitting and persistence, including task-status notices. Delivery also retains per-chunk redaction for older queued records containing a complete known secret; it cannot repair secret fragments split across legacy records. This does not scrub task inputs or Codex transcripts, and arbitrary secrets in model content cannot all be identified.

@@ -76,6 +76,10 @@ npm run handoff -- resume /absolute/path/to/legacy-state
 
 The maintenance root stays the legacy state directory for both roles. The pilot stores its data in the prepared pilot directory. The physical root lock and persistent role record coordinate consumer ownership on this host. Other hosts and external service owners remain part of the deployment inventory.
 
+For a lost pilot owner, `status` lists uncertain execution IDs. Inspect the native processes, journal and actual project/external effects before issuing `reconcile` against that same maintenance root with the execution ID and inspection reference. A reachable authenticated native owner prevents reconciliation. The audit identifies the local maintenance capability holder. The original uncertain outcome remains recorded, and subsequent work requires a fresh request. Routine status, steering, stop and native human responses use Feishu.
+
+Authenticated live observations retain native thread/turn/generation references before terminal completion. After owner loss, recovery can also retain the thread/turn from the execution-bound native journal while preserving the uncertain outcome and project guard.
+
 ## Roll back either window
 
 Quiesce the active pilot, drain its admitted work and transport cleanup, stop the inventoried services, then run the rollback with the retained private plan.
@@ -87,5 +91,7 @@ npm run handoff -- rollback /absolute/path/to/handoff-plan.json
 Before new traffic, rollback restores the verified baseline. After new traffic, it first archives the closed pilot state and native journals, then merges new source receipts, control identities, terminal outcomes, conversation pointers, timestamps and delivered reply links into a baseline copy. The replacement SQLite file and legacy role are published under the shared lock. The restored entry starts with admission quiesced.
 
 The legacy entry can then start under the restored role and continue the latest native conversation. Repeated rollback commands return the committed operation. The source and pilot archives retain their checksums for inspection. Pending work, missing final projections, unresolved guards, incompatible protocol bindings or state changes during export require reconciliation before the operation can publish restored state.
+
+The imported conversation becomes the preferred legacy mapping for that owner and canonical directory, including automatic routing and aliases for the same directory. This also supports a deliberately selected older source session. A later explicit `/new` creates and selects a fresh conversation.
 
 SDK messages sent during the consumer transition may require resubmission after the maintenance window. The bot's receipt and deduplication guarantees apply to durably admitted messages. The [acceptance record](live-acceptance.md) lists the executed fixture rehearsals and the live acceptance still to run.

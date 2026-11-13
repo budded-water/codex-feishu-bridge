@@ -167,3 +167,19 @@ test('source outbox recovers a committed POST without its acknowledgement and va
   await assert.rejects(outbox.claim(h.job(request.id, 6)), /active run/);
   assert.equal(h.gateway.store.unsettled().length, 1);
 });
+
+test('group source publication and assignment wait for a retained reference snapshot', async t => {
+  const h = setup(t);
+  const message = { tenant: h.scope.tenant, user: h.scope.operator, chat: h.scope.chat, id: 'group-input', text: 'Inspect this quote', chatType: 'group' as const, parentId: 'quote' };
+  const admitted = h.gateway.receive(message); assert.ok('request' in admitted);
+  let published = 0;
+  const source = new AutoloopSource('http://127.0.0.1', 'fixture-key');
+  source.publish = async () => { published++; return { event: 1, routed: ['pilot'], paused: [] }; };
+  source.inspect = async () => ({ event: 1, routed: ['pilot'], paused: [], runs: [{ run: 1, rule: 'pilot', state: 'claimed' }] });
+  const outbox = new SourceOutbox(h.gateway, source);
+  await outbox.flush(); assert.equal(published, 0);
+  await assert.rejects(outbox.claim(h.job(admitted.request.id)), /prepared/);
+  h.gateway.store.saveReference(admitted.request.execution, message, { status: 'available', messages: [{ sender: 'Member', type: 'text', text: 'Quoted reference', quoted: true }], note: 'Exact quote' });
+  assert.equal((await outbox.claim(h.job(admitted.request.id))).kind, 'start');
+  assert.equal(published, 1);
+});

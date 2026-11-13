@@ -2,12 +2,12 @@ import type { Config } from '../config.js';
 import type { Sender } from '../outbox.js';
 import type { ReactionPort } from '../feedback.js';
 import { naturalControl } from '../ux.js';
-import { ownerKey, type IncomingMessage, type NativeControlTarget } from '../types.js';
+import { ownerKey, type IncomingMessage, type NativeControlTarget, type ContextPort } from '../types.js';
 import { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
 import type { SourceOutbox } from './source.js';
 import { HandoffTransport } from './transport.js';
-import type { ControlRecord } from './store.js';
+import type { ControlRecord, RequestRecord } from './store.js';
 
 export class PilotInteractions {
   readonly transport: HandoffTransport;
@@ -19,7 +19,7 @@ export class PilotInteractions {
   private controlWork?: Promise<void>;
 
   constructor(readonly admission: PilotAdmission, private config: Config, private source: Pick<SourceOutbox, 'flush'>,
-    private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = []) {
+    private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = [], private contextPort?: ContextPort) {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
   }
 
@@ -48,7 +48,8 @@ export class PilotInteractions {
     const held = this.admission.store.unsettled();
     const execution = held.length === 1 ? held[0] : undefined;
     const reference = message.parentId ? this.transport.state.referencedTask(message.parentId, ownerKey(message)) : undefined;
-    if (!execution || (!approval && message.parentId && reference !== execution.id)) {
+    const quotedSupplement = /^\/补充\s/.test(message.text.trim()) && !reference;
+    if (!execution || (!approval && message.parentId && reference !== execution.id && !quotedSupplement)) {
       this.transport.state.transaction(() => {
         if (!this.transport.state.remember(message)) return;
         const queued = this.admission.store.requests().filter(request => !request.blocked && !this.admission.store.execution(request.execution) &&
@@ -61,6 +62,7 @@ export class PilotInteractions {
       return { status: 'rejected' as const };
     }
     const control = this.admission.store.acceptControl(execution.id, message);
+    if (message.text.trim() === '/stop' || natural === 'stop') void this.relay(control).catch(() => console.error('Stop relay unavailable; retained dispatch will be inspected'));
     void this.flushControls().catch(() => console.error('Control relay unavailable; retained dispatch will be inspected'));
     return { status: 'control' as const, control };
   }
@@ -79,6 +81,10 @@ export class PilotInteractions {
         if (status && status !== 'dispatching') this.admission.store.controlResult(control.message, status, status === 'rejected' ? '原任务或请求已结束、过期或无权控制，这条指令没有执行。' : undefined);
       } catch { /* Uncertain dispatch is lookup-only; approvals are never resent. */ }
       return;
+    }
+    if (message.chatType === 'group' && message.parentId && message.text.startsWith('/补充 ')) {
+      const execution = this.admission.store.execution(control.execution)!;
+      await this.prepareReference(this.admission.store.request(execution.request)!, message, 0);
     }
     let target = control.target;
     if (!target) {
@@ -102,6 +108,28 @@ export class PilotInteractions {
     }
   }
 
+  private async prepareReference(request: RequestRecord, message: IncomingMessage, limit: number): Promise<void> {
+    const execution = request.execution;
+    if (this.admission.store.reference(execution, message)) return;
+    const session = { id: request.conversation, owner: ownerKey(request.message), tenant: request.message.tenant,
+      user: request.message.user, chat: request.message.chat, project: this.admission.scope.pilot, directory: this.admission.directory,
+      thread: this.admission.store.conversationThread(request.conversation) };
+    const { id, chatType, createTime, parentId } = message;
+    const context = (limit || parentId) && this.contextPort
+      ? await this.contextPort.context(session, { id, chatType, createTime, parentId }, limit)
+      : { status: 'unavailable' as const, messages: [], note: '尚未启用群聊前文读取；请引用或粘贴要讨论的内容。' };
+    this.admission.store.saveReference(execution, message, context);
+  }
+
+  private async publish(): Promise<void> {
+    for (const request of this.admission.store.requests()) {
+      if (!request.blocked && !this.admission.store.execution(request.execution) && request.message.chatType === 'group') {
+        await this.prepareReference(request, request.message, this.config.groupContextMessages);
+      }
+    }
+    await this.source.flush();
+  }
+
   private flushControls(): Promise<void> {
     if (this.controlWork) return this.controlWork;
     this.controlWork = (async () => {
@@ -123,7 +151,7 @@ export class PilotInteractions {
   }
 
   private async synchronize(): Promise<void> {
-    if (!this.publication) this.publication = this.source.flush()
+    if (!this.publication) this.publication = this.publish()
       .catch(() => console.error('Source publication unavailable; retained intent will be retried'))
       .finally(() => { this.publication = undefined; });
     await this.native.poll();

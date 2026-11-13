@@ -42,6 +42,9 @@ export class State {
           project TEXT, directory TEXT, thread TEXT
         );
         CREATE TABLE IF NOT EXISTS selections (owner TEXT PRIMARY KEY, session TEXT REFERENCES sessions(id));
+        CREATE TABLE IF NOT EXISTS migration_conversations (
+          owner TEXT, directory TEXT, session TEXT NOT NULL REFERENCES sessions(id), PRIMARY KEY(owner,directory)
+        );
         CREATE TABLE IF NOT EXISTS routing (owner TEXT PRIMARY KEY, thread TEXT, pending TEXT, source TEXT);
         CREATE TABLE IF NOT EXISTS tasks (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, session TEXT REFERENCES sessions(id),
@@ -220,6 +223,9 @@ export class State {
   select(message: IncomingMessage, project: string, directory: string, fresh = false, activate = true, manual = true): Session {
     const owner = ownerKey(message);
     let existing = fresh ? undefined : this.db.prepare(
+      'SELECT sessions.* FROM migration_conversations JOIN sessions ON sessions.id=migration_conversations.session WHERE migration_conversations.owner=? AND migration_conversations.directory=?',
+    ).get(owner, directory) as unknown as Session | undefined;
+    existing ??= fresh ? undefined : this.db.prepare(
       'SELECT * FROM sessions WHERE owner=? AND project=? AND directory=? ORDER BY rowid DESC LIMIT 1',
     ).get(owner, project, directory) as unknown as Session | undefined;
     if (!existing) {
@@ -228,6 +234,7 @@ export class State {
         existing.id, owner, message.tenant, message.user, message.chat, project, directory, null,
       );
     }
+    if (fresh) this.db.prepare('UPDATE migration_conversations SET session=? WHERE owner=? AND directory=?').run(existing.id, owner, directory);
     if (activate) this.db.prepare('INSERT INTO selections (owner,session,revision) VALUES (?, ?, ?) ON CONFLICT(owner) DO UPDATE SET session=excluded.session,revision=selections.revision+?').run(owner, existing.id, Number(manual), Number(manual));
     return existing;
   }

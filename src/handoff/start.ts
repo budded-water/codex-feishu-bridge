@@ -8,6 +8,7 @@ import { PilotAdmission, type PilotScope } from './gateway.js';
 import { NativeExecutions } from './native.js';
 import { AutoloopSource, SourceOutbox } from './source.js';
 import { PilotInteractions } from './interactions.js';
+import { pilotMaintenance } from './maintenance.js';
 
 export async function startPilot(config: Config, auth: { appId: string; appSecret: string }, configPath: string): Promise<void> {
   process.umask(0o077);
@@ -23,6 +24,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   const lease = await acquireRoot(config.stateDirectory, 'pilot', directory, () => { compromised = true; void shutdown?.(); });
   let admission: PilotAdmission | undefined;
   let interactions: PilotInteractions | undefined;
+  let native: NativeExecutions | undefined;
   let control: Awaited<ReturnType<typeof openRuntimeControl>> | undefined;
   const feishu = new Feishu(auth, config.enableGroups, config.groupContextImages);
   let closing: Promise<void> | undefined;
@@ -43,19 +45,15 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   try {
     opening = (async () => {
       control = await openRuntimeControl(lease, request => {
-        if (!admission || !interactions) throw new Error('Pilot is opening');
-        if (request.command === 'quiesce') admission.store.maintenance.quiesce();
-        else if (request.command === 'resume') admission.store.maintenance.resume();
-        else if (request.command !== 'status') throw new Error('Unsupported pilot maintenance operation');
-        const delivery = interactions.transport.state.drainStatus();
-        return { ...admission.store.drainStatus(), outbox: delivery.outbox, reactions: delivery.reactions, prompts: delivery.prompts };
+        if (!admission || !interactions || !native) throw new Error('Pilot is opening');
+        return pilotMaintenance(admission, native, interactions.transport.state, request);
       });
       if (stopping) return;
       verifyImportedState(directory, readFence(lease.root)!.operation);
       admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope);
-      const native = new NativeExecutions(admission, config);
+      native = new NativeExecutions(admission, config);
       const source = new SourceOutbox(admission, new AutoloopSource(hubUrl, sourceKey));
-      interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? '']);
+      interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu);
       admission.store.bindChannel('feishu', await feishu.botIdentity());
       await interactions.start();
     })();

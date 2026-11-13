@@ -8,7 +8,7 @@ import type { Config } from '../src/config.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
-import type { DeliveryOptions } from '../src/types.js';
+import type { DeliveryOptions, ContextPort } from '../src/types.js';
 import { FakeCodex, until } from './helpers.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
@@ -16,7 +16,7 @@ class ManagedFake extends FakeCodex implements ManagedCodex {
   async close() { this.exit(); }
 }
 
-function setup(t: TestContext, publish: () => Promise<void> = async () => {}) {
+function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'handoff-interactions-')));
   const project = join(root, 'project'); mkdirSync(project);
   const scope: PilotScope = { installation: 'fixture', tenant: 'tenant', operator: 'ou_owner', chat: 'chat', projects: { pilot: project },
@@ -36,7 +36,7 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}) {
   const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options) };
   const port = { addReaction: async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; },
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
-  let interactions = new PilotInteractions(admission, config, { flush: publish }, native, sender, port, ['fixture-private-secret']);
+  let interactions = new PilotInteractions(admission, config, { flush: publish }, native, sender, port, ['fixture-private-secret'], context);
   const actor = (text: string, overrides = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, ...overrides });
   const launch = async () => {
     const message = actor('Inspect this assigned task');
@@ -51,9 +51,9 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}) {
     const thread = String(call.params.threadId), turn = 'turn-2';
     return { message, request: admitted.request, running, thread, turn };
   };
-  const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config, { flush: publish }, native, sender, port, ['fixture-private-secret']); await interactions.recover(); return interactions; };
+  const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config, { flush: publish }, native, sender, port, ['fixture-private-secret'], context); await interactions.recover(); return interactions; };
   t.after(async () => { await native.stop(); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
-  return { admission, native, codex, sent, reactions, actor, launch, restart, get interactions() { return interactions; },
+  return { config, admission, native, codex, sent, reactions, actor, launch, restart, get interactions() { return interactions; },
     setSend: (value: typeof send) => { send = value; }, setRemove: (value: typeof remove) => { remove = value; } };
 }
 
@@ -298,4 +298,69 @@ test('a slow human send cannot delay a newly admitted live control', async t => 
     assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 1);
   } finally { release(); await flushing; }
   h.codex.complete(task.thread, task.turn); await task.running;
+});
+
+test('assigned group execution and quoted steering preserve scoped context and separate image inputs across gateway restart', async t => {
+  const calls: { session: Parameters<ContextPort['context']>[0]; source: Parameters<ContextPort['context']>[1]; limit: number }[] = [];
+  const h = setup(t, async () => {}, { context: async (session, source, limit) => {
+    calls.push({ session, source, limit });
+    return { status: 'available', messages: [{ sender: 'Member', type: 'image', text: source.parentId!, quoted: true }],
+      note: 'Scoped references', images: [{ messageIndex: 0, label: 'Reference image', url: 'data:image/png;base64,aGVsbG8=' }] };
+  } });
+  h.config.enableGroups = true; h.config.groupContextMessages = 12; h.config.groupContextImages = 2;
+  const message = h.actor('Inspect this reference', { chatType: 'group', createTime: 12345, parentId: 'initial-quote' });
+  const admitted = h.interactions.receive(message); assert.ok('request' in admitted);
+  await h.interactions.flush();
+  await until(() => Boolean(h.admission.store.reference(admitted.request.execution, message)));
+  await h.restart();
+  const grant = h.admission.store.reserve(admitted.request.id, 1); assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw new Error('Missing grant');
+  const running = h.native.run(grant.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  const input = h.codex.calls.find(call => call.method === 'turn/start')!.params.input as { type: string; text?: string; url?: string }[];
+  assert.ok(input[0]!.text!.includes('initial-quote'));
+  assert.ok(!input[0]!.text!.includes('base64'));
+  assert.equal(input.find(item => item.type === 'image')!.url, 'data:image/png;base64,aGVsbG8=');
+  assert.equal(calls.length, 1); assert.equal(calls[0]!.limit, 12);
+  assert.equal(calls[0]!.session.chat, message.chat); assert.equal(calls[0]!.session.user, message.user);
+  assert.equal(calls[0]!.source.id, message.id); assert.equal(calls[0]!.source.createTime, 12345);
+  const supplement = h.actor('/补充 Use this quoted detail', { chatType: 'group', createTime: 12346, parentId: 'steering-quote' });
+  assert.equal(h.interactions.receive(supplement).status, 'control'); await h.interactions.flush();
+  const steer = h.codex.calls.find(call => call.method === 'turn/steer')!.params.input as typeof input;
+  assert.ok(steer[0]!.text!.includes('steering-quote')); assert.ok(steer.some(item => item.type === 'image'));
+  assert.equal(calls[1]!.limit, 0); assert.equal(calls[1]!.source.id, supplement.id);
+  h.codex.complete('thread-1', 'turn-2'); const report = await running; await drain(h);
+  assert.equal(h.admission.store.reference(admitted.request.execution, message)!.context, null);
+  assert.equal(h.admission.store.reference(admitted.request.execution, supplement)!.context, null);
+  assert.equal((await h.native.run(grant.permit)).checkpoint, report.checkpoint);
+});
+
+test('a slow quoted group reference cannot block stop or steer a completed native turn', async t => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let fetching = false;
+  const h = setup(t, async () => {}, { context: async () => { fetching = true; await gate; return { status: 'available', messages: [], note: 'Quote' }; } });
+  h.config.enableGroups = true; const task = await h.launch();
+  const supplement = h.actor('/补充 Read this quote', { chatType: 'group', parentId: 'slow-quote' });
+  h.interactions.receive(supplement); await until(() => fetching);
+  h.interactions.receive(h.actor('/stop'));
+  await until(() => h.codex.calls.some(call => call.method === 'turn/interrupt'));
+  release(); await task.running; await drain(h);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 0);
+  assert.equal(h.admission.store.control(supplement)!.status, 'rejected');
+});
+
+test('sealed uncertain group execution retains its reference snapshot and project guard', async t => {
+  const h = setup(t, async () => {}, { context: async () => ({ status: 'available', messages: [{ sender: 'Member', type: 'text', text: 'Retained quote', quoted: true }], note: 'Exact quote' }) });
+  h.config.enableGroups = true;
+  const message = h.actor('Inspect this quote', { chatType: 'group', parentId: 'retained-quote' });
+  const admitted = h.interactions.receive(message); assert.ok('request' in admitted);
+  await h.interactions.flush(); await until(() => Boolean(h.admission.store.reference(admitted.request.execution, message)));
+  const grant = h.admission.store.reserve(admitted.request.id, 1); assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw new Error('Missing grant');
+  const running = h.native.run(grant.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  h.codex.exit(); assert.equal((await running).outcome.status, 'unknown'); await drain(h);
+  assert.equal(h.admission.store.unsettled().length, 1);
+  assert.equal(h.admission.store.reference(admitted.request.execution, message)!.context!.messages[0]!.text, 'Retained quote');
 });

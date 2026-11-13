@@ -57,6 +57,9 @@ export class SourceOutbox {
   }
 
   private async confirm(submission: Submission): Promise<SourceOutcome> {
+    const request = this.gateway.store.request(submission.request);
+    if (!request) throw new Error('Missing admitted request');
+    if (request.message.chatType === 'group' && !this.gateway.store.reference(request.execution, request.message)) throw new Error('Group references have not been prepared');
     let event = submission.event;
     if (event === null) {
       const posted = await this.source.publish(submission.request);
