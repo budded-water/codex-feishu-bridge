@@ -6,10 +6,11 @@ import type { Config } from '../config.js';
 import { CodexClient } from '../codex/client.js';
 import { Bridge } from '../bridge.js';
 import { State } from '../state.js';
-import { ownerKey, record, type CodexPort, type IncomingMessage } from '../types.js';
+import { ownerKey, record, type CodexPort, type IncomingMessage, type NativeControlTarget, type ControlDisposition } from '../types.js';
 import { PilotAdmission } from './gateway.js';
 import type { Permit, RequestRecord } from './store.js';
-import { openOwnerChannel, probeOwner } from './owner-channel.js';
+import { openOwnerChannel, probeOwner, requestOwner } from './owner-channel.js';
+import { journalControl, journalProjection } from './journal.js';
 
 export interface ManagedCodex extends CodexPort {
   start(): Promise<void>;
@@ -128,6 +129,20 @@ export class NativeExecutions {
     return recovered;
   }
 
+  async poll(): Promise<void> {
+    for (const execution of this.gateway.store.unsettled()) {
+      try { this.apply(execution.id); continue; } catch { /* A running owner has no sealed checkpoint yet. */ }
+      try {
+        lstatSync(join(this.folder(execution.id), ownerFile));
+      } catch (error) {
+        // A newly granted worker may not have published its owner yet. Strict boot recovery remains explicit.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      }
+      try { await this.inspect(execution.id); }
+      catch { this.gateway.store.ownerUnconfirmed(execution.id); }
+    }
+  }
+
   async run(permit: Permit): Promise<NativeReport> {
     if (this.active) throw new Error('Native executor already owns a task');
     const request = this.gateway.store.ownedRequest(permit);
@@ -158,9 +173,56 @@ export class NativeExecutions {
     }
   }
 
-  async control(execution: string, message: IncomingMessage): Promise<Record<string, unknown>> {
+  async relay(execution: string, message: IncomingMessage, target: NativeControlTarget): Promise<ControlDisposition> {
     const owner = this.owner(execution);
-    return probeOwner(owner.socket, owner.permit.token, execution, message);
+    const value = await requestOwner(owner.socket, owner.permit.token, execution, { op: 'control', message, target });
+    if (!['dispatching', 'accepted', 'stopping', 'sent', 'rejected', 'unknown'].includes(String(value.status))) throw new Error('Invalid control outcome');
+    return value.status as ControlDisposition;
+  }
+
+  async control(execution: string, message: IncomingMessage): Promise<Record<string, unknown>> {
+    const snapshot = await this.inspect(execution);
+    const target = { generation: snapshot.generation, thread: snapshot.thread, turn: snapshot.turn };
+    if (Object.values(target).some(value => typeof value !== 'string' || !value)) throw new Error('Native control target is not ready');
+    return { status: await this.relay(execution, message, target as NativeControlTarget) };
+  }
+
+  async controlResult(execution: string, message: IncomingMessage): Promise<ControlDisposition | undefined> {
+    const owner = this.owner(execution);
+    try {
+      const value = await requestOwner(owner.socket, owner.permit.token, execution, { op: 'control-result', tenant: message.tenant, id: message.id });
+      return value.status as ControlDisposition | undefined;
+    } catch {
+      const report = this.evidence(execution);
+      if (!report.databaseHash) return 'rejected';
+      return journalControl(join(this.folder(execution), 'bridge.db'), message) ?? 'rejected';
+    }
+  }
+
+  async projection(execution: string) {
+    const owner = this.owner(execution);
+    let sealed = false;
+    let checkpoint: string | null = null;
+    let outcome: Record<string, unknown>;
+    try { const report = this.evidence(execution); sealed = true; checkpoint = report.checkpoint; outcome = report.outcome; }
+    catch { outcome = await this.inspect(execution); }
+    const path = join(this.folder(execution), 'bridge.db');
+    let projection;
+    try { projection = journalProjection(path); }
+    catch (error) { if (!outcome.task) return { sealed, checkpoint, outcome, messages: [], prompts: [] }; throw error; }
+    const request = this.gateway.store.ownedRequest(owner.permit);
+    const task = projection.task;
+    if (!task || task.id !== outcome.task || task.owner !== ownerKey(request.message) || task.trigger !== request.message.id ||
+      task.directory !== this.gateway.directory || task.thread !== outcome.thread || task.turn !== outcome.turn) throw new Error('Native projection identity changed');
+    return { ...projection, sealed, checkpoint, outcome,
+      messages: projection.messages.filter(row => (!row.final || sealed) &&
+        (!(row.transient || row.prompt_id) || (!sealed && ['queued', 'running'].includes(String(outcome.status))))) };
+  }
+
+  async deliveryReady(execution: string, id: string): Promise<boolean> {
+    const owner = this.owner(execution);
+    const value = await requestOwner(owner.socket, owner.permit.token, execution, { op: 'delivery-ready', id });
+    return value.ready === true;
   }
 
   async inspect(execution: string): Promise<Record<string, unknown>> {
@@ -193,13 +255,28 @@ class NativeOwner {
   }
 
   async run(): Promise<void> {
-    const channel = await openOwnerChannel(this.permit.token, this.permit.execution, incoming => {
-      if (incoming.message !== undefined) {
-        const message = record(incoming.message);
-        if (['tenant', 'user', 'chat', 'id', 'text'].some(field => typeof message[field] !== 'string') ||
-          !/^\/(?:status(?:\s|$)|stop(?:\s|$)|补充\s|批准\s|拒绝\s|回答\s)/.test(String(message.text)) || !this.bridge || this.stopping) throw new Error('Invalid live control');
-        this.bridge.receive(message as unknown as IncomingMessage);
+    const channel = await openOwnerChannel(this.permit.token, this.permit.execution, async incoming => {
+      if (incoming.op === 'control-result') {
+        if (typeof incoming.tenant !== 'string' || typeof incoming.id !== 'string' || !this.state) throw new Error('Invalid control lookup');
+        return { status: journalControl(join(this.folder, 'bridge.db'), { tenant: incoming.tenant, id: incoming.id }) };
       }
+      if (incoming.op === 'delivery-ready') {
+        return { ready: typeof incoming.id === 'string' && !this.stopping && Boolean(this.state?.deliveryReady(incoming.id)) };
+      }
+      if (incoming.op === 'control') {
+        const message = record(incoming.message), target = record(incoming.target);
+        if (['tenant', 'user', 'chat', 'id', 'text'].some(field => typeof message[field] !== 'string') ||
+          ['generation', 'thread', 'turn'].some(field => typeof target[field] !== 'string' || !target[field]) ||
+          !/^\/(?:status(?:\s|$)|stop(?:\s|$)|补充\s|批准\s|拒绝\s|回答\s)/.test(String(message.text)) || !this.bridge || !this.state || this.stopping) throw new Error('Invalid live control');
+        const control = message as unknown as IncomingMessage;
+        const nativeTarget = target as unknown as NativeControlTarget;
+        const saved = this.state.beginRelayedControl(control, nativeTarget);
+        if (!saved.fresh) return { status: saved.status };
+        const status = await this.bridge.relayControl(control, nativeTarget);
+        this.state.relayedControlResult(control, status);
+        return { status };
+      }
+      if (incoming.op !== undefined || incoming.message !== undefined) throw new Error('Unrecognized owner operation');
       return this.snapshot();
     });
     const marker: Owner = { version: 1, binding: binding(this.gateway, this.request), permit: this.permit, socket: channel.path, pid: process.pid };
@@ -234,6 +311,7 @@ class NativeOwner {
       try {
         clearInterval(this.timer);
         await this.close();
+        await channel.close();
         this.snapshot();
         const hasJournal = Boolean(this.state);
         this.state?.close(); this.state = undefined;

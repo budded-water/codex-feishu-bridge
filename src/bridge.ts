@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { Config } from './config.js';
 import { parseRoute, routeSchema, routingConfig } from './routing.js';
 import { State } from './state.js';
-import { ownerKey, record, string, type CodexPort, type IncomingMessage, type RpcEvent, type RpcRequest, type Session, type Task, type ContextPort, type ChatContext } from './types.js';
+import { ownerKey, record, string, type CodexPort, type IncomingMessage, type RpcEvent, type RpcRequest, type Session, type Task, type ContextPort, type ChatContext, type NativeControlTarget, type ControlDisposition } from './types.js';
 import type { ThreadStartParams } from './codex/generated/v2/ThreadStartParams.js';
 import type { ThreadResumeParams } from './codex/generated/v2/ThreadResumeParams.js';
 import type { TurnStartParams } from './codex/generated/v2/TurnStartParams.js';
@@ -139,29 +139,7 @@ export class Bridge {
         this.state.send(message.chat, `已取消当前会话的 ${count} 个排队任务，运行任务不受影响。`);
         return;
       }
-      if (command === '/status') {
-        const statuses = this.state.status(session.id);
-        const running = this.selectedActive(session);
-        const prompts = [...this.prompts.values()].filter(prompt => prompt.active.session.id === session.id ||
-          (prompt.kind === 'approval' && prompt.replyChat === message.chat && this.config.approvalUsers.includes(message.user)));
-        const latest = this.state.latest(session.id);
-        const queued = statuses.find(row => row.status === 'queued')?.count ?? 0;
-        const clarification = this.state.routing(session.owner)?.pending;
-        const lines = [session.project === '$chat' ? '当前：讨论' : `当前项目：${session.project}`];
-        if (running) lines.push(`正在处理：${taskTitle(running.task.input)}`,this.activity(running),`已用 ${duration(Date.now()-running.started)}`);
-        else lines.push(clarification ? '正在等你补充项目或需求，直接回复即可。' : '暂无进行中的任务。');
-        if (queued) lines.push(`还有 ${queued} 个请求排队。`);
-        if (!running && latest) lines.push(`最近一次：${statusNames[latest.status] ?? '结果未确认'}（${taskTitle(latest.input)}）`);
-        if (!this.codex.ready) lines.push('执行服务暂不可用，需要部署者恢复本机进程。');
-        for (const prompt of prompts) lines.push(`待确认：${prompt.token}，截止 ${deadline(prompt.expires)}`);
-        if (argument.trim() === '详情') {
-          const diagnostic = running ? this.state.taskDiagnostic(running.task.id) : this.state.latestDiagnostic(session.id);
-          lines.push(`Codex 本机进程：${this.codex.ready ? '已连接' : '不可用'}`);
-          if (running) lines.push(running.lastEvent ? `距上次 Codex 事件 ${duration(Date.now()-running.lastEvent)}（不代表模型连接健康）。` : '尚未收到本次 Codex 事件。');
-          if (diagnostic) lines.push(diagnostic);
-        }
-        this.state.send(message.chat,lines.join('\n'),{replyTo:message.id}); return;
-      }
+      if (command === '/status') { this.reportStatus(session, message, argument); return; }
       if (/^(?:好|好的|可以|同意)[。！!\s]*$/.test(text) && [...this.prompts.values()].some(prompt=>prompt.kind==='approval' && prompt.replyChat===message.chat && this.config.approvalUsers.includes(message.user) && message.tenant===prompt.active.session.tenant)) {
         this.state.send(message.chat,'若要批准操作，请使用对应请求里的 /批准 编号；这句话不会授权。',{replyTo:message.id}); return;
       }
@@ -214,6 +192,63 @@ export class Bridge {
       after = () => { this.kick(); };
     });
     after?.();
+  }
+
+  private reportStatus(session: Session, message: IncomingMessage, argument: string): void {
+    const statuses = this.state.status(session.id);
+    const running = this.selectedActive(session);
+    const prompts = [...this.prompts.values()].filter(prompt => prompt.active.session.id === session.id ||
+      (prompt.kind === 'approval' && prompt.replyChat === message.chat && this.config.approvalUsers.includes(message.user)));
+    const latest = this.state.latest(session.id);
+    const queued = statuses.find(row => row.status === 'queued')?.count ?? 0;
+    const clarification = this.state.routing(session.owner)?.pending;
+    const lines = [session.project === '$chat' ? '当前：讨论' : `当前项目：${session.project}`];
+    if (running) lines.push(`正在处理：${taskTitle(running.task.input)}`,this.activity(running),`已用 ${duration(Date.now()-running.started)}`);
+    else lines.push(clarification ? '正在等你补充项目或需求，直接回复即可。' : '暂无进行中的任务。');
+    if (queued) lines.push(`还有 ${queued} 个请求排队。`);
+    if (!running && latest) lines.push(`最近一次：${statusNames[latest.status] ?? '结果未确认'}（${taskTitle(latest.input)}）`);
+    if (!this.codex.ready) lines.push('执行服务暂不可用，需要部署者恢复本机进程。');
+    for (const prompt of prompts) lines.push(`待确认：${prompt.token}，截止 ${deadline(prompt.expires)}`);
+    if (argument.trim() === '详情') {
+      const diagnostic = running ? this.state.taskDiagnostic(running.task.id) : this.state.latestDiagnostic(session.id);
+      lines.push(`Codex 本机进程：${this.codex.ready ? '已连接' : '不可用'}`);
+      if (running) lines.push(running.lastEvent ? `距上次 Codex 事件 ${duration(Date.now()-running.lastEvent)}（不代表模型连接健康）。` : '尚未收到本次 Codex 事件。');
+      if (diagnostic) lines.push(diagnostic);
+    }
+    this.state.send(message.chat,lines.join('\n'),{replyTo:message.id});
+  }
+
+  async relayControl(message: IncomingMessage, target: NativeControlTarget): Promise<ControlDisposition> {
+    if (this.closed || message.unsupported || !message.id || !message.text.trim() || message.text.length > 30_000 ||
+      (this.config.allowedTenant && this.config.allowedTenant !== message.tenant) ||
+      (this.config.accessMode === 'allowlist' && !this.config.allowedUsers.includes(message.user)) ||
+      (message.chatType === 'group' && !this.config.enableGroups)) return 'rejected';
+    const active = [...this.active.values()].find(item => !item.done && !item.routing && item.thread === target.thread &&
+      item.turn === target.turn && item.generation === target.generation && item.generation === this.codex.generation);
+    if (!active) return 'rejected';
+    const text = message.text.trim();
+    const end = text.search(/\s/);
+    const command = end < 0 ? text : text.slice(0, end);
+    const argument = end < 0 ? '' : text.slice(end + 1);
+    if (['/批准', '/拒绝', '/回答'].includes(command)) {
+      const token = argument.match(/^\s*(\S+)/)?.[1];
+      if (!token || this.prompts.get(token)?.active !== active || !this.state.remember(message)) return 'rejected';
+      return this.replyPrompt(message, command, argument) ? 'sent' : 'rejected';
+    }
+    if (active.session.owner !== ownerKey(message) || !['/status', '/stop', '/补充'].includes(command) ||
+      (command === '/补充' && !argument.trim()) || !this.state.remember(message)) return 'rejected';
+    if (command === '/status') {
+      this.reportStatus(active.session, message, argument);
+      return 'accepted';
+    }
+    try {
+      await this.control(message, active.session, command, argument, active);
+      if (command === '/stop') return this.state.executionForTrigger(this.state.trigger(active.task.id)!, active.session.owner)?.status === 'unknown' ? 'unknown' : 'stopping';
+      return 'accepted';
+    } catch {
+      this.state.send(message.chat, '控制请求未确认成功，请查看当前状态；不会自动重发。', { replyTo: message.id });
+      return 'unknown';
+    }
   }
 
   private help(): string {
@@ -619,7 +654,7 @@ export class Bridge {
     }
   }
 
-  private replyPrompt(message: IncomingMessage, command: string, argument: string): void {
+  private replyPrompt(message: IncomingMessage, command: string, argument: string): boolean {
     const token = argument.match(/^\s*(\S+)/)?.[1];
     const input = argument.match(/^\s*\S+\s+(\S+)(?:\r?\n|[ \t])([\s\S]*)$/);
     const question = input?.[1];
@@ -631,22 +666,23 @@ export class Bridge {
     if (!prompt || !authorized || prompt.active.done || prompt.active.generation !== this.codex.generation || Date.now() >= prompt.expires ||
         prompt.rpc.params.threadId !== prompt.active.thread || prompt.rpc.params.turnId !== prompt.active.turn) {
       this.state.send(message.chat, '请求已过期或你无权在此聊天回复，未执行。');
-      return;
+      return false;
     }
     if (command === '/回答') {
       if (prompt.kind === 'question' && question !== prompt.questions[0]) answer = argument.match(/^\s*\S+(?:\r?\n|[ \t])([\s\S]*)$/)?.[1] ?? '';
       if (prompt.kind !== 'question' || !answer.trim()) {
-        this.state.send(message.chat, '请使用 /回答 编号 内容，或 /拒绝 编号。'); return;
+        this.state.send(message.chat, '请使用 /回答 编号 内容，或 /拒绝 编号。'); return false;
       }
       this.decide(prompt, false, answer, message.user);
     } else {
       if (command === '/批准' && prompt.kind !== 'approval') {
-        this.state.send(message.chat, '这是提问，请用 /回答 回复。'); return;
+        this.state.send(message.chat, '这是提问，请用 /回答 回复。'); return false;
       }
       this.decide(prompt, command === '/批准', undefined, message.user);
     }
     this.state.send(message.chat,prompt.kind === 'question' ? '已收到你的回答，正在继续。' : command === '/批准' ? '已批准这一步，正在等待继续。' : '已拒绝这一步操作。',{replyTo:message.id});
     if (prompt.replyChat !== prompt.active.session.chat) this.state.sendStatus(prompt.active.task.id,prompt.active.session.chat,command === '/批准' ? '管理员已批准这一步，正在继续。' : '管理员已拒绝这一步操作。');
+    return true;
   }
 
   private async abortRouting(active: Active, explanation: string): Promise<void> {

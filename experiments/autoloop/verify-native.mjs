@@ -12,6 +12,8 @@ import { FeishuAdmission } from '../../dist/channels/feishu-admission.js';
 import { AutoloopSource, SourceOutbox } from '../../dist/handoff/source.js';
 import { NativeExecutions } from '../../dist/handoff/native.js';
 import { CodexClient } from '../../dist/codex/client.js';
+import { normalizeMessage } from '../../dist/feishu.js';
+import { PilotInteractions } from '../../dist/handoff/interactions.js';
 import { loadConfig } from '../../dist/config.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -23,7 +25,9 @@ const auditFile = join(scratch, 'audit.jsonl');
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(AGENT_AUTOLOOP_|HANDOFF_|BRIDGE_PROBE_|FEISHU_)/.test(name) && name !== 'NODE_TEST_CONTEXT'));
 Object.assign(env, { AGENT_AUTOLOOP_HOME: home, SHELL: '/bin/sh', HANDOFF_RUNNER: join(root, 'dist/handoff/run-assignment.js') });
 const cli = ['--disable-warning=ExperimentalWarning', join(upstream, 'bin/agent-autoloop.ts')];
-let up, admission, runtime, reservation;
+let up, admission, runtime, reservation, interactions;
+const deliveries = [];
+const reactions = new Map();
 const socketRoots = new Set();
 const pause = ms => new Promise(done => setTimeout(done, ms));
 async function until(label, inspect, timeout = 30_000) {
@@ -74,6 +78,15 @@ try {
   const ingress = new FeishuAdmission(admission, 'ou_fixture_bot');
   const outbox = new SourceOutbox(admission, new AutoloopSource(url, sourceKey));
   runtime = new NativeExecutions(admission, loadConfig(bridgeConfig));
+  const openInteractions = () => new PilotInteractions(admission, loadConfig(bridgeConfig), outbox, runtime, {
+    send: async (chat, text, id, options) => { deliveries.push({ chat, text, id, options }); return 'fixture-reply-' + id; },
+  }, {
+    addReaction: async message => { reactions.set(message, 'fixture-reaction-' + message); return reactions.get(message); },
+    findReaction: async message => reactions.get(message),
+    removeReaction: async message => { reactions.delete(message); },
+  }, [sourceKey]);
+  interactions = openInteractions();
+  await interactions.recover();
   const actor = (text, extra = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, ...extra });
   const raw = (id, text) => ({ tenant_key: scope.tenant, sender: { sender_type: 'user', sender_id: { open_id: scope.operator } },
     message: { message_id: id, chat_id: scope.chat, chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text }) } });
@@ -84,12 +97,13 @@ try {
     assert.equal(response.status, 200); return response.json();
   };
   const submit = async (id, text) => {
-    const value = ingress.receive(raw(id, text)); assert.equal(value.status, 'accepted');
-    await outbox.flush();
+    const value = interactions.receive(normalizeMessage(raw(id, text), 'ou_fixture_bot')); assert.equal(value.status, 'accepted');
+    await interactions.flush(); await outbox.flush();
     assert.equal(admission.store.submission(value.request.id).status, 'scheduled');
     return value.request;
   };
   const ended = request => until('native result', async () => {
+    await interactions.flush();
     const value = admission.store.execution(request.execution);
     return value && ['completed', 'interrupted', 'unknown'].includes(value.status) && value;
   }, native ? 180_000 : 30_000);
@@ -131,7 +145,15 @@ try {
     assert.equal((await runtime.recover())[0].status, 'live');
     start(); await ready();
     const supplement = actor('/补充 finish this fixture');
-    await runtime.control(first.execution, supplement); await runtime.control(first.execution, supplement);
+    const relay = runtime.relay.bind(runtime);
+    runtime.relay = async (...args) => { const result = await relay(...args); throw new Error('Fixture acknowledgement lost after native dispatch: ' + result); };
+    interactions.receive(supplement); await interactions.flush();
+    assert.ok(['unknown', 'accepted'].includes(admission.store.control(supplement).status));
+    await interactions.close(); interactions = openInteractions(); await interactions.recover();
+    await interactions.flush();
+    assert.equal(admission.store.control(supplement).status, 'accepted');
+    assert.equal(interactions.receive(supplement).status, 'duplicate');
+    runtime.relay = relay;
     assert.equal((await ended(first)).status, 'completed'); await settledHub();
     assert.equal(audit().filter(item => item.event === 'turn/start').length, 1);
     assert.equal(audit().filter(item => item.event === 'turn/steer').length, 1);
@@ -147,19 +169,19 @@ try {
     const approval = await submit('approval', 'case-approval');
     let token;
     await until('native approval', async () => {
-      const value = await inspect(approval);
-      token = value?.messages?.find(item => item.chat === 'oc_fixture_admin')?.body.match(/请求 ([a-f0-9]{8})/)?.[1];
+      await interactions.flush();
+      token = deliveries.find(item => item.chat === 'oc_fixture_admin' && item.text.includes('/批准'))?.text.match(/请求 ([a-f0-9]{8})/)?.[1];
       return token;
     });
-    await runtime.control(approval.execution, actor('/批准 ' + token));
+    interactions.receive(actor('/批准 ' + token)); await interactions.flush();
     assert.equal(audit().filter(item => item.event === 'decision').length, 0);
     const decision = actor('/批准 ' + token, { user: 'ou_fixture_admin', chat: 'oc_fixture_admin' });
-    await runtime.control(approval.execution, decision); await runtime.control(approval.execution, decision);
+    interactions.receive(decision); assert.equal(interactions.receive(decision).status, 'duplicate'); await interactions.flush();
     await ended(approval); await settledHub();
     assert.equal(audit().filter(item => item.event === 'decision').length, 1);
     const stopping = await submit('stop', 'case-stop');
     await until('stoppable native turn', () => inspect(stopping));
-    await runtime.control(stopping.execution, actor('/stop'));
+    interactions.receive(actor('/stop')); await interactions.flush();
     assert.equal((await ended(stopping)).status, 'interrupted'); await settledHub();
     console.log('PASS: point-of-dispatch native approval ownership and observed interruption settlement');
 
@@ -173,7 +195,7 @@ try {
         await until('lost owner classified', async () => (await runtime.recover()).some(item => item.execution === request.execution && item.status === 'unknown'));
       }
       assert.equal((await ended(request)).status, 'unknown'); await settledHub();
-      assert.equal(ingress.receive(raw('blocked-' + mode, 'more work')).status, 'blocked');
+      assert.equal(interactions.receive(normalizeMessage(raw('blocked-' + mode, 'more work'), 'ou_fixture_bot')).status, 'blocked');
       assert.equal(audit().filter(item => item.event === 'turn/start').length, before + 1);
       ingress.reconcile(raw('recovery-' + mode, '/reconcile ' + request.execution), { execution: request.execution, processSettled: true, effectsChecked: true,
         reference: 'Inspected scripted fixture process loss and absence of external effects' });
@@ -181,7 +203,12 @@ try {
     assert.ok(audit().filter(item => item.event === 'initialize').every(item => item.schedulerSecrets === false));
     console.log('PASS: app-server loss, lost native start acknowledgement and owner-process loss retain project guards');
   }
-  console.log('Scope: real Hub/Worker, assigned native process, private owner probing and sealed execution evidence.');
+  for (let i = 0; i < 10; i++) await interactions.flush();
+  assert.equal(new Set(deliveries.map(item => item.id)).size, deliveries.length, 'Delivered native UUID must not be recreated');
+  assert.equal(reactions.size, 0, 'Terminal tasks clean their owned reactions');
+  if (native) assert.equal(deliveries.filter(item => item.text.trim() === 'P1_NATIVE_OK').length, 2);
+  console.log('PASS: durable gateway controls, full native prompt/final delivery and independent reaction cleanup');
+  console.log('Scope: real Hub/Worker, native execution, gateway relay and synthetic human transport; no Feishu connection.');
 } finally {
   await stopUp();
   const runs = join(home, 'worker/runs');
@@ -192,6 +219,7 @@ try {
       if (pid) { try { process.kill(-pid, 'SIGKILL'); } catch {} }
     }
   }
+  await interactions?.close();
   admission?.close();
   for (const path of socketRoots) rmSync(path, { recursive: true, force: true });
   reservation?.close();

@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { openPrivateDatabase } from './private-database.js';
+import type { RequestRecord, ControlRecord } from './handoff/store.js';
+import type { JournalProjection } from './handoff/journal.js';
 import { splitReply } from './reply.js';
-import { ownerKey, type IncomingMessage, type Session, type Task, type DeliveryOptions } from './types.js';
+import { ownerKey, type IncomingMessage, type Session, type Task, type DeliveryOptions, type NativeControlTarget, type ControlDisposition } from './types.js';
 
 export interface Delivery {
   id: string;
@@ -49,6 +51,10 @@ export class State {
         uncertain INTEGER DEFAULT 0, fallback INTEGER DEFAULT 0,
         attempts INTEGER DEFAULT 0, next INTEGER DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS projected_control_notices (origin TEXT NOT NULL, status TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(origin,status));
+      CREATE TABLE IF NOT EXISTS projected_tasks (execution TEXT PRIMARY KEY, checkpoint TEXT, notified INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS projected_deliveries (id TEXT PRIMARY KEY, execution TEXT NOT NULL, live INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS relayed_controls (origin TEXT PRIMARY KEY, message TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS approvals (
         id TEXT PRIMARY KEY, task TEXT, method TEXT, status TEXT, created INTEGER
       );
@@ -87,6 +93,88 @@ export class State {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  projectAssignedTask(request: RequestRecord, project: string, directory: string, status: string): void {
+    this.transaction(() => {
+      this.db.prepare('INSERT OR IGNORE INTO sessions(id,owner,tenant,user,chat,project,directory) VALUES (?,?,?,?,?,?,?)')
+        .run(request.conversation, ownerKey(request.message), request.message.tenant, request.message.user, request.message.chat, project, directory);
+      const fresh = Boolean(this.db.prepare('INSERT OR IGNORE INTO projected_tasks(execution) VALUES (?)').run(request.execution).changes);
+      this.db.prepare('INSERT OR IGNORE INTO tasks(id,session,input,status,trigger_message,created_at,routed) VALUES (?,?,?,?,?,?,1)')
+        .run(request.execution, request.conversation, request.input, status, request.message.id, Date.now());
+      this.taskStatus(request.execution, status);
+      if (!['queued', 'running'].includes(status)) this.db.prepare("UPDATE approvals SET status='invalidated' WHERE task=? AND status='pending'").run(request.execution);
+      if (fresh) {
+        if (request.blocked) this.send(request.message.chat, '前一个任务的结果尚未确认，当前请求没有开始。请先核对实际结果。', { replyTo: request.message.id });
+        else this.db.prepare('INSERT INTO feedback(task,message) VALUES (?,?)').run(request.execution, request.message.id);
+      }
+    });
+  }
+
+  projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }): void {
+    this.transaction(() => {
+      for (const prompt of projection.prompts) {
+        this.db.prepare(`INSERT INTO approvals(id,task,method,status,created,expires) VALUES (?,?,'native-projection',?,?,?)
+          ON CONFLICT(id) DO UPDATE SET status=excluded.status,expires=excluded.expires`)
+          .run(request.execution + ':' + prompt.id, request.execution, prompt.status, Date.now(), prompt.expires);
+      }
+      for (const row of projection.messages) {
+        if (!this.db.prepare('INSERT OR IGNORE INTO projected_deliveries VALUES (?,?,?)').run(row.id, request.execution, projection.sealed ? 0 : 1).changes) {
+          if (projection.sealed) this.db.prepare('UPDATE projected_deliveries SET live=0 WHERE id=?').run(row.id);
+          continue;
+        }
+        this.db.prepare(`INSERT INTO outbox(id,chat,body,reply_to,mentions,response_task,final,prompt_id,task)
+          VALUES (?,?,?,?,?,?,?,?,?)`).run(row.id, row.chat, this.redact(row.body), row.reply_to, row.mentions,
+          request.execution, row.final, row.prompt_id ? request.execution + ':' + row.prompt_id : null, row.transient ? request.execution : null);
+      }
+      if (projection.sealed) this.db.prepare('UPDATE projected_tasks SET checkpoint=? WHERE execution=?').run(projection.checkpoint, request.execution);
+    });
+  }
+
+  projectControlNotice(control: ControlRecord): void {
+    this.transaction(() => {
+      if (!control.result || !['unknown', 'dispatching'].includes(control.status)) {
+        this.db.prepare(`DELETE FROM outbox WHERE id IN (SELECT id FROM projected_control_notices WHERE origin=? AND status IN ('unknown','dispatching'))`).run(control.origin);
+      }
+      if (!control.result) return;
+      if (this.db.prepare('SELECT 1 FROM projected_control_notices WHERE origin=? AND status=?').get(control.origin, control.status)) return;
+      const id = randomUUID();
+      this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(control.origin, control.status, id);
+      this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to) VALUES (?,?,?,?)').run(id, control.message.chat, this.redact(control.result), control.message.id);
+    });
+  }
+
+  projectedFinal(execution: string): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM projected_tasks WHERE execution=? AND checkpoint IS NOT NULL').get(execution));
+  }
+
+  projectAdmissionNotice(request: RequestRecord, body: string): void {
+    this.transaction(() => {
+      if (this.db.prepare('UPDATE projected_tasks SET notified=1 WHERE execution=? AND notified=0').run(request.execution).changes) {
+        this.send(request.message.chat, body, { replyTo: request.message.id });
+      }
+    });
+  }
+
+  projectedDelivery(id: string): { execution: string; live: number } | undefined {
+    return this.db.prepare('SELECT execution,live FROM projected_deliveries WHERE id=?').get(id) as { execution: string; live: number } | undefined;
+  }
+
+  beginRelayedControl(message: IncomingMessage, target: NativeControlTarget): { fresh: boolean; status: ControlDisposition } {
+    return this.transaction(() => {
+      const origin = JSON.stringify([message.tenant, message.id]);
+      const saved = this.db.prepare('SELECT message,target,status FROM relayed_controls WHERE origin=?').get(origin) as { message: string; target: string; status: ControlDisposition } | undefined;
+      if (saved) {
+        if (saved.message !== JSON.stringify(message) || saved.target !== JSON.stringify(target)) throw new Error('Control identity changed');
+        return { fresh: false, status: saved.status };
+      }
+      this.db.prepare("INSERT INTO relayed_controls VALUES (?,?,?,'dispatching')").run(origin, JSON.stringify(message), JSON.stringify(target));
+      return { fresh: true, status: 'dispatching' };
+    });
+  }
+
+  relayedControlResult(message: IncomingMessage, status: ControlDisposition): void {
+    this.db.prepare('UPDATE relayed_controls SET status=? WHERE origin=?').run(status, JSON.stringify([message.tenant, message.id]));
   }
 
   remember(message: IncomingMessage): boolean {

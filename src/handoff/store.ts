@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { openPrivateDatabase } from '../private-database.js';
-import { ownerKey, type IncomingMessage } from '../types.js';
+import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition } from '../types.js';
 
 export type RequestRecord = {
   id: string; execution: string; conversation: string; project: string;
   message: IncomingMessage; input: string; blocked: string | null;
 };
+export type ControlRecord = { origin: string; execution: string; message: IncomingMessage; target: NativeControlTarget | null;
+  status: 'received' | ControlDisposition; result: string | null };
 export type Submission = { request: string; event: number | null; attempts: number };
 export type Permit = { execution: string; token: string };
 export type ExecutionRecord = {
@@ -46,6 +48,10 @@ export class AdmissionStore {
         );
         CREATE TABLE IF NOT EXISTS assignments (
           run INTEGER PRIMARY KEY, request TEXT NOT NULL REFERENCES requests(id)
+        );
+        CREATE TABLE IF NOT EXISTS controls (
+          origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES executions(id), message TEXT NOT NULL,
+          target TEXT, status TEXT NOT NULL, result TEXT
         );
         CREATE TABLE IF NOT EXISTS recoveries (
           origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES executions(id), actor TEXT NOT NULL,
@@ -96,7 +102,7 @@ export class AdmissionStore {
   accept(message: IncomingMessage, input: string, project: string): { duplicate: boolean; request: RequestRecord } {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
-      if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=?').get(origin)) throw new Error('Message identity already belongs to recovery');
+      if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=?').get(origin, origin)) throw new Error('Message identity already belongs to recovery');
       const previous = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(origin) as { id: string } | undefined;
       if (previous) return { duplicate: true, request: this.request(previous.id)! };
       const owner = ownerKey(message);
@@ -110,6 +116,55 @@ export class AdmissionStore {
       if (!request.blocked) this.db.prepare("INSERT INTO submissions(request,status) VALUES (?,'pending')").run(request.id);
       return { duplicate: false, request };
     });
+  }
+
+  requests(): RequestRecord[] {
+    return (this.db.prepare('SELECT id FROM requests ORDER BY rowid').all() as { id: string }[]).map(row => this.request(row.id)!);
+  }
+
+  control(message: Pick<IncomingMessage, 'tenant' | 'id'>): ControlRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM controls WHERE origin=?').get(JSON.stringify([message.tenant, message.id])) as
+      (Omit<ControlRecord, 'message' | 'target'> & { message: string; target: string | null }) | undefined;
+    return row && { ...row, message: JSON.parse(row.message), target: row.target ? JSON.parse(row.target) : null };
+  }
+
+  acceptControl(execution: string, message: IncomingMessage): ControlRecord {
+    return this.transaction(() => {
+      const origin = JSON.stringify([message.tenant, message.id]);
+      if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin)) throw new Error('Message identity already has another purpose');
+      const previous = this.control(message);
+      if (previous) return previous;
+      if (!this.db.prepare('SELECT 1 FROM guards WHERE execution=?').get(execution)) throw new Error('No current execution for control');
+      this.db.prepare("INSERT INTO controls VALUES (?,?,?,NULL,'received',NULL)").run(origin, execution, JSON.stringify(message));
+      return this.control(message)!;
+    });
+  }
+
+  controls(): ControlRecord[] {
+    return (this.db.prepare('SELECT message FROM controls ORDER BY rowid').all() as { message: string }[]).map(row => this.control(JSON.parse(row.message))!);
+  }
+
+  pendingControls(): ControlRecord[] {
+    return (this.db.prepare(`SELECT message FROM controls WHERE status='received' OR (status IN ('dispatching','unknown') AND
+      (EXISTS(SELECT 1 FROM guards WHERE guards.execution=controls.execution) OR
+       EXISTS(SELECT 1 FROM executions WHERE executions.id=controls.execution AND executions.status IN ('completed','interrupted'))))
+      ORDER BY status!='received',rowid`).all() as { message: string }[])
+      .map(row => this.control(JSON.parse(row.message))!);
+  }
+
+  bindControl(message: IncomingMessage, target: NativeControlTarget): void {
+    this.db.prepare("UPDATE controls SET target=? WHERE origin=? AND status='received' AND target IS NULL")
+      .run(JSON.stringify(target), JSON.stringify([message.tenant, message.id]));
+  }
+
+  dispatchControl(message: IncomingMessage): boolean {
+    return Boolean(this.db.prepare("UPDATE controls SET status='dispatching' WHERE origin=? AND status='received' AND target IS NOT NULL")
+      .run(JSON.stringify([message.tenant, message.id])).changes);
+  }
+
+  controlResult(message: IncomingMessage, status: ControlDisposition, result?: string): void {
+    this.db.prepare('UPDATE controls SET status=?,result=? WHERE origin=?')
+      .run(status, result ?? null, JSON.stringify([message.tenant, message.id]));
   }
 
   pending(now = Date.now()): Submission[] {
@@ -233,7 +288,7 @@ export class AdmissionStore {
   reconcile(message: IncomingMessage, execution: string, evidence: string): void {
     this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
-      if (this.db.prepare('SELECT 1 FROM requests WHERE origin=?').get(origin)) throw new Error('Message identity already belongs to a task');
+      if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=?').get(origin, origin)) throw new Error('Message identity already belongs to a task');
       const previous = this.db.prepare('SELECT execution,evidence FROM recoveries WHERE origin=?').get(origin) as { execution: string; evidence: string } | undefined;
       if (previous) {
         if (previous.execution !== execution || previous.evidence !== evidence) throw new Error('Recovery identity changed');

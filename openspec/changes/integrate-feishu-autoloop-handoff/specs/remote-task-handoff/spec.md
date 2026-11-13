@@ -122,6 +122,16 @@ The executor SHALL durably retain native outcome and eligible final answer befor
 - **THEN** that text alone SHALL NOT create scheduler events or new authority
 - **AND** native-round completion, business acceptance and human delivery SHALL remain distinct facts
 
+#### Scenario: Projection is repeated after a successful human delivery
+- **WHEN** the gateway reopens and reads the same retained native checkpoint
+- **THEN** imported message identities and tombstones SHALL prevent recreating already-delivered messages
+- **AND** delivery acknowledgements SHALL NOT mutate the sealed native journal or create a model turn
+
+#### Scenario: A live prompt becomes stale while another chat is sending
+- **WHEN** a selected native prompt expires, completes or loses proven ownership before its transport call begins
+- **THEN** the gateway SHALL suppress that prompt after checking current native readiness
+- **AND** an already in-flight external send SHALL remain distinguishable from a not-yet-started send
+
 ### Requirement: Quiesced single-consumer activation
 Production handoff SHALL require a prepared owner-authorized manifest, compatible artifacts, a drained old runtime, verified state export/import and exclusive consumer/state ownership. Current source development SHALL NOT itself activate the pilot.
 
