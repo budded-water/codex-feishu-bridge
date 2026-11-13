@@ -10,6 +10,6 @@
 - [x] 2.1 Pass required local checks, strict OpenSpec validation and applicable native/runtime checks.
 - [x] 2.2 Synchronize configuration, architecture, usage, implementation status and PR description.
 - [x] 2.3 Obtain independent review of the current candidate and resolve findings.
-- [ ] 2.4 Roll out the captured candidate to the authorized M6 instance and verify the owner-chat mode and continuation.
+- [x] 2.4 Roll out the captured candidate to the authorized M6 instance and verify the owner-chat mode and continuation.
 
-The independent workspace review found and verified a fix for P1 alias-prefix stripping. The reviewed source is deployed to M6: paused/drained service replacement, protocol doctor, managed Feishu readiness and reopened admission passed. Task 2.4 remains open for actual owner-chat mode and continuation confirmation. Real-model interactive acceptance remains in P0/P1.
+The independent workspace review found and verified a fix for P1 alias-prefix stripping. The reviewed source is deployed to M6: paused/drained service replacement, protocol doctor, managed Feishu readiness and reopened admission passed. The owner confirmed general-workspace status and a reply explaining that no fixed business project is required, including the requested marker. Read-only evidence verified a completed execution, sealed journal hash, delivered reply association and three turns in the original native conversation with no tool execution items. Task 2.4 is complete. Real-model interactive acceptance remains in P0/P1.
