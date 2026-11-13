@@ -4,6 +4,10 @@ This MVP is implemented and covered by simulated behavior tests. Application set
 
 User-facing onboarding: [installation](installation.md), [configuration](configuration.md), [usage](usage.md), [tools and identities](integrations.md), and [troubleshooting](troubleshooting.md).
 
+## Proposed evolution
+
+The [agent system plan](agent-system-plan.md) records a proposed Autoloop/native Codex composition and phased rollout. Its [P0 OpenSpec change](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md) is not applied. The components and behavior below remain the current implementation; this planning work does not replace the queue or add a running orchestration service.
+
 ## Goal and boundary
 
 Expose the Codex already installed on the owner's computer through a Feishu application bot for colleagues using private text or group @mentions. Keep project execution, Codex configuration, and local tools on that computer.
