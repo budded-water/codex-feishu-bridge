@@ -13,7 +13,7 @@
 ## 3. Verification and delivery
 
 - [x] 3.1 Pass required checks, pinned integration verification and strict OpenSpec validation.
-- [ ] 3.2 Publish dependent PR with current-head CI/preflight and complete-source independent review.
+- [x] 3.2 Publish dependent PR with current-head CI/preflight and complete-source independent review.
 - [ ] 3.3 Deploy reviewed artifact and record bounded owner-private queue/withdrawal acceptance.
 
 Full local type/behavior/build checks passed with 249 tests. Review/publication, pinned integration and actual deployment/live evidence remain separately tracked in section 3.
@@ -21,3 +21,5 @@ Full local type/behavior/build checks passed with 249 tests. Review/publication,
 The actual pinned Hub/Worker verifier passed an already queued source run withdrawn during another native turn, restart/receipt deduplication, no additional native start and a known nothing outcome without an uncertainty card. Existing control, approval, recovery and fault cases also passed. All six OpenSpec changes passed strict validation; relative links and public-content hygiene passed. Native protocol/client bindings are unchanged.
 
 Initial independent review identified a source-confirmation failure race after withdrawal: the request could remain unstarted but emit a false native-uncertainty question. Held POST/GET regressions reproduced unavailable, invalid-route and wrong-state responses. The source catch path now rechecks the committed withdrawal before reporting failure. Corrected full checks passed with 249 tests; fresh candidate review/CI and actual rollout remain separate.
+
+The corrected complete source passed fresh independent review with no actionable findings, exact-head CI/preflight and a separate locked build/doctor. Its immutable artifact is deployed to M6 after quiesce/drain, observed shutdown, closed-state snapshots and managed Feishu readiness. Admission reopened empty. Task 3.3 remains open for actual owner-private acceptance. The uncorrected artifact was never activated.
