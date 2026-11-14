@@ -52,7 +52,7 @@ test('plain pause cancels subsequent owned queued work, and stopped output is se
 
 test('notifications require explicitly selected members and never create a task or infer identities', t => {
  const h=setup();t.after(h.close);h.deliveries();
- const input=message('/通知 @Alex 请完成验收',{chatType:'group',mentions:[{id:'ou_alex',name:'Alex'}]});h.bridge.receive(input);h.bridge.receive(input);
+ const input=message('/notify @Alex 请完成验收',{chatType:'group',mentions:[{id:'ou_alex',name:'Alex'}]});h.bridge.receive(input);h.bridge.receive(input);
  const pending=h.state.pending();assert.equal(pending.length,1);assert.equal(pending[0]!.replyTo,input.id);assert.deepEqual(JSON.parse(pending[0]!.mentions!),[{id:'ou_alex',name:'Alex'}]);
  const post=notificationPost(pending[0]!.body,JSON.parse(pending[0]!.mentions!));assert.ok(post.zh_cn.content[0]!.some(x=>x.tag==='at'&&x.user_id==='ou_alex'));h.deliveries();
  h.bridge.receive(message('请通知 Alex 验收',{chatType:'group'}));assert.match(h.deliveries().join(''),/成员选择器/);assert.equal(h.turns().length,0);assert.deepEqual(h.state.status(h.session.id),[]);
@@ -77,15 +77,15 @@ test('oversized and unsupported admitted inputs get one actionable reply and nev
 test('status presents current work; diagnostics only appear on demand and simplified answers bind the prompt', async t => {
  const h=setup();t.after(h.close);h.deliveries();h.bridge.receive(message('Investigate'));await until(()=>h.turns().length===1);const current=h.current();
  h.codex.ask('unsupported','unsupported/interaction',current);h.bridge.receive(message('/status'));const simple=h.deliveries().join('');assert.match(simple,/正在处理：Investigate/);assert.ok(!simple.includes('unsupported/interaction')&&!simple.includes('Codex 本机进程'));
- h.bridge.receive(message('/status 详情'));assert.match(h.deliveries().join(''),/unsupported\/interaction/);
+ h.bridge.receive(message('/status details'));assert.match(h.deliveries().join(''),/unsupported\/interaction/);
  h.codex.ask('question','item/tool/requestUserInput',{...current,questions:[{id:'internal-id',question:'Which range?'}]});const prompt=h.deliveries().join('');assert.ok(!prompt.includes('internal-id'));const token=prompt.match(/问题 ([a-f0-9]{8})/)![1]!;
- h.bridge.receive(message(`/回答 ${token} 最近一周\n排除测试账号`));assert.deepEqual(h.codex.replies.at(-1),{id:'question',result:{answers:{'internal-id':{answers:['最近一周\n排除测试账号']}}}});
+ h.bridge.receive(message(`/answer ${token} 最近一周\n排除测试账号`));assert.deepEqual(h.codex.replies.at(-1),{id:'question',result:{answers:{'internal-id':{answers:['最近一周\n排除测试账号']}}}});
 });
 
 test('administrator approval messages never reply into the submitter chat and plain agreement cannot approve', async t => {
  const h=setup();t.after(h.close);h.config.approvalChat='oc_admin';h.deliveries();const input=message('Check identity');h.bridge.receive(input);await until(()=>h.turns().length===1);
  h.codex.ask('approve','item/commandExecution/requestApproval',{...h.current(),command:'aws sts get-caller-identity',reason:'Verify the configured account'});
- const approval=h.state.pending().find(x=>x.chat==='oc_admin')!;assert.ok(!approval.replyTo);assert.ok(!approval.mentions);assert.ok(approval.body.startsWith('需要你确认'));assert.match(approval.body,/aws sts get-caller-identity/);assert.match(approval.body,/本次动作/);
+ const approval=h.state.pending().find(x=>x.chat==='oc_admin')!;assert.ok(!approval.replyTo);assert.ok(!approval.mentions);assert.ok(approval.body.startsWith('### 需要你确认'));assert.match(approval.body,/aws sts get-caller-identity/);assert.match(approval.body,/本次动作/);
  h.bridge.receive(message('好',{chat:'oc_admin'}));assert.equal(h.codex.replies.length,0);
 });
 
@@ -152,7 +152,7 @@ test('a quoted supplementary image is passed as a real steer input, not an unrea
  const url='data:image/png;base64,aGVsbG8=';const requests:unknown[]=[];
  const h=setup({async context(_session,source,limit){requests.push({source,limit});return{status:'available',messages:[{sender:'Owner',type:'image',text:'Attached screenshot',quoted:true}],note:'',images:[{messageIndex:0,label:'Screenshot',url}]};}});t.after(h.close);h.deliveries();
  h.bridge.receive(message('Inspect alpha'));await until(()=>h.turns().length===1);
- h.bridge.receive(message('/补充 根据这张截图核对',{chatType:'group',createTime:'2000',parentId:'om_new_image'}));await until(()=>h.codex.calls.some(x=>x.method==='turn/steer'));
+ h.bridge.receive(message('/steer 根据这张截图核对',{chatType:'group',createTime:'2000',parentId:'om_new_image'}));await until(()=>h.codex.calls.some(x=>x.method==='turn/steer'));
  assert.equal(record(requests[0]).limit,0);assert.equal(record(record(requests[0]).source).parentId,'om_new_image');
  const input=h.codex.calls.find(x=>x.method==='turn/steer')!.params.input as {type:string;url?:string}[];assert.ok(input.some(x=>x.type==='image'&&x.url===url));assert.equal(h.turns().length,1);
 });
@@ -200,7 +200,7 @@ test('an uncertain execution blocks pre-existing classifier handoffs to the same
 test('simplified question answers preserve newlines and leading code indentation', async t => {
  const h=setup();t.after(h.close);h.deliveries();h.bridge.receive(message('Work'));await until(()=>h.turns().length===1);
  h.codex.ask('question','item/tool/requestUserInput',{...h.current(),questions:[{id:'internal-id',question:'Provide code'}]});const token=h.deliveries().join('').match(/问题 ([a-f0-9]{8})/)![1]!;
- const answer='\n    first()\n    second()';h.bridge.receive(message(`/回答 ${token} ${answer}`));
+ const answer='\n    first()\n    second()';h.bridge.receive(message(`/answer ${token} ${answer}`));
  assert.deepEqual(h.codex.replies.at(-1),{id:'question',result:{answers:{'internal-id':{answers:[answer]}}}});
 });
 
@@ -218,7 +218,21 @@ test('deleted reply HTTP errors prefer the Feishu business code over Axios trans
 test('question replies with no answer leave the prompt pending and accept a later answer', async t => {
  const h=setup();t.after(h.close);h.deliveries();h.bridge.receive(message('Work'));await until(()=>h.turns().length===1);
  h.codex.ask('question','item/tool/requestUserInput',{...h.current(),questions:[{id:'internal-id',question:'Provide answer'}]});const token=h.deliveries().join('').match(/问题 ([a-f0-9]{8})/)![1]!;
- for(const text of [`/回答 ${token}`,`/回答 ${token} `,`/回答 ${token}\n   `])h.bridge.receive(message(text));
+ for(const text of [`/answer ${token}`,`/answer ${token} `,`/answer ${token}\n   `])h.bridge.receive(message(text));
  assert.equal(h.codex.replies.length,0);assert.match(h.deliveries().join(''),/请使用/);
- h.bridge.receive(message(`/回答 ${token} confirmed`));assert.deepEqual(h.codex.replies.at(-1),{id:'question',result:{answers:{'internal-id':{answers:['confirmed']}}}});
+ h.bridge.receive(message(`/answer ${token} confirmed`));assert.deepEqual(h.codex.replies.at(-1),{id:'question',result:{answers:{'internal-id':{answers:['confirmed']}}}});
+});
+
+test('English help advertises canonical actions and retired Chinese slash commands cannot approve or start work', async t => {
+ const h=setup();t.after(h.close);h.deliveries();
+ h.bridge.receive(message('/help'));const help=h.deliveries().join('');
+ for(const token of ['/steer','/approve','/reject','/answer','/notify'])assert.ok(help.includes(token));
+ for(const text of ['/补充 instruction','/批准 missing','/拒绝 missing','/回答 missing answer','/通知 @Alex text'])h.bridge.receive(message(text));
+ assert.equal(h.turns().length,0);assert.equal(h.codex.replies.length,0);assert.match(h.deliveries().join(''),/\/help/);
+ h.bridge.receive(message('Work'));await until(()=>h.turns().length===1);
+ h.codex.ask('approval','item/commandExecution/requestApproval',{...h.current(),command:'echo bounded'});
+ const prompt=h.deliveries().join('');const token=prompt.match(/请求 ([a-f0-9]{8})/)![1]!;
+ assert.ok(prompt.includes('/approve '+token)&&prompt.includes('/reject '+token));
+ h.bridge.receive(message('/批准 '+token));assert.equal(h.codex.replies.length,0);
+ h.bridge.receive(message('/approve '+token));assert.deepEqual(h.codex.replies.at(-1),{id:'approval',result:{decision:'accept'}});
 });

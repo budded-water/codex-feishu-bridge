@@ -1,5 +1,5 @@
 export interface Mention { id: string; name: string }
-export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string }
+export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation }
 
 export interface IncomingMessage {
   tenant: string;
@@ -80,3 +80,6 @@ export interface ContextPort {
   actor?(session: Session, message: string): Promise<{ name?: string; link?: string }>;
   context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext>;
 }
+
+export interface NativeControlTarget { generation: string; thread: string; turn: string }
+export type ControlDisposition = 'dispatching' | 'accepted' | 'stopping' | 'sent' | 'rejected' | 'unknown';

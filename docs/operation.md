@@ -49,6 +49,8 @@ Approval audits store request IDs, task IDs, methods, deciding actor IDs, and de
 
 Reference image bytes are streamed into bounded memory and passed as inline inputs; the bridge does not persist downloaded image files or put base64 into the SQLite outbox. Codex/model transcript storage may retain image inputs. Canonical caps are in src/context-limits.ts. Downloads stop starting new resources after their time budget; an in-flight request can finish under the SDK timeout.
 
+The prepared pilot gateway saves bounded group reference snapshots, including admitted inline image inputs, in its private admission database before publication or quoted steering. The assigned process reads these snapshots through the existing ContextPort contract. Sealed terminal projection retires snapshot bodies and retains message/execution identity for deduplication. Uncertain executions retain their snapshots for inspection. Include this database in the private application-data handling described in the migration guide.
+
 There is no automatic data expiry yet. Stop before managing or deleting state. Database deletion loses mappings and deduplication history. Treat backups as private task data.
 
 Logs cover connection, restart, and delivery state. Raw SDK responses, Codex stderr, shell output, and credentials are not printed. Known gateway/API secrets are redacted from complete new outbound text before chunk splitting and persistence, including task-status notices. Delivery also retains per-chunk redaction for older queued records containing a complete known secret; it cannot repair secret fragments split across legacy records. This does not scrub task inputs or Codex transcripts, and arbitrary secrets in model content cannot all be identified.
@@ -62,3 +64,41 @@ On restart, queued and running tasks are interrupted rather than replayed. Check
 ## Metrics after live setup
 
 Observe acknowledgment/completion latency, pending delivery age, retry frequency, approval expirations, and Codex restart counts. The runtime has received reactions, quiet waiting, connection logs and `/status` with active stage/event age, but no exported dashboard or metric time series. Track reaction failures/cleanup backlog alongside answer delivery latency. A live process is not proof of model/network health.
+
+## Pilot migration maintenance
+
+The local `npm run handoff` commands inspect session IDs, quiesce admission, report drainage and prepare closed-state migration or rollback. Both managed runtime entries validate the shared consumer ownership root. Follow [the migration guide](handoff-migration.md) and the private deployment manifest when operating the pilot.
+
+## Routing-mode updates
+
+Drain current work and retain a compatible artifact/configuration pair before changing routing mode. A retained migration plan hashes the parsed bridge configuration. Preserve an equivalent frozen configuration snapshot for that plan, verify it against the original backup identity, and point the plan at that snapshot before changing the active configuration. The runtime handoff configuration continues to reference the active bridge configuration. Record the effective artifact, mode and recovery pair in the private deployment manifest.
+
+## Inspected recovery through the pilot gateway
+
+The P2 pilot command `/recover` exposes only the enrolled owner's unknown guarded execution, and only in the enrolled private approval chat when that owner is also a configured approval administrator. `/recover <execution-id> <inspection-reference>` requires the exact current guard, a request-bound sealed checkpoint with native-child settlement, an unreachable authenticated owner and the human's process/effects inspection reference. Missing or mutated evidence and unstarted admitted backlog require local maintenance. No new configuration fields, keys or model calls are involved.
+
+The human attestation covers command descendants and file/external effects; native-child settlement alone does not establish those facts. Recovery records the deciding message/owner and checkpoint reference in the existing ledger, releases exactly one guard and retains the unknown outcome. Maintenance pause and blocked requests remain unchanged. The original permit cannot launch again. Hub reconciliation cards remain separate and may be closed through supported owner maintenance after inspection; this gateway has no Hub owner capability.
+
+Committed recovery notices are projected idempotently into the durable transport outbox across restart and before gateway closure. Rollback rejects unprojected or undelivered remote recovery notices. A receipt before an uncommitted decision prevents automatic replay; the owner must send a fresh command. This is an optional remote maintenance route, with the existing local CLI retained for incomplete evidence, backlog or broader inspection. See [usage](usage.md) and the [bounded change](../openspec/changes/enable-feishu-inspected-recovery/design.md). Live rollout status belongs in [acceptance](live-acceptance.md).
+
+The recovery-notice rollback check requires the reviewed P2-or-later tools. A code-only downgrade to P1 must first finish all committed P2 recovery notice projection/delivery with the compatible gateway; see the [migration compatibility boundary](handoff-migration.md#owner-private-recovery-control).
+
+## Read-only incident process evidence
+
+The diagnostic version adds optional `native-processes.json` beside each assigned execution. It is private, atomic and bound to the existing request/owner identity. The observer samples a fixed system process query before native task execution, at a bounded interval, and at closure. It retains bounded observed descendants and parent identities; the canonical limit is in the [process observer](../src/handoff/processes.ts). The OS query reads PID, parent, state and start time only; signal-zero existence checks distinguish conclusive absence from limited visibility without terminating anything. PID/start-time observations have sampling/time-granularity limits and are not authority for a future cleanup feature.
+
+Observation failure is nonfatal to task execution and remains unverified in the report. Observation closes before terminal publication. Missing/corrupt/old metadata cannot establish descendant settlement. Read-only owner IPC avoids snapshot/outbox cleanup; diagnostics do not apply native references, clear guards or change Hub/admission state. The retained-event Hub read uses existing source capability, not owner capability. Business effects and Hub question maintenance remain separate.
+
+Use the compatible diagnostic-version migration tools to archive the optional sidecar and any bounded atomic-write remnants. Older migration tools may reject the new evidence filename; retain the current artifact and post-upgrade evidence rather than deleting it to make rollback pass. See [migration](handoff-migration.md).
+
+
+## Remote unstarted queue control
+
+The enrolled owner/approver can inspect `/queue` and withdraw one unstarted private-chat request using its exact execution reference or a quote of its original message. The admission decision and block commit together. An already granted execution refuses withdrawal; use native stop or inspected recovery as appropriate. The success notice and reaction cleanup are durable transport projections. A queued Hub round can still end without model execution; this is not a Hub run/card cancellation operation.
+
+Withdrawal leaves process control, unknown guards and maintenance pause unchanged. Sampled PID/start-time observations cannot supply safe post-fault termination authority. Remote descendant cleanup is deferred until an execution-owned supervision/containment mechanism has its own verified lifecycle. See [migration](handoff-migration.md) before downgrading a runtime with withdrawal receipts.
+
+
+## English command upgrade
+
+The English-command artifact changes gateway, native-owner and probe allowlists together. Drain running/granted executions, controls, prompts and delivery before replacing both gateway/Worker references. Configuration fields, protocol bindings and authentication are unchanged. Retained original messages/controls and dated campaign evidence are never rewritten. For downgrade, finish post-upgrade pending English controls with the compatible artifact before activating a Chinese-only owner; never replay uncertain approvals or restore an old database over new receipts.

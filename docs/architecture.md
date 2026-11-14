@@ -1,12 +1,18 @@
 # Architecture
 
-This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. New image-grounded group replies and live administrator approval acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
+This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. Owner-private command approval/refusal and inspected app-server-loss recovery are verified on M6. New image-grounded group replies and colleague interaction acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
 
 User-facing onboarding: [installation](installation.md), [configuration](configuration.md), [usage](usage.md), [tools and identities](integrations.md), and [troubleshooting](troubleshooting.md).
 
 ## Proposed evolution
 
-The [agent system plan](agent-system-plan.md) records a proposed Autoloop/native Codex composition and phased rollout. Its [P0 OpenSpec change](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md) is not applied. The components and behavior below remain the current implementation; this planning work does not replace the queue or add a running orchestration service.
+The [agent system plan](agent-system-plan.md) records the proposed production composition. The [isolated P0 probe](autoloop-p0.md) now exercises a pinned Autoloop Hub/Worker and the existing native Bridge through a standalone plugin. It uses temporary state and a synthetic transport; the production entry point does not import it. The components below remain the production architecture. P0 does not replace its queue, activate a bot or add a permanent service.
+
+The [P1 handoff design](../openspec/changes/integrate-feishu-autoloop-handoff/design.md) separates scheduling lanes, verified native conversations and canonical-project resources. A separate Feishu adapter normalizes events before channel-neutral admission persists request/source intent, verifies actual Hub assignments and holds canonical-project execution guards. The execution-ID runner now resumes only verified conversations and reuses Bridge/State for one task. It writes a private owner descriptor before native startup, probes live owners through authenticated IPC and seals the closed native journal after observed child exit. Recovery reads this evidence without replay and retains uncertain guards. The actual Hub/Worker verifier covers scripted faults and bounded real-model continuation. The isolated PilotInteractions gateway now retains correlated controls and queries dispatch outcomes after uncertain IPC acknowledgement. Its dedicated transport State reuses Outbox/Feedback, imports native message UUIDs once and revalidates live prompts immediately before sending. Final messages require sealed native evidence; delivery acknowledgements never mutate native journals. Steady-state polling preserves the new-owner launch window, while explicit startup recovery treats orphaned grants as uncertain. The default startup follows the architecture below. A prepared pilot can start through the handoff entry after managed ownership validation. Its closed-state migration and reverse converter are documented in [the migration guide](handoff-migration.md). One owner-authorized fresh M6 deployment is running; its bounded owner-chat P0/P1 acceptance is complete. The process-loss case required an inspected local-operator recovery; original unknown outcomes are retained and only a fresh owner message starts subsequent work. See the dated acceptance record for unexecuted live families.
+
+The prepared pilot retains bounded group reference snapshots in admission state before scheduling or quoted steering, and supplies them to the assigned Bridge through ContextPort. Settled terminal projection retires snapshot bodies. Authenticated owner probes and bound journals preserve native conversation pointers before terminal settlement. Supported recovery and reverse-conversion lookup are detailed in the migration guide.
+
+The optional workspace routing mode uses one neutral execution directory and owner/chat conversation. Verified current requests determine business targets through native Codex. Its default cwd and canonical guard cover the serialized lane, with native permissions and approvals governing actual access. The assigned runner preserves this mode. See [configuration](configuration.md) and [workspace execution](../openspec/changes/enable-general-workspace-mode/design.md).
 
 ## Goal and boundary
 
@@ -27,7 +33,7 @@ This is an independent project that can route work to multiple local repositorie
 | Reaction feedback | Add native received reactions without blocking answers; reconcile ambiguous adds and retry durable removal after terminal task states. |
 | State store | Persist session mappings, received message IDs, task status, and recoverable outbound delivery state in SQLite. |
 
-The first version uses app-server's default stdio transport. It does not expose Codex on a network port. Feishu receives messages using its SDK long connection; text commands avoid needing a separate card callback endpoint in the initial version.
+The first version uses app-server's default stdio transport. It does not expose Codex on a network port. Feishu receives messages and card.action.trigger callbacks through the same SDK long connection. No public callback endpoint is required. Same-chat private approval cards retain English manual commands; routed/group approvals keep the structured manual preview.
 
 ## Startup
 
@@ -66,12 +72,12 @@ These commands belong to the bridge, not the Codex CLI:
 | `/chat` | Select a neutral per-user/chat discussion workspace. |
 | `/new` | Create a new session when the selected session has no pending work. |
 | `/status` | Display active task, queued work, and pending approvals. |
-| `/补充 <text>` | Steer the selected active turn through `turn/steer`; reject if none is active. |
+| `/steer <text>` | Steer the selected active turn through `turn/steer`; reject if none is active. |
 | `/stop` | Interrupt the selected active turn through `turn/interrupt`. |
 | `/clear` | Cancel the selected session's queued tasks. |
-| `/批准 <id>` | Configured administrators accept a live approval in its designated chat. |
-| `/拒绝 <id>` | Configured administrators decline an approval; the submitter can decline their own question. |
-| `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
+| `/approve <id>` | Configured administrators accept a live approval in its designated chat. |
+| `/reject <id>` | Configured administrators decline an approval; the submitter can decline their own question. |
+| `/answer <id> <question-id> <answer>` | Answer a single non-sensitive question. |
 
 Discussion sessions use private per-user/chat directories under the state directory. Older project histories are preserved; switch with `/chat` to leave an existing selected project. Neutral mode instructs Codex not to browse a repository to guess group context, without relaxing local sandbox or approvals. The missing-history shortcut applies only to a fresh neutral discussion with an explicit chat reference; self-contained project tasks and follow-ups in existing Codex threads are not rejected by optional missing group history. Free-form steering and question answers preserve embedded newlines and indentation.
 
@@ -108,6 +114,8 @@ Retain Codex's sandbox and approval settings. The bridge must not enable unrestr
 
 Write-capable tasks must not be automatically replayed after an uncertain outcome. Reconciliation checks the project or external service's live state before continuing.
 
+A rejected or lost `turn/start` response after submission remains `unknown` even when app-server is still responsive: readiness alone cannot prove non-acceptance. Shutdown waits for observed native child exit rather than treating a sent SIGKILL as settlement. These are shared executor fixes; they do not prove rollback of external effects or termination of independently detached services.
+
 ## Public repository and private runtime state
 
 Publish source, placeholder examples, architecture, and tests. Keep credentials, actual user IDs, local project paths, database files, transcripts, and logs ignored and locally private. Runtime state should use restrictive filesystem permissions.
@@ -130,6 +138,41 @@ Approval previews preserve exact fenced action text, show intent and a concrete 
 
 Native notifications preserve the user message body after removing only leading recipient selectors and are an explicit in-group transport action targeting up to 20 distinct members selected in the current admitted event. They do not resolve contacts from plain names or historical content, create tasks, notify all, or send to another chat. Native `at` elements are rendered only from the supplied allowlist; ordinary model markup cannot notify arbitrary IDs. Fenced code previews remain exact. Notification selection is not execution/approval authority or evidence of reading. Unknown/unsupported messages only receive help after existing admission and bot-mention checks; unauthorized traffic remains silent.
 
-Status defaults to current work, queue and required action; `/status 详情` exposes process/event diagnostics. Failures and interruptions have one truthful explanation, with uncertain prior effects explicit. Recovery notices are grouped by owner/chat without replay. SQLite additionally records receive/routing/handoff/execution/feedback/result-delivery timestamps. Local metrics load `.env` and honor `BRIDGE_CONFIG` like the runtime, exclude legacy tasks without timestamps and summarize at most the latest 1000 records. First-result latency describes the first delivered chunk, not proof that all chunks or a human read have completed; no telemetry leaves the host.
+Status defaults to current work, queue and required action; `/status details` exposes process/event diagnostics. Failures and interruptions have one truthful explanation, with uncertain prior effects explicit. Recovery notices are grouped by owner/chat without replay. SQLite additionally records receive/routing/handoff/execution/feedback/result-delivery timestamps. Local metrics load `.env` and honor `BRIDGE_CONFIG` like the runtime, exclude legacy tasks without timestamps and summarize at most the latest 1000 records. First-result latency describes the first delivered chunk, not proof that all chunks or a human read have completed; no telemetry leaves the host.
 
 同一项目的执行结果未确认时，此前已进入分类流程的请求也会在交接时停止；先核对本机结果，再发起新请求，不自动重跑。简化问题回答只移除编号后的一个分隔符，保留内容的换行和缩进。
+
+## Pilot inspected recovery
+
+The [P2 recovery change](../openspec/changes/enable-feishu-inspected-recovery/design.md) adds FeishuRecovery before ordinary pilot task admission. It owns the enrolled private owner's approval-role check, explicit incident selection and human inspection reference. NativeExecutions validates the sealed unknown checkpoint and rejects a reachable owner. AdmissionStore commits the actor/message/checkpoint-bound inspection and guard release together, requiring the guard still be held. Other unstarted admitted work prevents remote release. Original unknown status, maintenance pause, blocked requests and revoked native authority are preserved.
+
+A committed recovery is projected periodically and before gateway closure through stable transport notice tombstones and Outbox. Rollback requires both the remote notice projection and drained delivery before converting ownership. An uncommitted received command is not replayed after restart. No inference, process termination, new Hub capability or automatic effects verification occurs. Actual live evidence remains in the dated acceptance record.
+
+
+The bounded M6 owner-private P2 flow is now observed live: exact incident preview, owner-message inspection confirmation, unknown-preserving guard release, gateway restart and fresh same-thread continuation. Recovery controls did not add a model turn. Source-bound inspection, ledger, checkpoint, notice and external API delivery evidence remain in the private inventory; the dated acceptance record states the manual process/effect and Hub-maintenance limits.
+
+## Read-only incident diagnostics
+
+The [incident-diagnostics change](../openspec/changes/add-readonly-incident-diagnostics/design.md) expands the existing owner-private recovery view. NativeOwner records a bounded private process graph before task execution, samples it while running, and awaits its final observation before sealing. It stores PID/start-time identity and observed parent edges, without command lines or environment. The metadata is bound to the same execution/request as its native owner and is optional for older executions.
+
+Diagnostic IPC returns only authenticated owner presence and does not run the ordinary snapshot's pending-message cleanup. Native diagnostics read sealed evidence and process observations without applying snapshots or preserving conversation references. Current process checks distinguish matching live identities, proven absence/zombies and unverified identity/visibility. Missing PS data, legacy/corrupt metadata and incomplete sampling stay explicit. These observations are not process-control authority or proof of complete descendant coverage.
+
+SourceOutbox diagnostics use only GET of the retained event, checking expected route, enumerated state and assigned run before rendering. No source publication, retry, routing update or Hub management key is involved. Reports retain the exact incident, generation time, queue/delivery counts and explicit human business-effect checks. Recovery confirmation still revalidates its established conditions independently. Compatible migration tools archive the optional process metadata with the closed execution. Live deployment status belongs in the acceptance record.
+
+
+The bounded M6 diagnostic deployment is observed through the real owner-private route: registered running wait, distinct Hub/native outcomes, unchanged task/evidence/Hub facts across viewing, separate confirmation and fresh same-thread continuation. Operator test-process and Hub-question cleanup remain distinct from the gateway. See the dated acceptance record for coverage and unresolved deployment families.
+
+
+## Owner-private unstarted queue withdrawal
+
+The [queue-withdrawal change](../openspec/changes/enable-owner-queue-withdrawal/design.md) reuses the recovery owner's private-chat/approval-role boundary. A bounded `/queue` view exposes receipt time and exact execution references without task content. `/withdraw` selects an exact reference or the original owned request quote; conflicting selectors do not guess a target.
+
+Admission SQLite is canonical for the withdrawal decision. One immediate transaction retains actor/origin and prior block reasons, prohibits reservation and records the command identity. Any existing execution prevents withdrawal, including a granted execution that has not launched Codex yet. Reservation checks the same transaction boundary. Late source replies cannot remove a committed block. A previously queued Hub run can finish with a known unstarted-withdrawal receipt rather than manufacture an uncertain native outcome; no Hub cancellation or management capability is added.
+
+The transport projects withdrawn tasks as interrupted unstarted work for feedback cleanup and uses stable `withdrawn` notice tombstones. The admission ledger and transport notice projection are separate durable facts: synchronization repairs a missing projection, while rollback requires projection and drained delivery before exporting. The complete audit stays in archived pilot SQLite; reverse conversion retains command/request deduplication and never restores the withdrawn task to queued. Compatible converters are required to enforce the new notice gate. Native journals, unknown guards, maintenance pause and process control are independent.
+
+## Approval card transport
+
+[The card change](../openspec/changes/enable-feishu-approval-cards/design.md) adds Card JSON 2.0 for same-chat private approvals whose submitter is an approval administrator. Full redacted action content is required; oversized cards and routed/group approvals use structured manual commands. Callback selectors are not credentials. The authenticated SDK validates app/operator/tenant/context, and the bridge requires a confirmed delivered message ID plus the exact task/thread/turn/generation. Native request policy remains authoritative. Pilot admission atomically stores the callback event and original target; uncertain dispatch is lookup-only. No model or network work is awaited in the callback.
+
+Typed optional journal presentation and deciding actor are projected read-only; platform message IDs live in transport state. Existing durable outbox rows update acknowledged cards after submitted decisions, expiry or invalidation, with no new task or replacement card on uncertain HTTP errors. Drain checks include derived pending updates. Legacy sealed journals without the optional fields remain readable without byte changes. Compatible rollback archives card payload/message facts and retains callback event deduplication; old cards do not become fresh authorization in the restored role.

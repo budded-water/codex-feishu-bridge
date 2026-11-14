@@ -144,7 +144,7 @@ test('routing handoff waits for steering acceptance and preserves the latest exe
     if (method === 'turn/steer') await new Promise<void>(done => { release = done; });
     return request<T>(method, params);
   };
-  h.bridge.receive(message('/补充 Only inspect beta; do not modify anything'));
+  h.bridge.receive(message('/steer Only inspect beta; do not modify anything'));
   await until(() => Boolean(release));
   h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'beta'));
   assert.equal(h.turns().length, 1);
@@ -162,7 +162,7 @@ test('failed routing steering cannot hand off a task without the user constraint
     if (method === 'turn/steer') throw new Error('stale turn');
     return request<T>(method, params);
   };
-  h.bridge.receive(message('/补充 Do not modify anything'));
+  h.bridge.receive(message('/steer Do not modify anything'));
   await until(() => !h.state.directories().length);
   h.codex.complete(router.threadId, router.turnId, 'completed', decision('project', 'alpha'));
   assert.equal(h.turns().length, 1); assert.match(h.deliveries().join(''), /请求已停止/);
@@ -252,7 +252,7 @@ test('oversized routing steering interrupts and drains before the next request u
     if (method === 'turn/interrupt') await new Promise<void>(done => { release = done; });
     return request<T>(method, params);
   };
-  h.bridge.receive(message('/补充 ' + 'y'.repeat(15_000))); await until(() => Boolean(release));
+  h.bridge.receive(message('/steer ' + 'y'.repeat(15_000))); await until(() => Boolean(release));
   h.bridge.receive(message('Another beta')); assert.equal(h.turns().length, 1);
   release(); await until(() => h.turns().length === 2);
   assert.ok(h.codex.calls.some(call => call.method === 'turn/interrupt'));
@@ -269,7 +269,7 @@ test('an uncertain classifier interruption cancels queued work and a new request
     if (method === 'turn/steer' || method === 'turn/interrupt') throw new Error('unconfirmed RPC');
     return request<T>(method, params);
   };
-  h.bridge.receive(message('/补充 Do not modify anything'));
+  h.bridge.receive(message('/steer Do not modify anything'));
   await until(() => !h.state.directories().length);
   assert.equal(h.state.routing(h.session.owner), undefined);
   assert.ok(h.state.status(h.session.id).some(row => row.status === 'unknown'));
@@ -378,7 +378,7 @@ test('aborted pending clarification cannot revive its original work or quoted so
       if (failure === 'rejected') h.codex.request = async <T>(method:string,params:unknown):Promise<T> => {
         if (method === 'turn/steer') throw new Error('steering failed'); return request<T>(method,params);
       };
-      h.bridge.receive(message('/补充 ' + (failure === 'oversized' ? 'y'.repeat(15_000) : 'Do not modify anything')));
+      h.bridge.receive(message('/steer ' + (failure === 'oversized' ? 'y'.repeat(15_000) : 'Do not modify anything')));
       await until(() => !h.state.directories().length);
       assert.equal(h.state.routing(h.session.owner)!.pending, null);
       assert.equal(h.state.routing(h.session.owner)!.source, undefined);
@@ -401,7 +401,7 @@ test('a failed decision after clarification cannot retain old authority with or 
       await until(() => !h.state.directories().length);
       h.bridge.receive(message(steer ? 'beta' : 'Cancel this')); await until(() => h.turns().length === 2);
       if (steer) {
-        h.bridge.receive(message('/补充 Do not modify anything'));
+        h.bridge.receive(message('/steer Do not modify anything'));
         await until(() => h.codex.calls.some(call => call.method === 'turn/steer'));
       }
       const second = h.current(); h.codex.complete(second.threadId, second.turnId, 'completed', 'Invalid decision');
@@ -418,7 +418,7 @@ test('discussion controls cannot affect a classifier submitted from another sele
   h.bridge.receive(message('Work alpha')); await until(() => h.turns().length===1);
   h.bridge.receive(message('/chat')); h.deliveries(); h.bridge.receive(message('/status'));
   const status = h.deliveries().join(''); assert.match(status,/暂无进行中的任务/); assert.ok(!status.includes('正在理解请求'));
-  h.bridge.receive(message('/stop')); h.bridge.receive(message('/补充 Do not modify'));
+  h.bridge.receive(message('/stop')); h.bridge.receive(message('/steer Do not modify'));
   assert.ok(!h.codex.calls.some(call => ['turn/steer','turn/interrupt'].includes(call.method)));
   assert.ok(h.state.status(h.session.id).some(row => row.status==='running'));
   const discussion = h.state.selected(message(''))!;

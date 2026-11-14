@@ -1,8 +1,10 @@
 import type { DeliveryOptions } from './types.js';
-import { State } from './state.js';
+import { State, type Delivery } from './state.js';
+import type { ApprovalPresentation, ApprovalView } from './approval.js';
 
 export interface Sender {
   send(chat: string, text: string, idempotencyKey: string, options?: DeliveryOptions): Promise<void | string>;
+  updateApproval?(message: string, approval: ApprovalPresentation, view: ApprovalView): Promise<void>;
 }
 
 export class Outbox {
@@ -12,7 +14,7 @@ export class Outbox {
   private work?: Promise<void>;
   private secrets: string[];
 
-  constructor(state: State, sender: Sender, secrets: string[] = []) {
+  constructor(state: State, sender: Sender, secrets: string[] = [], private ready?: (delivery: Delivery) => Promise<boolean>) {
     this.state = state;
     this.sender = sender;
     this.secrets = secrets.filter(secret => secret.length > 4);
@@ -32,10 +34,19 @@ export class Outbox {
   private async deliver(): Promise<void> {
     for (const delivery of this.state.pending()) {
       if (!this.state.deliveryReady(delivery.id)) continue;
+      if (this.ready && !await this.ready(delivery)) continue;
+      if (!this.state.deliveryReady(delivery.id)) continue;
       let text = delivery.body;
       for (const secret of this.secrets) text = text.split(secret).join('[redacted]');
       try {
-        const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined, mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined });
+        if (delivery.updateMessage && delivery.approval && delivery.approvalView) {
+          if (!this.sender.updateApproval) throw new Error('Approval update transport unavailable');
+          await this.sender.updateApproval(delivery.updateMessage, delivery.approval, delivery.approvalView);
+          this.state.delivered(delivery.id);
+          continue;
+        }
+        const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined,
+          mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval });
         this.state.delivered(delivery.id, message || undefined);
       } catch {
         this.state.retry(delivery);

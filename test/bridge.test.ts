@@ -69,11 +69,11 @@ test('steering and stopping target the actual active turn, and stale approvals c
   const active = h.current();
   h.codex.ask('approval', 'item/commandExecution/requestApproval', { ...active, command: 'echo hello' });
   const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
-  h.bridge.receive(message('/补充 Inspect tests too'));
+  h.bridge.receive(message('/steer Inspect tests too'));
   assert.equal(h.codex.calls.find(call => call.method === 'turn/steer')!.params.expectedTurnId, active.turnId);
   h.bridge.receive(message('/stop'));
   await until(() => h.state.status(h.session.id).some(row => row.status === 'interrupted'));
-  h.bridge.receive(message(`/批准 ${token}`));
+  h.bridge.receive(message(`/approve ${token}`));
   assert.equal(h.codex.replies.length, 0);
 });
 
@@ -93,12 +93,12 @@ test('approval is bound to the original owner/chat and may be answered after a p
   h.codex.ask(100, 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo approved' });
   const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
   h.bridge.receive(message('/project beta', { chat: 'other-chat' }));
-  h.bridge.receive(message(`/批准 ${token}`, { chat: 'other-chat' }));
-  h.bridge.receive(message(`/批准 ${token}`, { user: 'ou_attacker' }));
+  h.bridge.receive(message(`/approve ${token}`, { chat: 'other-chat' }));
+  h.bridge.receive(message(`/approve ${token}`, { user: 'ou_attacker' }));
   assert.equal(h.codex.replies.length, 0);
   h.bridge.receive(message('/project beta'));
-  h.bridge.receive(message(`/批准 ${token}`));
-  h.bridge.receive(message(`/批准 ${token}`));
+  h.bridge.receive(message(`/approve ${token}`));
+  h.bridge.receive(message(`/approve ${token}`));
   assert.deepEqual(h.codex.replies, [{ id: 100, result: { decision: 'accept' } }]);
 });
 
@@ -110,7 +110,7 @@ test('timeouts decline instead of authorizing; late replies have no effect', asy
   h.codex.ask(101, 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo timeout' });
   const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
   await until(() => h.codex.replies.length === 1);
-  h.bridge.receive(message(`/批准 ${token}`));
+  h.bridge.receive(message(`/approve ${token}`));
   assert.deepEqual(h.codex.replies, [{ id: 101, result: { decision: 'decline' } }]);
 });
 
@@ -121,12 +121,12 @@ test('requests resolved by Codex or a prior process cannot be approved', async t
   h.codex.ask(102, 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo old' });
   const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
   h.codex.notify('serverRequest/resolved', { requestId: 102 });
-  h.bridge.receive(message(`/批准 ${token}`));
+  h.bridge.receive(message(`/approve ${token}`));
   assert.equal(h.codex.replies.length, 0);
   h.codex.ask(103, 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo old-process' });
   const second = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
   h.codex.generation = 'generation-2';
-  h.bridge.receive(message(`/批准 ${second}`));
+  h.bridge.receive(message(`/approve ${second}`));
   assert.equal(h.codex.replies.length, 0);
 });
 
@@ -142,7 +142,7 @@ test('file approvals display changes; missing action details are denied', async 
   const preview = h.deliveries().join('\n');
   assert.ok(preview.includes('file.ts') && preview.includes('+new behavior'));
   const token = preview.match(/请求 ([a-f0-9]{8})/)![1]!;
-  h.bridge.receive(message(`/拒绝 ${token}`));
+  h.bridge.receive(message(`/reject ${token}`));
   assert.deepEqual(h.codex.replies[1], { id: 105, result: { decision: 'decline' } });
 });
 
@@ -153,9 +153,9 @@ test('user questions bind the unique prompt token; sensitive and unsupported req
   const active = h.current();
   h.codex.ask(106, 'item/tool/requestUserInput', { ...active, questions: [{ id: 'choice', question: 'Choose', isSecret: false, options: [{ label: 'A' }] }] });
   const token = h.deliveries().join('\n').match(/问题 ([a-f0-9]{8})/)![1]!;
-  h.bridge.receive(message(`/回答 expired-token A`));
+  h.bridge.receive(message(`/answer expired-token A`));
   assert.equal(h.codex.replies.length, 0);
-  h.bridge.receive(message(`/回答 ${token} choice A`));
+  h.bridge.receive(message(`/answer ${token} choice A`));
   assert.deepEqual(h.codex.replies[0], { id: 106, result: { answers: { choice: { answers: ['A'] } } } });
   h.codex.ask(107, 'item/tool/requestUserInput', { ...active, questions: [{ id: 'secret', isSecret: true }] });
   assert.deepEqual(h.codex.replies[1], { id: 107, result: { answers: {} } });
@@ -187,7 +187,7 @@ test('unsupported interactions identify bridge rejection without exposing reques
   const active = h.current();
   h.codex.ask(501, 'unsupported/toolApproval', { ...active, arguments: { secret: 'private-argument' }, url: 'https://private.example' });
   assert.deepEqual(h.deliveries(), []);
-  h.bridge.receive(message('/status 详情'));
+  h.bridge.receive(message('/status details'));
   const notice = h.deliveries().join('\n');
   assert.deepEqual(h.codex.rejected, [501]);
   assert.match(h.codex.rejectedMessages[0]!, /rejected by the bridge, not by the user/);
@@ -197,7 +197,7 @@ test('unsupported interactions identify bridge rejection without exposing reques
   assert.equal(h.codex.replies.length, 0);
   h.codex.ask(502, 'secret\nhttps://private.example', active);
   assert.deepEqual(h.deliveries(), []);
-  h.bridge.receive(message('/status 详情'));
+  h.bridge.receive(message('/status details'));
   assert.match(h.deliveries().join('\n'), /不支持的交互：unknown/);
   assert.ok(!h.codex.rejectedMessages[1]!.includes('private.example'));
   h.codex.complete(active.threadId, active.turnId, 'completed', 'The tool query was blocked; no data available.');
@@ -274,7 +274,7 @@ test('tenant colleagues in one group have isolated threads and cannot steer or s
   await until(() => h.turns().length === 1);
   const first = h.current();
   h.bridge.receive(message('/project alpha', bob));
-  h.bridge.receive(message('/补充 Change Alice task', bob));
+  h.bridge.receive(message('/steer Change Alice task', bob));
   h.bridge.receive(message('/stop', bob));
   h.bridge.receive(message('Bob task', bob));
   assert.equal(h.turns().length, 1);
@@ -292,17 +292,17 @@ test('only configured administrators can decide colleague approvals in the route
   h.bridge.receive(message('/project alpha', colleague)); h.bridge.receive(message('Colleague task', colleague));
   await until(() => h.turns().length === 1);
   h.codex.ask('team-approval', 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo bounded' });
-  const preview = h.state.pending(Number.MAX_SAFE_INTEGER).find(reply => reply.body.includes('动作：'))!;
+  const preview = h.state.pending(Number.MAX_SAFE_INTEGER).find(reply => reply.body.includes('**本次动作**'))!;
   assert.equal(preview.chat, 'oc_admin');
   const token = preview.body.match(/请求 ([a-f0-9]{8})/)![1]!;
-  h.bridge.receive(message(`/批准 ${token}`, { user: 'ou_colleague', chat: 'oc_admin' }));
-  h.bridge.receive(message(`/批准 ${token}`, { user: 'ou_owner', chat: 'group' }));
-  h.bridge.receive(message(`/批准 ${token}`, { user: 'ou_owner', chat: 'oc_admin', tenant: 'outside' }));
+  h.bridge.receive(message(`/approve ${token}`, { user: 'ou_colleague', chat: 'oc_admin' }));
+  h.bridge.receive(message(`/approve ${token}`, { user: 'ou_owner', chat: 'group' }));
+  h.bridge.receive(message(`/approve ${token}`, { user: 'ou_owner', chat: 'oc_admin', tenant: 'outside' }));
   assert.equal(h.codex.replies.length, 0);
   assert.equal(h.state.selected(message('', { chat: 'oc_admin' })), undefined);
-  h.bridge.receive(message(`/批准 ${token}`, { chat: 'oc_admin' }));
+  h.bridge.receive(message(`/approve ${token}`, { chat: 'oc_admin' }));
   assert.deepEqual(h.codex.replies, [{ id: 'team-approval', result: { decision: 'accept' } }]);
-  h.bridge.receive(message(`/批准 ${token}`, { chat: 'oc_admin' }));
+  h.bridge.receive(message(`/approve ${token}`, { chat: 'oc_admin' }));
   assert.equal(h.codex.replies.length, 1);
 });
 
@@ -314,10 +314,10 @@ test('administrators cannot answer a colleague question; only its submitter in t
   await until(() => h.turns().length === 1);
   h.codex.ask('team-question', 'item/tool/requestUserInput', { ...h.current(), questions: [{ id: 'q', question: 'Which file?' }] });
   const token = h.deliveries().join('\n').match(/问题 ([a-f0-9]{8})/)![1]!;
-  h.bridge.receive(message(`/回答 ${token} q wrong`, { chat: 'oc_admin' }));
-  h.bridge.receive(message(`/回答 ${token} q wrong`, { ...colleague, chat: 'other-group' }));
+  h.bridge.receive(message(`/answer ${token} q wrong`, { chat: 'oc_admin' }));
+  h.bridge.receive(message(`/answer ${token} q wrong`, { ...colleague, chat: 'other-group' }));
   assert.equal(h.codex.replies.length, 0);
-  h.bridge.receive(message(`/回答 ${token} q chosen`, colleague));
+  h.bridge.receive(message(`/answer ${token} q chosen`, colleague));
   assert.deepEqual(h.codex.replies, [{ id: 'team-question', result: { answers: { q: { answers: ['chosen'] } } } }]);
 });
 
@@ -328,13 +328,16 @@ test('routed colleague approvals expire in the administrator chat and late decis
   const colleague = { user: 'ou_colleague', chat: 'group' };
   h.bridge.receive(message('/project alpha', colleague)); h.bridge.receive(message('Colleague task', colleague));
   await until(() => h.turns().length === 1);
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   h.codex.ask('expiring-team-approval', 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo bounded' });
   const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
-  await until(() => h.codex.replies.length === 1);
+  t.mock.timers.tick(29);
+  assert.equal(h.codex.replies.length, 0);
+  t.mock.timers.tick(1);
   const notices = h.state.pending(Number.MAX_SAFE_INTEGER);
   assert.ok(notices.some(reply => reply.chat === 'oc_admin' && reply.body.includes('已过期')));
   assert.ok(notices.some(reply => reply.chat === 'group' && reply.body.includes('已过期')));
-  h.bridge.receive(message(`/批准 ${token}`, { chat: 'oc_admin' }));
+  h.bridge.receive(message(`/approve ${token}`, { chat: 'oc_admin' }));
   assert.deepEqual(h.codex.replies, [{ id: 'expiring-team-approval', result: { decision: 'decline' } }]);
 });
 
@@ -485,7 +488,7 @@ test('free-form steering preserves newlines and indentation including its first 
     [' ', '请按下面改：\n```python\nif ready:\n    run()\n\n    finish()\n```'],
     ['\n', '    first()\n    second()'],
   ]) {
-    h.bridge.receive(message('/补充' + separator + input));
+    h.bridge.receive(message('/steer' + separator + input));
     const call = h.codex.calls.filter(item => item.method === 'turn/steer').at(-1)!;
     assert.deepEqual(call.params.input, [{ type: 'text', text: input, text_elements: [] }]);
   }
@@ -497,7 +500,7 @@ test('free-form question answers preserve multiline code instead of joining word
   h.codex.ask('code-question', 'item/tool/requestUserInput', { ...h.current(), questions: [{ id: 'q', question: 'Which code?' }] });
   const token = h.deliveries().join('\n').match(/问题 ([a-f0-9]{8})/)![1]!;
   const input = 'if ready:\n    run()\n    finish()';
-  h.bridge.receive(message(`/回答 ${token} q ${input}`));
+  h.bridge.receive(message(`/answer ${token} q ${input}`));
   assert.deepEqual(h.codex.replies, [{ id: 'code-question', result: { answers: { q: { answers: [input] } } } }]);
 });
 
@@ -507,7 +510,7 @@ test('a newer queued task cannot hide the running task diagnostic or its final f
   h.bridge.receive(message('Next work')); h.deliveries();
   h.codex.ask('unsupported', 'unsupported/toolApproval', { ...active, secret: 'never-display' });
   assert.deepEqual(h.deliveries(), []);
-  h.bridge.receive(message('/status 详情'));
+  h.bridge.receive(message('/status details'));
   assert.match(h.deliveries().join(''), /unsupported\/toolApproval/);
   h.codex.complete(active.threadId, active.turnId, 'failed', '');
   assert.match(h.deliveries().join(''), /这一步需要部署者/);

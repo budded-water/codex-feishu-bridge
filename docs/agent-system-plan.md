@@ -1,12 +1,12 @@
 # Agent system direction and delivery plan
 
-Status: proposed implementation direction. This document records the planning discussion; it does not establish that Autoloop is integrated, a deployment has changed, or live acceptance has passed.
+Status: selected composition, implemented through the [P0 execution probe](autoloop-p0.md) and the P1 handoff. One owner-authorized fresh M6 instance runs the pinned Autoloop gateway/Worker path in general-workspace mode and has completed bounded owner-private acceptance. This roadmap also describes future milestones; use [dated acceptance](live-acceptance.md) to distinguish deployed evidence from planned capability.
 
 ## Intended outcome
 
 An operator can assign work through Feishu while away from the execution host, inspect it, add context, answer an actual Codex request, stop it, and continue the associated native Codex conversation. The system can later accept evidence-backed observations and scheduled investigations under explicit execution policies.
 
-The initial scope is one persistent macOS execution host, one Feishu bot, an operator acceptance chat and one registered pilot project. Remote devices control work on that host; they do not migrate a running process. Native Codex remains the default harness and retains its local authentication, tools, configuration and permissions. Existing desktop chats and UI-only integrations are not automatically attached.
+The initial scope is one persistent macOS execution host, one Feishu bot, an operator acceptance chat and one canonical neutral workspace. Remote devices control work on that host; they do not migrate a running process. Native Codex remains the default harness and retains its local authentication, tools, configuration and permissions. Existing desktop chats and UI-only integrations are not automatically attached.
 
 ## Recommended composition
 
@@ -50,7 +50,7 @@ Arrows show the proposed logical integration, not installed services or a mandat
 | Publication outcome | The release tool's journal plus platform reconciliation |
 | Accepted backlog item, if the existing follow-up flow is used | Its existing task store; not a duplicate orchestration backlog |
 
-The gateway's current task queue remains the production implementation until an explicit handoff is delivered. The target has one authority for each execution assignment. Message inbox/outbox records are transport state, not a competing business scheduler.
+The default entry retains its legacy queue; the authorized M6 pilot uses the delivered single-assignment handoff. The target has one authority for each execution assignment. Message inbox/outbox records are transport state, not a competing business scheduler.
 
 ## Execution and interaction rules
 
@@ -80,14 +80,14 @@ Research, document and data tasks can use the same native executor with appropri
 | Milestone | Deliverable | Exit evidence |
 | --- | --- | --- |
 | P0: execution baseline and boundary | Version-aligned Codex integration and an isolated Autoloop execution probe | Matched identities and demonstrated native start/resume, control, cancellation and uncertain-result handling |
-| P1: remote workflow | Unified Feishu entry, one scheduling authority and a pilot project | Owner-chat assignment, status, follow-up, live interaction, stop and continuation |
+| P1: remote workflow | Unified Feishu entry, one scheduling authority and a neutral workspace | Owner-chat assignment, status, follow-up, live interaction, stop and continuation |
 | P2: reliable operation | Fault handling, service operation, state recovery and reviewed upgrade/rollback | Duplicate delivery, lost acknowledgement, process restart, stale interaction and result-delivery exercises |
 | P3: evidence-based completion | Project checks, UI-eval and required review | Source-bound reports and correct complete/continue/blocked decisions |
 | P4: proactive work | Approved discovery sources and bounded execution policies | Evidence-backed candidates, deduplication, authorization and stopping rules |
 
 P0-P2 form the first daily-use target. Later milestones extend the same boundaries. Create a separate OpenSpec change when a milestone becomes actionable; do not create a single permanently open checklist for every future capability.
 
-The first change is [verify-codex-autoloop-execution-boundary](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md). Its implementation tasks are pending. The installed CLI and generated bindings must be checked again when work starts; the source constant is [the compatibility authority](../src/codex/generated/version.ts), not a version copied into this roadmap.
+The first change is [verify-codex-autoloop-execution-boundary](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md). Its isolated implementation is verified; subsequent deployed owner-chat tests complete bounded native interaction/recovery acceptance. The [P1 handoff change](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) now implements durable admission/source/guards and a single-assignment native executor through the pinned Hub/Worker. Authenticated owner/checkpoint recovery and bounded native continuation are verified. The isolated pilot gateway now also persists correlated controls and projects native prompts/results into the existing human outbox and reaction cleanup. Closed-state migration and both rollback windows now have fixture-tested tools. The authorized fresh M6 activation and bounded owner-private acceptance are complete. The bounded P2 slice adds owner-private Feishu release for eligible inspected unknowns; broader operation, P3 project/UI evidence and P4 discovery remain separate milestones. Check the installed CLI against [the compatibility authority](../src/codex/generated/version.ts) when work starts, rather than copying a version into this roadmap.
 
 ## Alternatives and deferred work
 
@@ -126,3 +126,14 @@ OpenSpec format validation does not establish implementation, protocol compatibi
 - [DSH native Codex provider](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subagent/subagent-codex/README.md).
 - [Dim Pursuit design](https://github.com/arcships/dim/blob/4789808fe844e4b006d085df4d3d879d3616c1d3/docs/design/plugins/Pursuit.md).
 - [UI-eval integration contract](https://github.com/budded-water/ui-eval/blob/main/docs/integration-runner.md), [release-kit](https://github.com/budded-water/release-kit) and [agent-followups](https://github.com/budded-water/agent-followups). These are integration references, not bundled dependencies or acceptance claims.
+
+
+The first bounded P2 slice is [owner-private inspected recovery](../openspec/changes/enable-feishu-inspected-recovery/proposal.md), addressing the local-command dependency observed during P1 acceptance. Its change tracks candidate checks, independent review and live rollout separately. It reuses the existing ledger and transport; broader operation, process cleanup and project evidence remain later work.
+
+
+The first P2 inspected-recovery slice has completed real M6 owner-private acceptance, including a fresh continuation after gateway restart. It removes the local reconcile-command requirement for eligible sealed incidents. Actual command descendants and external effects still require human inspection; missing evidence, queued backlog, Hub maintenance and broader operation remain distinct work. P3 project/UI evidence and P4 discovery are not delivered by this slice.
+
+The bounded [read-only incident diagnostics](../openspec/changes/add-readonly-incident-diagnostics/proposal.md) slice is implemented and live-verified on the M6 owner-private pilot; see the [dated acceptance record](live-acceptance.md). It records task-bound observed process identities and explains native, queue and source-scoped Hub facts through the existing recovery view. Sampling and human effect inspection remain distinct. Process cleanup, backlog modification and automatic discovery are not introduced by this diagnostic slice.
+
+
+The next bounded P2 slice is [owner-private queue withdrawal](../openspec/changes/enable-owner-queue-withdrawal/proposal.md): remove an exact unstarted request from future admission so remote recovery/maintenance is not blocked by abandoned queued work. A granted execution is outside that control. Remote process cleanup is deferred because the current sampled PID/start-time identities provide diagnostics rather than a durable process-control capability; a future supervision/containment change must establish that capability at launch. P3 verification and P4 discovery retain their existing boundaries.

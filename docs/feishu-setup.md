@@ -56,3 +56,11 @@ CLI 是 Codex 可以另行使用的工具，不是这个 SDK 连接的必需依�
 私聊先测 /status、讨论、项目只读任务、表情和审批；群里再验证真实 @、前文和图片。完整清单在 [安装说明](installation.md)，故障对应表在 [常见问题](troubleshooting.md)。
 
 自动化测试、doctor 和协议 smoke 都不能证明企业后台授权、用户可用范围和真实模型任务已通过。每位新部署者完成自己的验收，保留脱敏记录。
+
+## 审批卡片回调
+
+同一审批人私聊支持 Card JSON 2.0 的“批准本次 / 拒绝”。在现有应用的 **事件与回调 → 回调配置** 中，选择长连接并添加 **卡片回传交互 `card.action.trigger`**。这是回调订阅，和 `im.message.receive_v1` 消息事件分开配置；保留消息事件。使用同一个运行中的 SDK 连接，不另开第二个 bridge，不需要公网 Webhook。按后台要求保存 / 发布，再做本人私聊的实际点击验收。
+
+发送和更新使用本应用机器人消息 API；不因此申请群历史、通讯录或用户 OAuth。部署者仍须核对发送 / 更新接口接受的实际应用 grant。没有配置回调时，卡片中的英文 `/approve` 和 `/reject` 仍可用。点击会核对审批人、租户、原生请求和实际卡片消息；转发卡片或其他账号的点击不会变成授权。范围和失败行为见 [使用说明](usage.md#审批在哪里处理)。
+
+官方依据：[回调长连接](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/receive-and-handle-callbacks)、[卡片交互](https://open.feishu.cn/document/feishu-cards/configuring-card-interactions)。

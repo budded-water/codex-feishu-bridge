@@ -4,6 +4,7 @@ import { MAX_CONTEXT_MESSAGES, CONTEXT_WINDOW_MS } from './context-limits.js';
 import { RECEIVED_EMOJI, type ReactionPort } from './feedback.js';
 import { markdownPost, notificationPost, safeMentionText } from './reply.js';
 import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext, type DeliveryOptions } from './types.js';
+import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
 
 export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMessage | undefined {
   // EventDispatcher flattens the v2 header and event into its callback argument.
@@ -86,13 +87,20 @@ export class Feishu implements ContextPort, ReactionPort {
     });
   }
 
-  async start(receive: (message: IncomingMessage) => void): Promise<void> {
+  async botIdentity(): Promise<string> {
+    if (this.closed) throw new Error('Feishu connection stopped');
+    const response = await this.client.request<{ code: number; bot?: { open_id?: string } }>({ method: 'GET', url: '/open-apis/bot/v3/info/' });
+    const id = response.bot?.open_id;
+    if (this.closed) throw new Error('Feishu connection stopped');
+    if (response.code !== 0 || !id || !/^ou_[\w-]+$/.test(id)) throw new Error('Cannot verify bot identity');
+    return id;
+  }
+
+  async start(receive: (message: IncomingMessage) => void, cardAction?: (click: ApprovalClick) => CardResult): Promise<void> {
     if (this.closed || this.startup) throw new Error('Feishu connection cannot be started');
     let botOpenId: string | undefined;
     if (this.enableGroups) {
-      const response = await this.client.request<{ code: number; bot?: { open_id?: string } }>({ method: 'GET', url: '/open-apis/bot/v3/info/' });
-      botOpenId = response.bot?.open_id;
-      if (response.code !== 0 || !botOpenId || !/^ou_[\w-]+$/.test(botOpenId)) throw new Error('Cannot verify bot identity for group mentions');
+      botOpenId = await this.botIdentity();
     }
     if (this.closed) throw new Error('Feishu connection stopped');
     await new Promise<void>((resolve, reject) => {
@@ -103,6 +111,15 @@ export class Feishu implements ContextPort, ReactionPort {
           'im.message.receive_v1': data => {
             const message = normalizeMessage(data, botOpenId);
             if (message) receive(message);
+          },
+          'card.action.trigger': (data: unknown) => {
+            let result: CardResult = 'rejected';
+            try {
+              const click = normalizeApprovalClick(data, this.appId);
+              if (click && cardAction && !this.closed) result = cardAction(click);
+            } catch { console.error('Card decision could not be confirmed'); }
+            return { toast: { type: result === 'rejected' ? 'warning' : 'info', content: result === 'rejected'
+              ? '请求可能已处理、过期或尚未核实，请查看任务状态。' : '已收到本次确认，正在核对请求状态。' } };
           },
         }),
       }).catch(() => this.connectionFailed());
@@ -127,9 +144,10 @@ export class Feishu implements ContextPort, ReactionPort {
 
   async send(chat: string, text: string, idempotencyKey: string, options: DeliveryOptions = {}): Promise<string | void> {
     const styled = markdownPost(safeMentionText(text)).zh_cn.content[0]![0]!.text;
-    const content = JSON.stringify(notificationPost(styled,options.mentions ?? []));
+    const content = JSON.stringify(options.approval ? approvalCard(options.approval) : notificationPost(styled,options.mentions ?? []));
+    const msg_type = options.approval ? 'interactive' : 'post';
     if (options.replyTo) {
-      const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type: 'post', content, uuid: idempotencyKey } }).catch(error => {
+      const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
         const code = Number(record(record(record(error).response).data).code ?? record(error).code);
         if ([230011,230110].includes(code)) return {code,data:undefined};
         throw error;
@@ -138,9 +156,16 @@ export class Feishu implements ContextPort, ReactionPort {
       // Only explicit recalled/deleted responses permit changing endpoints; uncertain errors retry the original UUID.
       if (![230011,230110].includes(response.code ?? -1)) throw new Error('Feishu rejected message delivery');
     }
-    const response = await this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: { receive_id: chat, msg_type: 'post', content, uuid: idempotencyKey } });
+    const response = await this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: { receive_id: chat, msg_type, content, uuid: idempotencyKey } });
     if (response.code !== 0) throw new Error('Feishu rejected message delivery');
     return response.data?.message_id;
+  }
+
+  async updateApproval(message: string, approval: ApprovalPresentation, view: ApprovalView): Promise<void> {
+    const result = await this.client.im.v1.message.patch({ path: { message_id: message }, data: { content: JSON.stringify(approvalCard(approval, view)) } })
+      .catch(error => { const code = Number(record(record(record(error).response).data).code ?? record(error).code);
+        if ([230011, 230110].includes(code)) return { code }; throw error; });
+    if (result.code !== 0 && ![230011, 230110].includes(result.code ?? -1)) throw new Error('Approval card update unconfirmed');
   }
 
   async addReaction(message: string): Promise<string> {
