@@ -623,4 +623,79 @@ test('diagnostic blocked count includes routing blocks and counts combined block
   const query = h.actor('/恢复'); h.interactions.receive(query); await drain(h);
   const report = h.sent.find(row => row.options?.replyTo === query.id)!.text;
   assert.match(report, /已接收未执行：0；已阻断：3/);
+  assert.ok('request' in guardBlock);
+  assert.equal(h.interactions.receive(h.actor('/撤回 ' + guardBlock.request.execution)).status, 'withdrawn');
+  const after = h.actor('/恢复'); h.interactions.receive(after); await drain(h);
+  assert.match(h.sent.find(row => row.options?.replyTo === after.id)!.text, /已接收未执行：0；已阻断：2/);
+  assert.equal(h.admission.store.unsettled()[0]!.id, task.request.execution);
+});
+
+test('owner-private queue view is bounded, content-free and does not mutate admission or invoke native work', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const requests = Array.from({ length: 12 }, (_, i) => h.interactions.receive(h.actor('Private command and path fixture-private-secret ' + i, { createTime: String(1000 + i) })));
+  h.admission.store.accept(h.actor('Foreign secret', { user: 'ou_other' }), 'Foreign secret', h.admission.project);
+  const first = requests[0]!; assert.ok('request' in first);
+  const view = h.actor(' \t/队列');
+  const before = readFileSync(join(h.admission.stateDirectory, 'handoff.db'));
+  for (const changes of [{ user: 'ou_other' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' as const }]) assert.equal(h.interactions.receive({ ...view, ...changes, id: randomUUID() }).status, 'ignored');
+  assert.equal(h.interactions.receive(view).status, 'queue');
+  const reply = h.interactions.transport.state.pending().find(row => row.replyTo === view.id)!;
+  assert.match(reply.body, /12 个（显示前 10 个）/); assert.equal((reply.body.match(/请求编号：/g) ?? []).length, 10);
+  assert.ok(reply.body.includes(first.request.execution)); assert.doesNotMatch(reply.body, /Private command|Foreign secret|fixture-private-secret/);
+  assert.deepEqual(readFileSync(join(h.admission.stateDirectory, 'handoff.db')), before); assert.equal(h.codex.calls.length, 0);
+  assert.equal(h.interactions.receive({ ...view, text: '/撤回 ' + first.request.execution }).status, 'duplicate');
+  h.config.approvalUsers = ['ou_admin']; assert.equal(h.interactions.receive(h.actor('/队列')).status, 'ignored');
+  assert.equal(h.admission.store.withdrawals().length, 0);
+});
+
+test('quoted exact withdrawal retires queued feedback while preserving the actual active native turn and maintenance pause', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat'; const active = await h.launch();
+  const queued = h.interactions.receive(h.actor('Queued request')); assert.ok('request' in queued); await h.interactions.flush();
+  h.admission.store.maintenance.quiesce(); const decision = h.actor(' /撤回', { parentId: queued.request.message.id });
+  assert.equal(h.interactions.receive(decision).status, 'withdrawn'); await drain(h);
+  assert.equal(h.admission.store.withdrawals().length, 1); assert.equal(h.admission.store.withdrawals()[0]!.actor, JSON.stringify(['tenant', 'ou_owner', 'chat']));
+  assert.equal(h.admission.store.execution(queued.request.execution), undefined); assert.equal(h.admission.store.drainStatus().queued, 0);
+  assert.equal(h.admission.store.unsettled()[0]!.id, active.request.execution); assert.equal(h.admission.store.maintenance.paused, true);
+  assert.equal(h.reactions.has(queued.request.message.id), false);
+  assert.equal(h.codex.calls.filter(row => row.method === 'turn/start').length, 1); assert.equal(h.codex.calls.some(row => row.method === 'turn/interrupt'), false);
+  const notice = h.sent.filter(row => row.options?.replyTo === decision.id && row.text.includes('已撤回尚未开始')); assert.equal(notice.length, 1);
+  assert.equal(h.interactions.receive({ ...decision, text: 'Must not become a new request' }).status, 'ignored');
+  await h.restart(); await drain(h); assert.equal(h.sent.filter(row => row.id === notice[0]!.id).length, 1);
+  assert.equal(h.admission.store.reserve(queued.request.id, 9).kind, 'withdrawn');
+  h.codex.complete(active.thread, active.turn); await active.running; await drain(h);
+});
+
+test('withdrawal requires an exact owned unstarted request and cannot use a conflicting quote or stale authority', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat'; const active = await h.launch();
+  const one = h.interactions.receive(h.actor('one')), two = h.interactions.receive(h.actor('two')); assert.ok('request' in one && 'request' in two);
+  for (const message of [h.actor('/撤回'), h.actor('/撤回 not-an-id'), h.actor('/撤回 ' + active.request.execution),
+    h.actor('/撤回 ' + one.request.execution, { parentId: two.request.message.id }), h.actor('/撤回', { parentId: 'foreign-message' }),
+    h.actor('/撤回 ' + randomUUID()), h.actor('/撤回 ' + one.request.execution + ' and another')]) {
+    assert.equal(h.interactions.receive(message).status, 'rejected');
+  }
+  assert.equal(h.admission.store.withdrawals().length, 0);
+  h.codex.complete(active.thread, active.turn); await active.running;
+  assert.equal(h.interactions.receive(h.actor('/撤回 ' + active.request.execution)).status, 'rejected');
+  assert.equal(h.interactions.receive(h.actor('/撤回 ' + one.request.execution.toUpperCase())).status, 'withdrawn');
+  assert.equal(h.interactions.receive(h.actor('/撤回 ' + one.request.execution)).status, 'withdrawn');
+  assert.equal(h.admission.store.withdrawals().length, 1); assert.equal(h.admission.store.request(two.request.id)!.blocked, null);
+});
+
+test('committed withdrawal notices repair after projection interruption and retry delivery under one identity', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const task = h.interactions.receive(h.actor('queued')); assert.ok('request' in task);
+  const project = h.interactions.transport.state.projectWithdrawalNotice.bind(h.interactions.transport.state);
+  h.interactions.transport.state.projectWithdrawalNotice = () => { throw new Error('Interrupted projection'); };
+  const decision = h.actor('/撤回 ' + task.request.execution);
+  assert.equal(h.interactions.receive(decision).status, 'withdrawn');
+  assert.equal(h.admission.store.withdrawals().length, 1); assert.equal(h.interactions.transport.state.withdrawalNoticeProjected(JSON.stringify([decision.tenant, decision.id])), false);
+  h.interactions.transport.state.projectWithdrawalNotice = project;
+  const attempted: string[] = [];
+  h.setSend(async (_chat, text, id) => { if (text.includes('已撤回尚未开始')) { attempted.push(id); throw new Error('Lost acknowledgement'); } return 'ack'; });
+  await drain(h); assert.equal(attempted.length, 1); await h.restart();
+  h.setSend(async (chat, text, id, options) => { h.sent.push({ chat, text, id, options }); return 'ack-' + id; });
+  const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(join(h.admission.stateDirectory, 'transport/bridge.db'));
+  db.prepare('UPDATE outbox SET next=0').run(); db.close(); await drain(h);
+  assert.equal(h.sent.filter(row => row.id === attempted[0]).length, 1); assert.equal(h.admission.store.withdrawals().length, 1);
+  assert.equal(h.codex.calls.length, 0); assert.equal(h.admission.store.unsettled().length, 0); assert.equal(h.reactions.size, 0);
 });

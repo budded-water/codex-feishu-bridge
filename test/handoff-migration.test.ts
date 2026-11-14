@@ -389,3 +389,32 @@ test('rollback refuses unprojected and undelivered recovery decisions before ret
   assert.equal(restored.selected(message)!.thread, report.outcome.thread);
   assert.equal(restored.drainStatus().queued, 0); restored.close();
 });
+
+test('rollback requires withdrawn-request notice projection and delivery, preserves its audit and never restores queued work', async t => {
+  const h = await fixture(t); await stageHandoff(h.plan);
+  const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope); admission.store.maintenance.resume();
+  const message = { ...h.message, chatType: 'p2p' as const, id: 'queued-before-withdrawal', text: 'Unstarted fixture task' };
+  const accepted = admission.receive(message); assert.ok('request' in accepted);
+  const command = { ...message, id: 'withdraw-before-rollback', text: '/撤回 ' + accepted.request.execution };
+  const receipt = admission.store.withdraw(command, accepted.request.execution, admission.project).receipt;
+  const transport = new State(join(h.plan.pilotDirectory, 'transport'));
+  transport.projectAssignedTask(admission.store.request(accepted.request.id)!, 'pilot', h.plan.scope.projects.pilot!, 'interrupted');
+  assert.equal(transport.drainStatus().outbox, 0); transport.close(); admission.store.maintenance.quiesce(); admission.close();
+  const lease = await acquireRoot(h.plan.legacyDirectory, 'pilot', h.plan.pilotDirectory);
+  const controller = await openRuntimeControl(lease, () => ({})); await controller.close(true); await lease.release();
+  await assert.rejects(rollbackHandoff(h.plan), /withdrawal notice.*projected/);
+  const pending = new State(join(h.plan.pilotDirectory, 'transport'));
+  pending.projectWithdrawalNotice(receipt.origin, command, accepted.request.execution); pending.close();
+  await assert.rejects(rollbackHandoff(h.plan), /drained/);
+  const acknowledged = new State(join(h.plan.pilotDirectory, 'transport'));
+  const notice = acknowledged.pending().find(row => row.replyTo === command.id)!; assert.ok(notice);
+  acknowledged.delivered(notice.id, 'withdrawal-ack'); acknowledged.close();
+  assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');
+  const restored = new State(h.plan.legacyDirectory);
+  assert.equal(restored.remember(command), false); assert.equal(restored.remember(message), false);
+  assert.equal(restored.drainStatus().queued, 0); restored.close();
+  assert.equal(read(join(h.plan.legacyDirectory, 'bridge.db'), db => (db.prepare('SELECT status FROM tasks WHERE id=?').get(accepted.request.execution) as { status: string }).status), 'interrupted');
+  const operation = JSON.parse(readFileSync(join(h.plan.bundleDirectory, 'handoff-operation.json'), 'utf8'));
+  const retained = read(join(h.plan.bundleDirectory, operation.archive, 'handoff.db'), db => db.prepare('SELECT * FROM withdrawals').all());
+  assert.deepEqual(retained.map(row => ({ ...row })), [receipt]);
+});

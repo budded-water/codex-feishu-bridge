@@ -204,3 +204,69 @@ test('source diagnostics are GET-only and preserve route state on missing, misma
   assert.ok(methods.every(value => value === 'GET /v1/events/3')); assert.equal(JSON.stringify(h.gateway.store.submission(request.id)), before);
   assert.equal(h.gateway.store.unsettled()[0]!.status, 'active');
 });
+
+test('withdrawal retains prior blocks and exact identities across database owners without releasing unknown guards', t => {
+  const h = setup(t); const active = h.accept('active'), queued = h.accept('queued');
+  const grant = h.gateway.store.reserve(active.id, 1); assert.equal(grant.kind, 'start'); if (grant.kind !== 'start') return;
+  h.gateway.uncertain(grant.permit, 'completion_unconfirmed');
+  const blocked = h.accept('blocked');
+  h.gateway.store.rememberEvent(queued.id, 4); h.gateway.store.routed(queued.id, false);
+  const other = h.reopen();
+  const actor = (id: string) => ({ ...queued.message, id, text: '/撤回 ' + queued.execution });
+  const first = other.store.withdraw(actor('withdraw-queued'), queued.execution, h.gateway.project);
+  assert.equal(first.fresh, true); assert.equal(first.receipt.previous_problem, 'source_not_routed');
+  assert.equal(other.store.withdraw(actor('withdraw-queued'), queued.execution, h.gateway.project).fresh, false);
+  assert.equal(h.gateway.store.request(queued.id)!.blocked, 'owner_withdrawn');
+  assert.equal(h.gateway.store.reserve(queued.id, 2).kind, 'withdrawn');
+  const second = other.store.withdraw(actor('withdraw-blocked'), blocked.execution, h.gateway.project);
+  assert.equal(second.receipt.previous_blocked, 'project_outcome_unknown');
+  assert.equal(h.gateway.store.submission(blocked.id), undefined);
+  assert.equal(h.gateway.store.drainStatus().queued, 0);
+  assert.equal(h.gateway.store.unsettled()[0]!.id, active.execution); assert.equal(h.gateway.store.unsettled()[0]!.status, 'unknown');
+  assert.equal(h.gateway.store.recoveries().length, 0);
+  assert.throws(() => other.store.withdraw(actor('withdraw-running'), active.execution, h.gateway.project), /execution authority/);
+  assert.throws(() => other.store.withdraw({ ...actor('foreign'), user: 'other' }, queued.execution, h.gateway.project), /owned/);
+  assert.throws(() => other.store.withdraw(actor('withdraw-queued'), active.execution, h.gateway.project), /identity/);
+  assert.throws(() => other.store.accept(actor('withdraw-queued'), 'must not replay', h.gateway.project), /control/);
+  assert.equal(h.gateway.receive(actor('withdraw-queued')).status, 'ignored');
+  assert.equal(other.store.withdrawals().length, 2); assert.equal(other.store.request(queued.id)!.input, queued.input);
+  assert.equal(other.store.submission(queued.id)!.event, 4);
+});
+
+test('simultaneous reservation and withdrawal across actual SQLite owners have one winner', async t => {
+  const h = setup(t); const request = h.accept('contended'); const barrier = new SharedArrayBuffer(4);
+  const withdraw = { ...request.message, id: 'withdraw-race', text: '/撤回 ' + request.execution };
+  const workers = [false, true].map(action => new Worker(new URL('./fixtures/admission-worker.mjs', import.meta.url), {
+    execArgv: ['--import', 'tsx'], workerData: { state: h.state, scope: h.scope, request: request.id, execution: request.execution, run: 1, barrier, ...(action && { withdraw }) },
+  }));
+  t.after(async () => { await Promise.all(workers.map(worker => worker.terminate())); });
+  const exited = workers.map(worker => new Promise<void>((resolve, reject) => { worker.once('exit', code => code === 0 ? resolve() : reject(new Error('Worker failed'))); worker.once('error', reject); }));
+  await Promise.all(workers.map(worker => new Promise<void>((resolve, reject) => { worker.once('message', () => resolve()); worker.once('error', reject); })));
+  const results = workers.map(worker => new Promise<{ kind: string }>((resolve, reject) => { worker.once('message', resolve); worker.once('error', reject); }));
+  Atomics.store(new Int32Array(barrier), 0, 1); Atomics.notify(new Int32Array(barrier), 0, 2);
+  const kinds = (await Promise.all(results)).map(x => x.kind); await Promise.all(exited);
+  if (kinds[0] === 'start') { assert.equal(kinds[1], 'refused'); assert.equal(h.gateway.store.withdrawals().length, 0); assert.equal(h.gateway.store.unsettled().length, 1); }
+  else { assert.deepEqual(kinds, ['withdrawn', 'withdrawn']); assert.equal(h.gateway.store.execution(request.execution), undefined); assert.equal(h.gateway.store.withdrawals().length, 1); }
+});
+
+for (const phase of ['POST', 'GET']) test('withdrawal wins while source HTTP ' + phase + ' is in flight and late routing cannot restore launch authority', async t => {
+  const h = setup(t); const request = h.accept('in-flight'); const other = h.reopen();
+  let inspected!: () => void, release!: () => void;
+  const reached = new Promise<void>(resolve => { inspected = resolve; }); const responseGate = new Promise<void>(resolve => { release = resolve; });
+  const methods: string[] = [];
+  const server = createServer(async (incoming, response) => {
+    methods.push(incoming.method!);
+    if (incoming.method === phase) { inspected(); await responseGate; }
+    if (incoming.method === 'POST') response.end(JSON.stringify({ event: 3, routed: ['pilot'], paused: [] }));
+    else response.end(JSON.stringify({ event: 3, routed: ['pilot'], paused: [], runs: [{ run: 5, rule: 'pilot', state: 'claimed' }] }));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>(resolve => { release(); server.closeAllConnections(); server.close(() => resolve()); }));
+  const outbox = new SourceOutbox(h.gateway, new AutoloopSource('http://127.0.0.1:' + (server.address() as AddressInfo).port, 'fixture-key'));
+  const claiming = outbox.claim(h.job(request.id, 5)); await reached;
+  other.store.withdraw({ ...request.message, id: 'withdraw-in-flight', text: '/撤回 ' + request.execution }, request.execution, h.gateway.project); release();
+  assert.equal((await claiming).kind, 'withdrawn');
+  assert.equal(h.gateway.store.submission(request.id)!.status, 'blocked'); assert.equal(h.gateway.store.submission(request.id)!.problem, 'owner_withdrawn');
+  assert.equal(h.gateway.store.execution(request.execution), undefined); assert.equal(h.gateway.store.pending().length, 0);
+  await outbox.flush(); assert.deepEqual(methods, ['POST', 'GET']); assert.equal(h.gateway.store.withdrawals().length, 1);
+});

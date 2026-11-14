@@ -90,3 +90,10 @@ The diagnostic version adds optional `native-processes.json` beside each assigne
 Observation failure is nonfatal to task execution and remains unverified in the report. Observation closes before terminal publication. Missing/corrupt/old metadata cannot establish descendant settlement. Read-only owner IPC avoids snapshot/outbox cleanup; diagnostics do not apply native references, clear guards or change Hub/admission state. The retained-event Hub read uses existing source capability, not owner capability. Business effects and Hub question maintenance remain separate.
 
 Use the compatible diagnostic-version migration tools to archive the optional sidecar and any bounded atomic-write remnants. Older migration tools may reject the new evidence filename; retain the current artifact and post-upgrade evidence rather than deleting it to make rollback pass. See [migration](handoff-migration.md).
+
+
+## Remote unstarted queue control
+
+The enrolled owner/approver can inspect `/队列` and withdraw one unstarted private-chat request using its exact execution reference or a quote of its original message. The admission decision and block commit together. An already granted execution refuses withdrawal; use native stop or inspected recovery as appropriate. The success notice and reaction cleanup are durable transport projections. A queued Hub round can still end without model execution; this is not a Hub run/card cancellation operation.
+
+Withdrawal leaves process control, unknown guards and maintenance pause unchanged. Sampled PID/start-time observations cannot supply safe post-fault termination authority. Remote descendant cleanup is deferred until an execution-owned supervision/containment mechanism has its own verified lifecycle. See [migration](handoff-migration.md) before downgrading a runtime with withdrawal receipts.

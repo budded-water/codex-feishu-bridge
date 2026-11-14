@@ -1,6 +1,6 @@
 import { record } from '../types.js';
 import { PilotAdmission, REQUEST_EVENT } from './gateway.js';
-import type { Reservation, Submission } from './store.js';
+import { OWNER_WITHDRAWN, type Reservation, type Submission } from './store.js';
 
 export type HubDiagnostic = { status: 'verified'; state: 'queued' | 'claimed' | 'done' | 'nothing' | 'cancelled' | 'failed' } | { status: 'missing' | 'unavailable' | 'mismatch' };
 type SourceReceipt = { event: number; routed: string[]; paused: string[] };
@@ -101,6 +101,7 @@ export class SourceOutbox {
 
   private async reserve({ request, run }: ReturnType<PilotAdmission['assignment']>): Promise<Reservation> {
     const submission = this.gateway.store.submission(request.id);
+    if (request.blocked === OWNER_WITHDRAWN) return { kind: 'withdrawn' };
     if (request.blocked || submission?.status === 'blocked') return { kind: 'blocked' };
     if (!submission) throw new Error('Assignment has no submission intent');
     const outcome = await this.confirm({ request: request.id, event: submission.event, attempts: submission.attempts });

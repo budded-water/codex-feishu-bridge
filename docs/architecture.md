@@ -161,3 +161,12 @@ SourceOutbox diagnostics use only GET of the retained event, checking expected r
 
 
 The bounded M6 diagnostic deployment is observed through the real owner-private route: registered running wait, distinct Hub/native outcomes, unchanged task/evidence/Hub facts across viewing, separate confirmation and fresh same-thread continuation. Operator test-process and Hub-question cleanup remain distinct from the gateway. See the dated acceptance record for coverage and unresolved deployment families.
+
+
+## Owner-private unstarted queue withdrawal
+
+The [queue-withdrawal change](../openspec/changes/enable-owner-queue-withdrawal/design.md) reuses the recovery owner's private-chat/approval-role boundary. A bounded `/队列` view exposes receipt time and exact execution references without task content. `/撤回` selects an exact reference or the original owned request quote; conflicting selectors do not guess a target.
+
+Admission SQLite is canonical for the withdrawal decision. One immediate transaction retains actor/origin and prior block reasons, prohibits reservation and records the command identity. Any existing execution prevents withdrawal, including a granted execution that has not launched Codex yet. Reservation checks the same transaction boundary. Late source replies cannot remove a committed block. A previously queued Hub run can finish with a known unstarted-withdrawal receipt rather than manufacture an uncertain native outcome; no Hub cancellation or management capability is added.
+
+The transport projects withdrawn tasks as interrupted unstarted work for feedback cleanup and uses stable `withdrawn` notice tombstones. The admission ledger and transport notice projection are separate durable facts: synchronization repairs a missing projection, while rollback requires projection and drained delivery before exporting. The complete audit stays in archived pilot SQLite; reverse conversion retains command/request deduplication and never restores the withdrawn task to queued. Compatible converters are required to enforce the new notice gate. Native journals, unknown guards, maintenance pause and process control are independent.

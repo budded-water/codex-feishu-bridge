@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     }
     clearInterval(progress);
     console.log(JSON.stringify({ nativeExecution: 1, started: true, session: report?.outcome.thread ?? undefined,
-      text: executionReceipt(report?.outcome.status ?? 'unknown') }));
+      text: executionReceipt(grant.kind === 'withdrawn' ? 'withdrawn' : report?.outcome.status ?? 'unknown') }));
   } finally {
     clearInterval(progress);
     await runtime?.stop();

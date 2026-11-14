@@ -4,7 +4,7 @@ import { Outbox, type Sender } from '../outbox.js';
 import { Feedback, type ReactionPort } from '../feedback.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
-import type { RequestRecord } from './store.js';
+import { OWNER_WITHDRAWN, type RequestRecord } from './store.js';
 
 // Transport projections use State's delivery contracts, never its execution queue.
 export class HandoffTransport {
@@ -25,10 +25,11 @@ export class HandoffTransport {
 
   admit(request: RequestRecord): void {
     const execution = this.gateway.store.execution(request.execution);
+    const withdrawn = request.blocked === OWNER_WITHDRAWN;
     const unscheduled = this.gateway.store.submission(request.id)?.status === 'blocked';
     this.state.projectAssignedTask(request, this.gateway.scope.pilot, this.gateway.directory,
-      request.blocked || unscheduled ? 'unknown' : execution?.status === 'active' ? 'running' : execution?.status ?? 'queued');
-    if (unscheduled) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
+      withdrawn ? 'interrupted' : request.blocked || unscheduled ? 'unknown' : execution?.status === 'active' ? 'running' : execution?.status ?? 'queued');
+    if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
   }
 
   async sync(): Promise<void> {

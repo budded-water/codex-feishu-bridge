@@ -6,6 +6,7 @@ import type { NativeExecutions } from './native.js';
 import type { RecoveryRecord } from './store.js';
 import type { SourceOutbox } from './source.js';
 import { incidentReport } from './diagnostics.js';
+import { isMaintenanceOwner } from './owner-access.js';
 
 const usage = '请先核对原命令及其后代进程均已停止，并检查文件和外部副作用。确认后发送 /恢复 编号 检查依据。无法核实时请使用本机维护检查。';
 
@@ -25,11 +26,7 @@ export class FeishuRecovery {
   constructor(private admission: PilotAdmission, private config: Config, private native: NativeExecutions, private source: Pick<SourceOutbox, 'diagnose'>, private state: State) {}
 
   receive(message: IncomingMessage) {
-    const scope = this.admission.scope;
-    if (message.tenant !== scope.tenant || message.user !== scope.operator || message.chat !== scope.chat ||
-      message.chatType !== 'p2p' || !this.config.approvalUsers.includes(message.user) ||
-      message.chat !== (this.config.approvalChat ?? scope.chat) ||
-      (this.config.accessMode === 'allowlist' && !this.config.allowedUsers.includes(message.user))) return { status: 'ignored' as const };
+    if (!isMaintenanceOwner(this.admission.scope, this.config, message)) return { status: 'ignored' as const };
     if (message.unsupported || message.text.length > 30_000) return { status: 'rejected' as const };
     if (!this.state.remember(message)) return { status: 'duplicate' as const };
     this.work = this.work.then(() => this.handle(message)).catch(() => {

@@ -107,3 +107,10 @@ Use the reviewed P2-or-later artifact to validate recovery-notice readiness and 
 ## Diagnostic metadata compatibility
 
 The read-only diagnostics version retains optional `native-processes.json` and its UUID atomic-write remnants in the native archive manifest and hashes them like other execution artifacts. It does not change SQLite schema or native terminal outcome authority. Legacy executions without this sidecar remain valid, with process coverage unverified. Use the diagnostic-version-or-newer converter when these files exist; older converters may reject the additional evidence filename. Preserve metadata and post-upgrade facts when preparing a downgrade.
+
+
+## Withdrawal receipt compatibility
+
+The owner-queue version adds an admission `withdrawals` ledger and `owner_withdrawn` request/submission blocks. Upgrade only while quiesced/drained with closed-state snapshots. The blocks preserve the no-launch decision across an older worker, but older runtimes do not own the new receipt projection or known-withdrawal Hub summary. Finish withdrawal notice projection and delivery with the compatible runtime/converter before a downgrade. Never restore a pre-withdrawal database over new decisions to make rollback pass.
+
+The compatible converter refuses unprojected or undelivered withdrawal notices, archives the complete pilot database/audit, imports retained command identities and converts unstarted withdrawn requests to interrupted legacy tasks. The old outcome is not a completed native execution. Preserve the post-upgrade artifact, archive and notice facts with the rollback plan.

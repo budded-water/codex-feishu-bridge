@@ -143,6 +143,19 @@ try {
     await until('active native owner', () => inspect(first));
     assert.equal(audit().find(item => item.event === 'turn/start').text, first.input);
     assert.equal((await runtime.recover())[0].status, 'live');
+    const queueConfig = { ...loadConfig(bridgeConfig), approvalUsers: [scope.operator], approvalChat: scope.chat };
+    await interactions.close(); interactions = openInteractions(queueConfig); await interactions.recover();
+    const withdrawn = await submit('withdrawn-queued', 'case-complete');
+    const view = normalizeMessage(raw('queue-view', '/队列'), 'ou_fixture_bot');
+    assert.equal(interactions.receive(view).status, 'queue'); await interactions.flush();
+    assert.ok(deliveries.some(item => item.options?.replyTo === view.id && item.text.includes(withdrawn.execution)));
+    const withdraw = normalizeMessage(raw('withdraw-exact', '/撤回 ' + withdrawn.execution), 'ou_fixture_bot');
+    assert.equal(interactions.receive(withdraw).status, 'withdrawn'); await interactions.flush();
+    assert.equal(admission.store.execution(withdrawn.execution), undefined);
+    assert.equal(admission.store.unsettled()[0].id, first.execution);
+    await interactions.close(); interactions = openInteractions(); await interactions.recover(); await interactions.flush();
+    assert.equal(interactions.receive(withdraw).status, 'ignored');
+    assert.equal(deliveries.filter(item => item.options?.replyTo === withdraw.id && item.text.includes('已撤回尚未开始')).length, 1);
     await stopUp('SIGKILL');
     assert.equal((await runtime.recover())[0].status, 'live');
     start(); await ready();
@@ -159,6 +172,17 @@ try {
     assert.equal((await ended(first)).status, 'completed'); await settledHub();
     assert.equal(audit().filter(item => item.event === 'turn/start').length, 1);
     assert.equal(audit().filter(item => item.event === 'turn/steer').length, 1);
+    assert.equal(admission.store.execution(withdrawn.execution), undefined);
+    assert.equal(admission.store.withdrawals().length, 1);
+    const withdrawalState = await hubState();
+    const withdrawalRun = withdrawalState.runs.find(run => run.id === admission.store.assignmentRuns(withdrawn.id)[0]);
+    // Early withdrawal can be observed before reservation, so bind via retained event when no assignment was recorded.
+    const withdrawalEvent = admission.store.submission(withdrawn.id).event;
+    const sourceOutcome = await new AutoloopSource(url, sourceKey).inspect(withdrawalEvent);
+    assert.equal(sourceOutcome.runs[0].state, 'nothing');
+    assert.ok(!withdrawalRun || withdrawalRun.state === 'nothing');
+    assert.ok(!withdrawalState.cards.some(card => card.kind === 'ask' && card.run_id === sourceOutcome.runs[0].run));
+    console.log('PASS: real queued Hub run survives exact owner withdrawal and worker restart without a native start or uncertainty question');
     const initial = runtime.evidence(first.execution);
     const next = await submit('followup', 'case-complete');
     await ended(next); await settledHub();

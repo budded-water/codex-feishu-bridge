@@ -11,6 +11,8 @@ export type RequestRecord = {
 export type ControlRecord = { origin: string; execution: string; message: IncomingMessage; target: NativeControlTarget | null;
   status: 'received' | ControlDisposition; result: string | null };
 export type RecoveryRecord = { origin: string; execution: string; actor: string; evidence: string; created: number };
+export type WithdrawalRecord = { origin: string; request: string; actor: string; previous_blocked: string | null; previous_problem: string | null; created: number };
+export const OWNER_WITHDRAWN = 'owner_withdrawn';
 export type Submission = { request: string; event: number | null; attempts: number };
 export type Permit = { execution: string; token: string };
 export type ExecutionRecord = {
@@ -18,7 +20,7 @@ export type ExecutionRecord = {
   evidence: string | null; problem: string | null;
 };
 export type Reservation = { kind: 'start'; permit: Permit; request: RequestRecord } |
-  { kind: 'existing'; execution: ExecutionRecord } | { kind: 'blocked' | 'busy' };
+  { kind: 'existing'; execution: ExecutionRecord } | { kind: 'blocked' | 'busy' | 'withdrawn' };
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
 export class AdmissionStore {
@@ -61,6 +63,10 @@ export class AdmissionStore {
         CREATE TABLE IF NOT EXISTS recoveries (
           origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES executions(id), actor TEXT NOT NULL,
           evidence TEXT NOT NULL, created INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS withdrawals (
+          origin TEXT PRIMARY KEY, request TEXT NOT NULL UNIQUE REFERENCES requests(id), actor TEXT NOT NULL,
+          previous_blocked TEXT, previous_problem TEXT, created INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS reference_context (
           origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES requests(execution), body TEXT
@@ -110,7 +116,7 @@ export class AdmissionStore {
   accept(message: IncomingMessage, input: string, project: string): { duplicate: boolean; request: RequestRecord } | { paused: true } {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
-      if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=?').get(origin, origin)) throw new Error('Message identity already belongs to recovery');
+      if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already belongs to a control');
       const previous = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(origin) as { id: string } | undefined;
       if (previous) return { duplicate: true, request: this.request(previous.id)! };
       if (this.maintenance.paused) {
@@ -168,7 +174,7 @@ export class AdmissionStore {
   acceptControl(execution: string, message: IncomingMessage): ControlRecord {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
-      if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin)) throw new Error('Message identity already has another purpose');
+      if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already has another purpose');
       const previous = this.control(message);
       if (previous) return previous;
       if (!this.db.prepare('SELECT 1 FROM guards WHERE execution=?').get(execution)) throw new Error('No current execution for control');
@@ -269,6 +275,7 @@ export class AdmissionStore {
       this.db.prepare('INSERT OR IGNORE INTO assignments VALUES (?,?)').run(run, request.id);
       const existing = this.execution(request.execution);
       if (existing) return { kind: 'existing', execution: existing };
+      if (request.blocked === OWNER_WITHDRAWN) return { kind: 'withdrawn' };
       if (request.blocked || this.submission(request.id)?.status === 'blocked') return { kind: 'blocked' };
       const held = this.db.prepare('SELECT execution FROM guards WHERE project=?').get(request.project) as { execution: string } | undefined;
       if (held) {
@@ -350,6 +357,33 @@ export class AdmissionStore {
     return this.db.prepare('SELECT * FROM recoveries ORDER BY created,origin').all() as RecoveryRecord[];
   }
 
+  withdrawals(): WithdrawalRecord[] {
+    return this.db.prepare('SELECT * FROM withdrawals ORDER BY created,origin').all() as WithdrawalRecord[];
+  }
+
+  withdraw(message: IncomingMessage, execution: string, project: string): { fresh: boolean; receipt: WithdrawalRecord } {
+    return this.transaction(() => {
+      const origin = JSON.stringify([message.tenant, message.id]);
+      if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already has another purpose');
+      const selected = this.db.prepare('SELECT id FROM requests WHERE execution=?').get(execution) as { id: string } | undefined;
+      const request = selected && this.request(selected.id);
+      if (!request || request.project !== project || ownerKey(request.message) !== ownerKey(message) || request.message.chatType !== 'p2p') throw new Error('No owned private request');
+      const previous = this.db.prepare('SELECT * FROM withdrawals WHERE origin=? OR request=?').all(origin, request.id) as WithdrawalRecord[];
+      if (previous.length) {
+        if (previous.length !== 1 || previous[0]!.request !== request.id || previous[0]!.actor !== ownerKey(message)) throw new Error('Withdrawal identity changed');
+        return { fresh: false, receipt: previous[0]! };
+      }
+      if (this.retained(message) || this.execution(execution)) throw new Error('Request has already acquired execution authority or message is retained');
+      const receipt: WithdrawalRecord = { origin, request: request.id, actor: ownerKey(message), previous_blocked: request.blocked,
+        previous_problem: this.submission(request.id)?.problem ?? null, created: Date.now() };
+      this.db.prepare('INSERT INTO withdrawals VALUES (?,?,?,?,?,?)').run(origin, request.id, receipt.actor, receipt.previous_blocked, receipt.previous_problem, receipt.created);
+      this.db.prepare('UPDATE requests SET blocked=? WHERE id=?').run(OWNER_WITHDRAWN, request.id);
+      this.db.prepare("UPDATE submissions SET status='blocked',problem=? WHERE request=?").run(OWNER_WITHDRAWN, request.id);
+      this.db.prepare('INSERT INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, 'withdrawal');
+      return { fresh: true, receipt };
+    });
+  }
+
   reconcile(message: IncomingMessage, execution: string, evidence: string): void {
     this.recordRecovery(JSON.stringify([message.tenant, message.id]), ownerKey(message), execution, evidence);
   }
@@ -360,7 +394,7 @@ export class AdmissionStore {
 
   private recordRecovery(origin: string, actor: string, execution: string, evidence: string): void {
     this.transaction(() => {
-      if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=?').get(origin, origin)) throw new Error('Message identity already belongs to a task');
+      if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already belongs to a task or control');
       const previous = this.db.prepare('SELECT execution,evidence FROM recoveries WHERE origin=?').get(origin) as { execution: string; evidence: string } | undefined;
       if (previous) {
         if (previous.execution !== execution || previous.evidence !== evidence) throw new Error('Recovery identity changed');
