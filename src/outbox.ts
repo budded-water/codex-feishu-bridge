@@ -1,5 +1,5 @@
 import type { DeliveryOptions } from './types.js';
-import { State } from './state.js';
+import { State, type Delivery } from './state.js';
 
 export interface Sender {
   send(chat: string, text: string, idempotencyKey: string, options?: DeliveryOptions): Promise<void | string>;
@@ -12,7 +12,7 @@ export class Outbox {
   private work?: Promise<void>;
   private secrets: string[];
 
-  constructor(state: State, sender: Sender, secrets: string[] = []) {
+  constructor(state: State, sender: Sender, secrets: string[] = [], private ready?: (delivery: Delivery) => Promise<boolean>) {
     this.state = state;
     this.sender = sender;
     this.secrets = secrets.filter(secret => secret.length > 4);
@@ -31,6 +31,8 @@ export class Outbox {
 
   private async deliver(): Promise<void> {
     for (const delivery of this.state.pending()) {
+      if (!this.state.deliveryReady(delivery.id)) continue;
+      if (this.ready && !await this.ready(delivery)) continue;
       if (!this.state.deliveryReady(delivery.id)) continue;
       let text = delivery.body;
       for (const secret of this.secrets) text = text.split(secret).join('[redacted]');

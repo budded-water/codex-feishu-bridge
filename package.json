@@ -19,7 +19,11 @@
     "protocol:generate": "node scripts/generate-protocol.mjs",
     "service:print": "node scripts/launchd.mjs",
     "verify:routing": "node --import tsx scripts/verify-routing.ts",
-    "metrics": "node --env-file-if-exists=.env --import tsx scripts/metrics.ts"
+    "verify:autoloop": "npm run build && node experiments/autoloop/verify.mjs",
+    "verify:handoff-routing": "npm run build && node experiments/autoloop/verify-handoff-routing.mjs",
+    "verify:assigned-native": "npm run build && node experiments/autoloop/verify-native.mjs",
+    "metrics": "node --env-file-if-exists=.env --import tsx scripts/metrics.ts",
+    "handoff": "node --import tsx src/handoff/migrate-cli.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.74.0",

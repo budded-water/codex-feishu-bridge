@@ -80,3 +80,6 @@ export interface ContextPort {
   actor?(session: Session, message: string): Promise<{ name?: string; link?: string }>;
   context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext>;
 }
+
+export interface NativeControlTarget { generation: string; thread: string; turn: string }
+export type ControlDisposition = 'dispatching' | 'accepted' | 'stopping' | 'sent' | 'rejected' | 'unknown';

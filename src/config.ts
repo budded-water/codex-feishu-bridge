@@ -17,7 +17,7 @@ export interface Config {
   stateDirectory: string;
   approvalTimeoutSeconds: number;
   projects: Record<string, string>;
-  projectRouting: 'automatic' | 'manual';
+  projectRouting: 'automatic' | 'manual' | 'workspace';
 }
 
 export function loadConfig(filename = 'bridge.config.json'): Config {
@@ -68,7 +68,8 @@ export function loadConfig(filename = 'bridge.config.json'): Config {
   }
   if (!Object.keys(projects).length) throw new Error('Register at least one project');
   const projectRouting = value.projectRouting ?? 'automatic';
-  if (projectRouting !== 'automatic' && projectRouting !== 'manual') throw new Error('Invalid projectRouting');
+  if (projectRouting !== 'automatic' && projectRouting !== 'manual' && projectRouting !== 'workspace') throw new Error('Invalid projectRouting');
+  if (projectRouting === 'workspace' && new Set(Object.values(projects)).size !== 1) throw new Error('Workspace mode requires one canonical execution directory');
   return {
     allowedUsers, accessMode, allowedTenant, enableGroups, groupContextMessages, groupContextImages, approvalUsers, approvalChat, codexExecutable: executable, codexReasoningEffort: codexReasoningEffort as Config['codexReasoningEffort'],
     stateDirectory: resolve(dirname(path), state), approvalTimeoutSeconds: timeout, projects, projectRouting,

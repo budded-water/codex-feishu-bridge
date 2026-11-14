@@ -6,6 +6,14 @@ import { until } from './helpers.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url));
 
+test('close waits for observed exit even when native shutdown needs SIGKILL', async t => {
+  const client = new CodexClient(process.execPath, [fixture]); t.after(() => client.close());
+  await client.start();
+  const { pid } = await client.request<{ pid: number }>('stubborn', {});
+  await client.close();
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+});
+
 test('stdio client initializes and correlates out-of-order replies', async t => {
   const client = new CodexClient(process.execPath, [fixture]); t.after(() => client.close());
   await client.start();
@@ -17,15 +25,19 @@ test('stdio client initializes and correlates out-of-order replies', async t => 
 });
 
 test('server requests receive one correlated response; gateway credentials are not inherited', async t => {
-  const previous = process.env.FEISHU_APP_SECRET;
-  process.env.FEISHU_APP_SECRET = 'private-test-secret';
+  const names = ['FEISHU_APP_SECRET', 'HANDOFF_SOURCE_KEY', 'HANDOFF_CONFIG', 'AGENT_AUTOLOOP_KEY', 'OPENAI_TEST_NATIVE_IDENTITY'];
+  const previous = names.map(name => process.env[name]);
+  for (const name of names) process.env[name] = 'private-test-value';
   const client = new CodexClient(process.execPath, [fixture]);
-  t.after(async () => { await client.close(); if (previous === undefined) delete process.env.FEISHU_APP_SECRET; else process.env.FEISHU_APP_SECRET = previous; });
+  t.after(async () => {
+    await client.close();
+    names.forEach((name, index) => { if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index]; });
+  });
   let acknowledged = false;
   client.onRequest(request => { client.reply(request.id, { decision: 'decline' }); client.reply(request.id, { decision: 'accept' }); });
   client.onNotification(event => { if (event.method === 'approval/responded') { assert.equal(event.params.decision, 'decline'); acknowledged = true; } });
   await client.start();
-  assert.deepEqual(await client.request('env', {}), { secretPresent: false });
+  assert.deepEqual(await client.request('env', {}), { secretPresent: false, schedulerPresent: false, nativeIdentityPresent: true });
   await client.request('ask', {});
   await until(() => acknowledged);
 });

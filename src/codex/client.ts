@@ -54,6 +54,9 @@ export class CodexClient implements CodexPort {
     // The local agent does not need the chat gateway credentials.
     delete env.FEISHU_APP_ID;
     delete env.FEISHU_APP_SECRET;
+    for (const name of Object.keys(env)) {
+      if (name.startsWith('HANDOFF_') || name.startsWith('AGENT_AUTOLOOP_')) delete env[name];
+    }
     this.closed = false;
     const child = spawn(this.executable, [...this.prefix, 'app-server', '--listen', 'stdio://'], {
       env, stdio: ['pipe', 'pipe', 'pipe'], shell: false,
@@ -175,9 +178,10 @@ export class CodexClient implements CodexPort {
     const child = this.child;
     if (!child) return;
     this.fail(child);
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
     await new Promise<void>(resolve => {
-      const timer = setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 2000);
+      // Sending a kill signal is not evidence that the native process has exited.
+      const timer = setTimeout(() => { child.kill('SIGKILL'); }, 2000);
       child.once('exit', () => { clearTimeout(timer); resolve(); });
       child.stdin.end();
       child.kill('SIGTERM');

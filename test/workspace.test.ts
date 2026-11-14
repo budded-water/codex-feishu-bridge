@@ -1,0 +1,77 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadConfig } from '../src/config.js';
+import { ownerKey } from '../src/types.js';
+import { message, setup, until } from './helpers.js';
+
+test('workspace configuration accepts one canonical cwd and rejects distinct directories', t => {
+  const root = mkdtempSync(join(tmpdir(), 'workspace-config-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const alias = join(root, 'alias'); symlinkSync(root, alias);
+  const path = join(root, 'config.json');
+  const config = { allowedUsers: ['ou_owner'], projectRouting: 'workspace', projects: { workspace: root, alias } };
+  writeFileSync(path, JSON.stringify(config));
+  assert.equal(loadConfig(path).projectRouting, 'workspace');
+  writeFileSync(path, JSON.stringify({ ...config, projects: { workspace: root, other: tmpdir() } }));
+  assert.throws(() => loadConfig(path), /one canonical execution directory/);
+});
+
+test('general requests start directly in a neutral workspace and retain native permission authority', async t => {
+  const h = setup(); t.after(h.close);
+  h.config.projectRouting = 'workspace'; h.config.projects = { workspace: h.config.projects.alpha! };
+  const actor = (text: string) => message(text, { chat: 'workspace-chat' });
+  const first = actor('整理资料，然后说明如何查看 /some/repository 中的代码');
+  h.state.setRouting(ownerKey(first), 'previous-classifier', 'Previous project clarification');
+  h.bridge.receive(first);
+  await until(() => h.turns().length === 1);
+  const start = h.codex.calls.find(call => call.method === 'thread/start')!.params;
+  const instructions = String(start.developerInstructions);
+  assert.ok(instructions.includes('当前为通用工作区模式'));
+  assert.ok(instructions.includes('原生审批策略'));
+  assert.ok(!instructions.includes('availableProjects'));
+  assert.ok(!instructions.includes('请用户先用 /project'));
+  assert.equal(start.cwd, h.config.projects.workspace);
+  assert.ok(!Object.hasOwn(start, 'approvalPolicy') && !Object.hasOwn(start, 'sandbox'));
+  assert.equal(h.codex.calls.filter(call => call.method === 'thread/start').length, 1);
+  assert.equal(h.state.routing(ownerKey(first))!.pending, null);
+  assert.deepEqual(h.turns()[0]!.params.input, [{ type: 'text', text: first.text, text_elements: [] }]);
+  h.bridge.receive(actor('/status'));
+  assert.ok(h.deliveries().some(text => text.includes('当前：通用工作区')));
+  const selected = h.state.selected(first)!;
+  h.bridge.receive(actor('/project another-repository'));
+  assert.equal(h.state.selected(first)!.id, selected.id);
+  assert.ok(h.deliveries().some(text => text.includes('直接说明任务')));
+  const current = h.current(); h.codex.complete(current.threadId, current.turnId);
+  await until(() => h.state.latest(h.state.selected(actor(''))!.id)?.status === 'completed');
+  h.bridge.receive(actor('现在查看另一项任务和 /another/repository'));
+  await until(() => h.turns().length === 2);
+  assert.equal(h.codex.calls.find(call => call.method === 'thread/resume')!.params.threadId, current.threadId);
+  assert.ok(String(h.codex.calls.find(call => call.method === 'thread/resume')!.params.developerInstructions).includes('通用工作区模式'));
+  const next = h.current(); h.codex.complete(next.threadId, next.turnId);
+});
+
+test('workspace requests mentioning different targets share one serialized lane and can create a fresh conversation', async t => {
+  const h = setup(); t.after(h.close);
+  h.config.projectRouting = 'workspace'; h.config.projects = { workspace: h.config.projects.alpha! };
+  const actor = (text: string) => message(text, { chat: 'workspace-chat' });
+  h.bridge.receive(actor('Review repository one'));
+  await until(() => h.turns().length === 1);
+  h.bridge.receive(actor('Review repository two'));
+  assert.equal(h.turns().length, 1);
+  const first = h.current(); h.codex.complete(first.threadId, first.turnId);
+  await until(() => h.turns().length === 2);
+  assert.equal(h.turns()[1]!.params.cwd, h.config.projects.workspace);
+  const second = h.current(); h.codex.complete(second.threadId, second.turnId);
+  await until(() => h.state.latest(h.state.selected(actor(''))!.id)?.status === 'completed');
+  const previous = h.state.selected(actor(''))!.id;
+  h.bridge.receive(actor('/new'));
+  assert.notEqual(h.state.selected(actor(''))!.id, previous);
+  assert.ok(h.deliveries().some(text => text.includes('通用工作区 的新会话')));
+  h.bridge.receive(actor('/chat')); h.bridge.receive(actor('workspace: Keep this literal request'));
+  await until(() => h.turns().length === 3);
+  assert.deepEqual(h.turns()[2]!.params.input, [{ type: 'text', text: 'workspace: Keep this literal request', text_elements: [] }]);
+  const third = h.current(); h.codex.complete(third.threadId, third.turnId);
+});

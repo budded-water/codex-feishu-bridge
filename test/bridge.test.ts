@@ -328,9 +328,12 @@ test('routed colleague approvals expire in the administrator chat and late decis
   const colleague = { user: 'ou_colleague', chat: 'group' };
   h.bridge.receive(message('/project alpha', colleague)); h.bridge.receive(message('Colleague task', colleague));
   await until(() => h.turns().length === 1);
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   h.codex.ask('expiring-team-approval', 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo bounded' });
   const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
-  await until(() => h.codex.replies.length === 1);
+  t.mock.timers.tick(29);
+  assert.equal(h.codex.replies.length, 0);
+  t.mock.timers.tick(1);
   const notices = h.state.pending(Number.MAX_SAFE_INTEGER);
   assert.ok(notices.some(reply => reply.chat === 'oc_admin' && reply.body.includes('已过期')));
   assert.ok(notices.some(reply => reply.chat === 'group' && reply.body.includes('已过期')));

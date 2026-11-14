@@ -1,8 +1,18 @@
 # Architecture
 
-This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. New image-grounded group replies and live administrator approval acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
+This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. Owner-private command approval/refusal and inspected app-server-loss recovery are verified on M6. New image-grounded group replies and colleague interaction acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
 
 User-facing onboarding: [installation](installation.md), [configuration](configuration.md), [usage](usage.md), [tools and identities](integrations.md), and [troubleshooting](troubleshooting.md).
+
+## Proposed evolution
+
+The [agent system plan](agent-system-plan.md) records the proposed production composition. The [isolated P0 probe](autoloop-p0.md) now exercises a pinned Autoloop Hub/Worker and the existing native Bridge through a standalone plugin. It uses temporary state and a synthetic transport; the production entry point does not import it. The components below remain the production architecture. P0 does not replace its queue, activate a bot or add a permanent service.
+
+The [P1 handoff design](../openspec/changes/integrate-feishu-autoloop-handoff/design.md) separates scheduling lanes, verified native conversations and canonical-project resources. A separate Feishu adapter normalizes events before channel-neutral admission persists request/source intent, verifies actual Hub assignments and holds canonical-project execution guards. The execution-ID runner now resumes only verified conversations and reuses Bridge/State for one task. It writes a private owner descriptor before native startup, probes live owners through authenticated IPC and seals the closed native journal after observed child exit. Recovery reads this evidence without replay and retains uncertain guards. The actual Hub/Worker verifier covers scripted faults and bounded real-model continuation. The isolated PilotInteractions gateway now retains correlated controls and queries dispatch outcomes after uncertain IPC acknowledgement. Its dedicated transport State reuses Outbox/Feedback, imports native message UUIDs once and revalidates live prompts immediately before sending. Final messages require sealed native evidence; delivery acknowledgements never mutate native journals. Steady-state polling preserves the new-owner launch window, while explicit startup recovery treats orphaned grants as uncertain. The default startup follows the architecture below. A prepared pilot can start through the handoff entry after managed ownership validation. Its closed-state migration and reverse converter are documented in [the migration guide](handoff-migration.md). One owner-authorized fresh M6 deployment is running; its bounded owner-chat P0/P1 acceptance is complete. The process-loss case required an inspected local-operator recovery; original unknown outcomes are retained and only a fresh owner message starts subsequent work. See the dated acceptance record for unexecuted live families.
+
+The prepared pilot retains bounded group reference snapshots in admission state before scheduling or quoted steering, and supplies them to the assigned Bridge through ContextPort. Settled terminal projection retires snapshot bodies. Authenticated owner probes and bound journals preserve native conversation pointers before terminal settlement. Supported recovery and reverse-conversion lookup are detailed in the migration guide.
+
+The optional workspace routing mode uses one neutral execution directory and owner/chat conversation. Verified current requests determine business targets through native Codex. Its default cwd and canonical guard cover the serialized lane, with native permissions and approvals governing actual access. The assigned runner preserves this mode. See [configuration](configuration.md) and [workspace execution](../openspec/changes/enable-general-workspace-mode/design.md).
 
 ## Goal and boundary
 
@@ -103,6 +113,8 @@ Retain Codex's sandbox and approval settings. The bridge must not enable unrestr
 | Host sleep or network loss | New message handling is unavailable. Running work may finish and queue its result. Do not guarantee offline replay. |
 
 Write-capable tasks must not be automatically replayed after an uncertain outcome. Reconciliation checks the project or external service's live state before continuing.
+
+A rejected or lost `turn/start` response after submission remains `unknown` even when app-server is still responsive: readiness alone cannot prove non-acceptance. Shutdown waits for observed native child exit rather than treating a sent SIGKILL as settlement. These are shared executor fixes; they do not prove rollback of external effects or termination of independently detached services.
 
 ## Public repository and private runtime state
 
