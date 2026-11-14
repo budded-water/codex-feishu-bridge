@@ -39,3 +39,8 @@ Recovery SHALL preserve source-message deduplication and repair committed decisi
 #### Scenario: A stale message targets an older incident
 - **WHEN** an old recovery message is duplicated after a newer task acquires the resource
 - **THEN** the original decision SHALL remain idempotent and the newer guard SHALL remain held
+
+#### Scenario: Recovery commits before a gateway handoff
+- **WHEN** a recovery decision commits before its notice is projected and the gateway closes or rolls back
+- **THEN** gateway closure SHALL first preserve its durable notice intent
+- **AND** rollback SHALL reject an unprojected or undelivered recovery notice before replacing runtime ownership

@@ -3,8 +3,19 @@ import type { State } from '../state.js';
 import { ownerKey, type IncomingMessage } from '../types.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
+import type { RecoveryRecord } from './store.js';
 
 const usage = '请先核对原命令及其后代进程均已停止，并检查文件和外部副作用。确认后发送 /恢复 编号 检查依据。无法核实时请使用本机维护检查。';
+
+export function recoveryNoticeTarget(admission: PilotAdmission, recovery: RecoveryRecord): Pick<IncomingMessage, 'chat' | 'id'> | undefined {
+  const execution = admission.store.execution(recovery.execution);
+  const request = execution && admission.store.request(execution.request);
+  if (!request || recovery.actor !== ownerKey(request.message) || request.message.tenant !== admission.scope.tenant ||
+    request.message.user !== admission.scope.operator || request.message.chat !== admission.scope.chat || request.message.chatType !== 'p2p') return;
+  const origin = JSON.parse(recovery.origin) as unknown;
+  if (!Array.isArray(origin) || origin.length !== 2 || origin[0] !== request.message.tenant || typeof origin[1] !== 'string') return;
+  return { chat: request.message.chat, id: origin[1] };
+}
 
 export class FeishuRecovery {
   private work: Promise<void> = Promise.resolve();
@@ -62,13 +73,8 @@ export class FeishuRecovery {
 
   sync(): void {
     for (const recovery of this.admission.store.recoveries()) {
-      const execution = this.admission.store.execution(recovery.execution);
-      const request = execution && this.admission.store.request(execution.request);
-      if (!request || recovery.actor !== ownerKey(request.message) || request.message.tenant !== this.admission.scope.tenant ||
-        request.message.user !== this.admission.scope.operator || request.message.chat !== this.admission.scope.chat || request.message.chatType !== 'p2p') continue;
-      const origin = JSON.parse(recovery.origin) as unknown;
-      if (!Array.isArray(origin) || origin.length !== 2 || origin[0] !== request.message.tenant || typeof origin[1] !== 'string') continue;
-      this.state.projectRecoveryNotice(recovery.origin, { chat: request.message.chat, id: origin[1] });
+      const target = recoveryNoticeTarget(this.admission, recovery);
+      if (target) this.state.projectRecoveryNotice(recovery.origin, target);
     }
   }
 

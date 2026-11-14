@@ -99,3 +99,5 @@ SDK messages sent during the consumer transition may require resubmission after 
 ## Owner-private recovery control
 
 The [P2 recovery change](../openspec/changes/enable-feishu-inspected-recovery/design.md) provides a narrower Feishu alternative to local reconciliation when a valid sealed native checkpoint is available and no unstarted admitted backlog remains. The original task owner must also be a designated approver in the enrolled private chat and attest inspected command descendants and effects. Recovery preserves maintenance pause, unknown history and blocked requests. It adds no schema tables; its receipt identities use the existing recovery ledger and transport notice tombstones, which the rollback converter already retains. Missing evidence or broader process inspection continues through the local maintenance route above.
+
+Before pilot rollback, committed remote recovery notices must be projected and the outbox must be drained. Graceful gateway closure materializes pending recovery notices; missing projection or undelivered notices prevent conversion. Reopen the pilot to finish delivery before retrying rollback.

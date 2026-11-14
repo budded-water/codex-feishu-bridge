@@ -8,6 +8,7 @@ import { ownerKey, record } from '../types.js';
 import { CODEX_VERSION } from '../codex/generated/version.js';
 import { PilotAdmission, type PilotScope } from './gateway.js';
 import { NativeExecutions } from './native.js';
+import { recoveryNoticeTarget } from './recovery.js';
 import { acquireRoot, controllerFile, fenceFile, privateRecord, readFence, requireClosed, writePrivate, verifyImportedState } from './ownership.js';
 
 type Row = Record<string, string | number | null>;
@@ -219,6 +220,9 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
     const delivery = transport.drainStatus();
     if (!status.paused || Object.entries(status).some(([key, value]) => key !== 'paused' && value !== 0) ||
       delivery.outbox !== 0 || delivery.reactions !== 0 || delivery.prompts !== 0) throw new Error('Pilot work, delivery or uncertainty has not drained');
+    for (const recovery of admission.store.recoveries()) {
+      if (recoveryNoticeTarget(admission, recovery) && !transport.recoveryNoticeProjected(recovery.origin)) throw new Error('Committed recovery notice has not been projected');
+    }
     const native = new NativeExecutions(admission, plan.config);
     const checkpoints = database(join(plan.pilotDirectory, 'transport/bridge.db'), false, db => new Map(rows(db, 'projected_tasks')
       .map(row => [column(row, 'execution'), column(row, 'checkpoint')])));

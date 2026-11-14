@@ -172,9 +172,13 @@ export class State {
     });
   }
 
+  recoveryNoticeProjected(origin: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM projected_control_notices WHERE origin=? AND status='recovered'").get(origin));
+  }
+
   projectRecoveryNotice(origin: string, message: Pick<IncomingMessage, 'chat' | 'id'>): void {
     this.transaction(() => {
-      if (this.db.prepare("SELECT 1 FROM projected_control_notices WHERE origin=? AND status='recovered'").get(origin)) return;
+      if (this.recoveryNoticeProjected(origin)) return;
       const id = randomUUID();
       this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(origin, 'recovered', id);
       this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to) VALUES (?,?,?,?)').run(id, message.chat,

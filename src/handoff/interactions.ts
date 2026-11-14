@@ -202,6 +202,7 @@ export class PilotInteractions {
       await this.publication;
       await this.controlWork;
       await this.recovery.idle();
+      this.recovery.sync();
       await this.transport.close();
     })();
   }

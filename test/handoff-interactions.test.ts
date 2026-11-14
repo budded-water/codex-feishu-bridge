@@ -549,3 +549,14 @@ test('sealed recovery retains a native conversation when no earlier snapshot rea
   assert.equal(h.admission.store.unsettled().length, 0);
   assert.equal(h.admission.store.conversationThread(task.request.conversation), task.thread);
 });
+
+test('closing materializes a committed recovery notice before the restarted gateway polls', async t => {
+  const { h, task } = await unknownForRecovery(t);
+  const confirm = h.actor('/恢复 ' + task.request.execution + ' inspected fixture processes and effects');
+  h.interactions.receive(confirm); await until(() => h.admission.store.recoveries().length === 1);
+  assert.equal(h.interactions.transport.state.pending().some(row => row.replyTo === confirm.id), false);
+  await h.restart();
+  assert.ok(h.interactions.transport.state.pending().some(row => row.replyTo === confirm.id && row.body.includes('解除该任务')));
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === confirm.id).length, 1);
+});

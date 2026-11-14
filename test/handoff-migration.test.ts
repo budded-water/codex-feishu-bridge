@@ -347,3 +347,40 @@ test('managed pilot recovers first-turn conversation after owner death and suppo
   continued.complete(thread!, 'turn-1'); await bridge.close();
   restored.close();
 });
+
+test('rollback refuses unprojected and undelivered recovery decisions before retaining their acknowledged identity', async t => {
+  const h = await fixture(t); await stageHandoff(h.plan);
+  const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope); admission.store.maintenance.resume();
+  const codex = new ManagedFake(), native = new NativeExecutions(admission, h.plan.config, () => codex);
+  const interactions = new PilotInteractions(admission, h.plan.config, { flush: async () => {} }, native,
+    { send: async (_chat, _text, id) => 'fixture-ack-' + id },
+    { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
+  const message = { ...h.message, chatType: 'p2p' as const, id: 'unknown-before-rollback', text: 'Controlled uncertain task' };
+  const accepted = interactions.receive(message); assert.ok('request' in accepted);
+  admission.store.rememberEvent(accepted.request.id, 1); admission.store.routed(accepted.request.id, true);
+  const grant = admission.store.reserve(accepted.request.id, 1); assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw new Error('Missing grant');
+  const running = native.run(grant.permit); await until(() => codex.calls.some(call => call.method === 'turn/start'));
+  codex.exit(); const report = await running;
+  for (let i = 0; i < 6; i++) await interactions.flush();
+  const confirm = { ...message, id: 'inspected-before-rollback', text: '/恢复 ' + accepted.request.execution + ' inspected fixture processes and effects' };
+  interactions.receive(confirm); await until(() => admission.store.recoveries().length === 1);
+  admission.store.maintenance.quiesce();
+  // Simulate an older/crashed runtime that closed without projecting its committed decision.
+  await interactions.transport.close(); admission.close();
+  const lease = await acquireRoot(h.plan.legacyDirectory, 'pilot', h.plan.pilotDirectory);
+  const controller = await openRuntimeControl(lease, () => ({})); await controller.close(true); await lease.release();
+  await assert.rejects(rollbackHandoff(h.plan), /recovery notice.*projected/);
+  assert.equal(readFence(h.plan.legacyDirectory)!.role, 'pilot');
+  const pending = new State(join(h.plan.pilotDirectory, 'transport'));
+  pending.projectRecoveryNotice(JSON.stringify([confirm.tenant, confirm.id]), confirm); pending.close();
+  await assert.rejects(rollbackHandoff(h.plan), /drained/);
+  const delivered = new State(join(h.plan.pilotDirectory, 'transport'));
+  const notice = delivered.pending().find(row => row.replyTo === confirm.id)!; assert.ok(notice);
+  delivered.delivered(notice.id, 'recovery-ack'); delivered.close();
+  assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');
+  const restored = new State(h.plan.legacyDirectory);
+  assert.equal(restored.remember(confirm), false); assert.equal(restored.remember(message), false);
+  assert.equal(restored.selected(message)!.thread, report.outcome.thread);
+  assert.equal(restored.drainStatus().queued, 0); restored.close();
+});
