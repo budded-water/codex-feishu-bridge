@@ -15,7 +15,7 @@ OpenSpec is used here for proposed changes to execution, orchestration, authoriz
 | [Current architecture](../docs/architecture.md) and [implementation status](../docs/implementation-plan.md) | What the repository currently implements |
 | [Live acceptance](../docs/live-acceptance.md) | What was actually observed in a deployment |
 
-No orchestration baseline has been archived. P0 and P1 have completed bounded implementation/acceptance, including the authorized M6 owner-private deployment and inspected app-server-loss recovery. The changes remain reviewable under the open implementation PR, pending merge; current deployment evidence and unexecuted live families remain in the dated record. A checked pilot task does not imply universal deployment acceptance.
+No orchestration baseline has been archived. P0 and P1 have completed bounded implementation/acceptance, including the authorized M6 owner-private deployment and inspected app-server-loss recovery. The implementation is merged through PR #12; delivered baseline/spec synchronization remains separate; current deployment evidence and unexecuted live families remain in the dated record. A checked pilot task does not imply universal deployment acceptance.
 
 ## Working method
 
@@ -56,14 +56,14 @@ Future CLI upgrades must inspect supported commands and generated-file changes i
 [enable-feishu-inspected-recovery](changes/enable-feishu-inspected-recovery/proposal.md) adds a bounded owner-private maintenance path through Feishu, reusing sealed native evidence, the recovery ledger and durable transport. It is a separate slice above P1; its [tasks](changes/enable-feishu-inspected-recovery/tasks.md) distinguish implementation, review and actual live rollout. A human still owns descendant-process and external-effect inspection.
 
 
-The P2 inspected-recovery change has completed its bounded implementation, source review, deployment and real M6 owner-private acceptance. Gateway restart retained the single recovery decision and notice, and a fresh no-tool turn continued the original native conversation. It remains under the open dependent implementation PR pending merge/spec synchronization. Human effects inspection, separate Hub maintenance and broader operation remain outside the completed slice.
+The P2 inspected-recovery change has completed its bounded implementation, source review, deployment and real M6 owner-private acceptance. Gateway restart retained the single recovery decision and notice, and a fresh no-tool turn continued the original native conversation. Its implementation is merged; spec synchronization remains pending. Human effects inspection, separate Hub maintenance and broader operation remain outside the completed slice.
 
 ## Read-only incident diagnostics change
 
 [add-readonly-incident-diagnostics](changes/add-readonly-incident-diagnostics/proposal.md) adds bounded process observations and an owner-private report through `/recover`, without new recovery authority or model inference. Its [tasks](changes/add-readonly-incident-diagnostics/tasks.md) separate implementation, source review and live deployment acceptance. Compatible archival retains the optional metadata; absent or incomplete facts remain explicit.
 
 
-The read-only diagnostic slice has completed source review, deployment and bounded real owner-private acceptance. A registered running wait appeared in the actual report while logical admission, native evidence and Hub run stayed unchanged across viewing. Separate operator inspection/cleanup, an actual owner recovery confirmation and fresh same-thread continuation completed the test. The dependent PR remains open pending owner merge authorization; complete descendant/effect proof and automatic cleanup are outside this slice.
+The read-only diagnostic slice has completed source review, deployment and bounded real owner-private acceptance. A registered running wait appeared in the actual report while logical admission, native evidence and Hub run stayed unchanged across viewing. Separate operator inspection/cleanup, an actual owner recovery confirmation and fresh same-thread continuation completed the test. Its implementation is merged through PR #12; complete descendant/effect proof and automatic cleanup are outside this slice.
 
 
 ## Owner-private queue withdrawal change
@@ -78,3 +78,9 @@ The read-only diagnostic slice has completed source review, deployment and bound
 ## Approval cards
 
 [enable-feishu-approval-cards](changes/enable-feishu-approval-cards/proposal.md) covers authenticated same-private-chat buttons, exact native target binding and durable card updates. Manual English commands remain available. Its tasks distinguish code verification, review and actual app/owner acceptance; older approval-command evidence remains historical.
+
+## Consolidated delivery and proposed P3
+
+The cumulative harness implementation is merged through [PR #12](https://github.com/budded-water/codex-feishu-bridge/pull/12); dated earlier open-PR records remain historical. Runtime approval-card support is deployed with managed readiness. Application callback publication and real owner acceptance remain pending, so unfinished change tasks are retained.
+
+[add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) is the next proposed slice. It selects a trusted project adapter and pinned UI-eval CLI, preserves separate native/verification/review/release outcomes and defines implementation/real acceptance tasks. It does not add runtime verification or authorize release.

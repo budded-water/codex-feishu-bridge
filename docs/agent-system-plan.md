@@ -137,3 +137,7 @@ The bounded [read-only incident diagnostics](../openspec/changes/add-readonly-in
 
 
 The next bounded P2 slice is [owner-private queue withdrawal](../openspec/changes/enable-owner-queue-withdrawal/proposal.md): remove an exact unstarted request from future admission so remote recovery/maintenance is not blocked by abandoned queued work. A granted execution is outside that control. Remote process cleanup is deferred because the current sampled PID/start-time identities provide diagnostics rather than a durable process-control capability; a future supervision/containment change must establish that capability at launch. P3 verification and P4 discovery retain their existing boundaries.
+
+## Next bounded implementation slice
+
+[Project verification handoff](../openspec/changes/add-project-verification-handoff/proposal.md) prepares P3's first vertical slice: one task, a trusted project verification profile, the existing pinned UI-eval CLI and a durable task/source-bound result projection. Native Codex keeps its reasoning autonomy. The plan reuses engine-owned evidence/verification semantics and keeps required human review and release authorization separate. It remains proposed; it is not delivered by the merged remote-execution baseline. Finish outstanding real owner interaction acceptance without relabeling it as P3 evidence.
