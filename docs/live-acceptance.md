@@ -188,3 +188,9 @@ The owner submitted a local repository analysis and then a running-task suppleme
 The task completed after 17 local read commands, all with successful exits. The inspected turn contained one final answer, and its 26 local file references resolved to existing files and lines. The conversation now contained four turns. Feishu acknowledged two final-answer parts whose combined content matched the native answer, and retained reply associations linked delivery to the original task. The sealed journal hash, settled native child and imported checkpoint verified successfully. Admission remained open with execution, queue, publication, control, outbox, reaction and prompt counts zero and no uncertain outcomes.
 
 Private evidence retains request/control identities, the native turn and delivery references. Native stop, approval/rejection and process-loss acceptance remain in the P0/P1 tasks.
+
+## 2026-11-14 — Native command stop
+
+The owner started a bounded 60-second local wait and sent status followed by stop while the command was executing. The gateway and native journal retained the stop control against the same execution generation, thread and turn. Its control disposition was stopping. The native turn and admission execution subsequently reached interrupted, and the command item closed after about 21 seconds with a failed status and exit code -1.
+
+Read-only inspection verified the sealed journal hash, settled native child and exited owner process. Process-list inspection found zero `sleep 60` processes. The imported checkpoint and reply association matched the retained execution, and Feishu acknowledged the terminal interrupted-task notice. Admission remained open with execution, queue, publication, control, outbox, reaction and prompt counts zero and no uncertain outcomes. Private evidence retains native/control identities, command timing and delivery references. Approval/rejection and process-loss acceptance remain in P0/P1.

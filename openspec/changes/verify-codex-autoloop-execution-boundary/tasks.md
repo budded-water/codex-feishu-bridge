@@ -20,7 +20,7 @@
 - [x] 3.5 Verify that result-delivery retries do not start another native execution.
 - [ ] 3.6 Perform only authorized bounded native inference/interaction/recovery acceptance; leave unexecuted cases explicitly pending.
 
-3.1-3.5 use the actual plugin/Hub/Worker with a scripted RPC process plus existing Bridge behavior regressions; native model continuation is also verified. For 3.6, two fixed-text model rounds and stored-history verification passed. The subsequent deployed P1 owner-chat case verified active steering through the shared native adapter, with a repository analysis and exact supplement in one turn. Native stop, approval/rejection and process-loss acceptance remain pending. The isolated P0 command uses synthetic transport. Subsequent deployment evidence is recorded in the dated acceptance document.
+3.1-3.5 use the actual plugin/Hub/Worker with a scripted RPC process plus existing Bridge behavior regressions; native model continuation is also verified. For 3.6, two fixed-text model rounds and stored-history verification passed. The subsequent deployed P1 owner-chat case verified active steering through the shared native adapter, with a repository analysis and exact supplement in one turn. The subsequent owner-chat stop case interrupted an executing native wait command and drained its state. Approval/rejection and process-loss acceptance remain pending. The isolated P0 command uses synthetic transport. Subsequent deployment evidence is recorded in the dated acceptance document.
 
 ## 4. Evidence and handoff
 
