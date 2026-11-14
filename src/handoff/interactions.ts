@@ -87,7 +87,7 @@ export class PilotInteractions {
       } catch { /* Uncertain dispatch is lookup-only; approvals are never resent. */ }
       return;
     }
-    if (message.chatType === 'group' && message.parentId && message.text.startsWith('/补充 ')) {
+    if (message.chatType === 'group' && message.parentId && /^\/补充\s/.test(message.text.trimStart())) {
       const execution = this.admission.store.execution(control.execution)!;
       await this.prepareReference(this.admission.store.request(execution.request)!, message, 0);
     }

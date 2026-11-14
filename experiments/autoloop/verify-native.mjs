@@ -146,7 +146,7 @@ try {
     await stopUp('SIGKILL');
     assert.equal((await runtime.recover())[0].status, 'live');
     start(); await ready();
-    const supplement = actor('/补充 finish this fixture');
+    const supplement = actor(' \t/补充 finish this fixture');
     const relay = runtime.relay.bind(runtime);
     runtime.relay = async (...args) => { const result = await relay(...args); throw new Error('Fixture acknowledgement lost after native dispatch: ' + result); };
     interactions.receive(supplement); await interactions.flush();
@@ -177,7 +177,7 @@ try {
     });
     interactions.receive(actor('/批准 ' + token)); await interactions.flush();
     assert.equal(audit().filter(item => item.event === 'decision').length, 0);
-    const decision = actor('/批准 ' + token, { user: 'ou_fixture_admin', chat: 'oc_fixture_admin' });
+    const decision = actor(' \t/批准 ' + token, { user: 'ou_fixture_admin', chat: 'oc_fixture_admin' });
     interactions.receive(decision); assert.equal(interactions.receive(decision).status, 'duplicate'); await interactions.flush();
     await ended(approval); await settledHub();
     assert.equal(audit().filter(item => item.event === 'decision').length, 1);

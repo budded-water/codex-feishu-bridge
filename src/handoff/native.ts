@@ -283,7 +283,7 @@ class NativeOwner {
         const message = record(incoming.message), target = record(incoming.target);
         if (['tenant', 'user', 'chat', 'id', 'text'].some(field => typeof message[field] !== 'string') ||
           ['generation', 'thread', 'turn'].some(field => typeof target[field] !== 'string' || !target[field]) ||
-          !/^\/(?:status(?:\s|$)|stop(?:\s|$)|补充\s|批准\s|拒绝\s|回答\s)/.test(String(message.text)) || !this.bridge || !this.state || this.stopping) throw new Error('Invalid live control');
+          !/^\/(?:status(?:\s|$)|stop(?:\s|$)|补充\s|批准\s|拒绝\s|回答\s)/.test(String(message.text).trimStart()) || !this.bridge || !this.state || this.stopping) throw new Error('Invalid live control');
         const control = message as unknown as IncomingMessage;
         const nativeTarget = target as unknown as NativeControlTarget;
         const saved = this.state.beginRelayedControl(control, nativeTarget);

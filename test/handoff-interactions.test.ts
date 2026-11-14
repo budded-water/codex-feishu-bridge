@@ -10,6 +10,7 @@ import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
 import type { DeliveryOptions, ContextPort } from '../src/types.js';
 import { FakeCodex, until } from './helpers.js';
+import { readJournal } from '../src/handoff/journal.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
   async start() { this.generation = randomUUID(); }
@@ -93,7 +94,7 @@ test('native approvals and expired prompts are never replayed after acknowledgem
   assert.equal(h.interactions.receive(h.actor('/批准 ' + token, { chat: 'admin', user: 'ou_intruder' })).status, 'ignored');
   const original = h.native.relay.bind(h.native);
   h.native.relay = async (...args) => { await original(...args); throw new Error('Lost approval acknowledgement'); };
-  const message = h.actor('/批准 ' + token, { chat: 'admin', user: 'ou_admin' });
+  const message = h.actor(' \t/批准 ' + token, { chat: 'admin', user: 'ou_admin' });
   h.interactions.receive(message); await h.interactions.flush();
   assert.equal(h.codex.replies.length, 1);
   await h.restart(); await drain(h);
@@ -116,6 +117,31 @@ test('uncertain dispatch with no native record never retries its approval', asyn
   assert.equal(h.admission.store.control(message)!.status, 'unknown');
   assert.equal(h.codex.replies.length, 0);
   h.codex.complete(task.thread, task.turn); await task.running;
+});
+
+test('leading whitespace controls retain original receipts through native decisions and stop', async t => {
+  const h = setup(t); const task = await h.launch();
+  const status = h.actor(' \t/status');
+  h.interactions.receive(status); await h.interactions.flush();
+  assert.equal(h.admission.store.control(status)!.status, 'accepted');
+  h.codex.ask('decline-whitespace', 'item/commandExecution/requestApproval', { threadId: task.thread, turnId: task.turn, command: 'echo fixture' });
+  await drain(h);
+  const prompt = h.sent.find(row => row.chat === 'admin' && row.text.includes('/拒绝'))!;
+  const token = prompt.text.match(/请求 ([a-f0-9]{8})/)![1];
+  const decision = h.actor(' /拒绝 ' + token, { chat: 'admin', user: 'ou_admin' });
+  h.interactions.receive(decision); await drain(h);
+  assert.equal(h.admission.store.control(decision)!.status, 'sent');
+  assert.deepEqual(h.codex.replies, [{ id: 'decline-whitespace', result: { decision: 'decline' } }]);
+  const saved = readJournal(join(h.admission.stateDirectory, 'executions', task.request.execution, 'bridge.db'), db =>
+    db.prepare('SELECT message,status FROM relayed_controls WHERE origin=?').get(JSON.stringify([decision.tenant, decision.id])) as { message: string; status: string });
+  assert.deepEqual(JSON.parse(saved.message), decision);
+  assert.equal(saved.status, 'sent');
+  assert.equal(h.interactions.receive({ ...decision, text: '/批准 ' + token }).status, 'duplicate');
+  await drain(h); assert.equal(h.codex.replies.length, 1);
+  const stop = h.actor('\n \t/stop');
+  h.interactions.receive(stop); await task.running; await drain(h);
+  assert.equal(h.admission.store.control(stop)!.status, 'stopping');
+  assert.equal(h.admission.store.execution(task.request.execution)!.status, 'interrupted');
 });
 
 test('sealed final delivery survives gateway outage, retries with the same UUID and independently cleans reactions', async t => {
@@ -324,7 +350,7 @@ test('assigned group execution and quoted steering preserve scoped context and s
   assert.equal(calls.length, 1); assert.equal(calls[0]!.limit, 12);
   assert.equal(calls[0]!.session.chat, message.chat); assert.equal(calls[0]!.session.user, message.user);
   assert.equal(calls[0]!.source.id, message.id); assert.equal(calls[0]!.source.createTime, 12345);
-  const supplement = h.actor('/补充 Use this quoted detail', { chatType: 'group', createTime: 12346, parentId: 'steering-quote' });
+  const supplement = h.actor(' \t/补充 Use this quoted detail', { chatType: 'group', createTime: 12346, parentId: 'steering-quote' });
   assert.equal(h.interactions.receive(supplement).status, 'control'); await h.interactions.flush();
   const steer = h.codex.calls.find(call => call.method === 'turn/steer')!.params.input as typeof input;
   assert.ok(steer[0]!.text!.includes('steering-quote')); assert.ok(steer.some(item => item.type === 'image'));
