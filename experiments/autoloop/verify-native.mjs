@@ -184,6 +184,35 @@ try {
     assert.ok(!withdrawalState.cards.some(card => card.kind === 'ask' && card.run_id === sourceOutcome.runs[0].run));
     console.log('PASS: real queued Hub run survives exact owner withdrawal and worker restart without a native start or uncertainty question');
     const initial = runtime.evidence(first.execution);
+    let sourceReached = false, sourceRelease;
+    const sourceGate = new Promise(resolve => { sourceRelease = resolve; });
+    const failureProxy = createServer(async (incoming, response) => {
+      if (incoming.method === 'GET') { sourceReached = true; await sourceGate; response.writeHead(503).end('{}'); return; }
+      const chunks = []; for await (const chunk of incoming) chunks.push(chunk);
+      const forwarded = await fetch(url + incoming.url, { method: incoming.method, headers: { authorization: 'Bearer ' + sourceKey, 'content-type': 'application/json' }, body: Buffer.concat(chunks), signal: AbortSignal.timeout(5000) });
+      response.writeHead(forwarded.status).end(await forwarded.text());
+    });
+    await new Promise(resolve => failureProxy.listen(0, '127.0.0.1', resolve));
+    const actualConfig = readFileSync(privateConfig, 'utf8');
+    try {
+      writeFileSync(privateConfig, JSON.stringify({ ...JSON.parse(actualConfig), hubUrl: 'http://127.0.0.1:' + failureProxy.address().port }));
+      await interactions.close(); interactions = openInteractions(queueConfig); await interactions.recover();
+      const beforeFailure = audit().filter(item => item.event === 'turn/start').length;
+      const withdrawingFailure = await submit('withdraw-source-failure', 'case-complete');
+      await until('worker source confirmation before withdrawal', () => sourceReached);
+      assert.equal(admission.store.execution(withdrawingFailure.execution), undefined);
+      assert.equal(interactions.receive(normalizeMessage(raw('withdraw-during-failed-source', '/撤回 ' + withdrawingFailure.execution), 'ou_fixture_bot')).status, 'withdrawn');
+      sourceRelease(); await settledHub(); await interactions.flush();
+      const failedSourceOutcome = await new AutoloopSource(url, sourceKey).inspect(admission.store.submission(withdrawingFailure.id).event);
+      assert.equal(failedSourceOutcome.runs[0].state, 'nothing');
+      assert.equal(admission.store.execution(withdrawingFailure.execution), undefined);
+      assert.equal(audit().filter(item => item.event === 'turn/start').length, beforeFailure);
+      assert.ok(!(await hubState()).cards.some(card => card.kind === 'ask' && card.run_id === failedSourceOutcome.runs[0].run));
+      console.log('PASS: actual worker confirmation failure after committed withdrawal remains a known unstarted nothing outcome');
+    } finally {
+      sourceRelease(); writeFileSync(privateConfig, actualConfig); failureProxy.closeAllConnections(); await new Promise(resolve => failureProxy.close(resolve));
+      await interactions.close(); interactions = openInteractions(); await interactions.recover();
+    }
     const next = await submit('followup', 'case-complete');
     await ended(next); await settledHub();
     assert.equal(runtime.evidence(next.execution).outcome.thread, initial.outcome.thread);

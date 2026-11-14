@@ -249,16 +249,16 @@ test('simultaneous reservation and withdrawal across actual SQLite owners have o
   else { assert.deepEqual(kinds, ['withdrawn', 'withdrawn']); assert.equal(h.gateway.store.execution(request.execution), undefined); assert.equal(h.gateway.store.withdrawals().length, 1); }
 });
 
-for (const phase of ['POST', 'GET']) test('withdrawal wins while source HTTP ' + phase + ' is in flight and late routing cannot restore launch authority', async t => {
+for (const phase of ['POST', 'GET']) for (const outcome of ['success', 'unavailable', 'invalid-route', 'wrong-state']) test('withdrawal wins while source HTTP ' + phase + ' is in flight with ' + outcome, async t => {
   const h = setup(t); const request = h.accept('in-flight'); const other = h.reopen();
   let inspected!: () => void, release!: () => void;
   const reached = new Promise<void>(resolve => { inspected = resolve; }); const responseGate = new Promise<void>(resolve => { release = resolve; });
   const methods: string[] = [];
   const server = createServer(async (incoming, response) => {
     methods.push(incoming.method!);
-    if (incoming.method === phase) { inspected(); await responseGate; }
+    if (incoming.method === phase) { inspected(); await responseGate; if (outcome === 'unavailable') { response.writeHead(503).end('{}'); return; } }
     if (incoming.method === 'POST') response.end(JSON.stringify({ event: 3, routed: ['pilot'], paused: [] }));
-    else response.end(JSON.stringify({ event: 3, routed: ['pilot'], paused: [], runs: [{ run: 5, rule: 'pilot', state: 'claimed' }] }));
+    else response.end(JSON.stringify({ event: 3, routed: outcome === 'invalid-route' ? ['other'] : ['pilot'], paused: [], runs: [{ run: 5, rule: 'pilot', state: outcome === 'wrong-state' ? 'failed' : 'claimed' }] }));
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise<void>(resolve => { release(); server.closeAllConnections(); server.close(() => resolve()); }));
@@ -268,5 +268,6 @@ for (const phase of ['POST', 'GET']) test('withdrawal wins while source HTTP ' +
   assert.equal((await claiming).kind, 'withdrawn');
   assert.equal(h.gateway.store.submission(request.id)!.status, 'blocked'); assert.equal(h.gateway.store.submission(request.id)!.problem, 'owner_withdrawn');
   assert.equal(h.gateway.store.execution(request.execution), undefined); assert.equal(h.gateway.store.pending().length, 0);
-  await outbox.flush(); assert.deepEqual(methods, ['POST', 'GET']); assert.equal(h.gateway.store.withdrawals().length, 1);
+  const expectedMethods = phase === 'POST' && outcome === 'unavailable' ? ['POST'] : ['POST', 'GET'];
+  await outbox.flush(); assert.deepEqual(methods, expectedMethods); assert.equal(h.gateway.store.withdrawals().length, 1);
 });

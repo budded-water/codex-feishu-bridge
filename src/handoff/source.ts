@@ -104,9 +104,15 @@ export class SourceOutbox {
     if (request.blocked === OWNER_WITHDRAWN) return { kind: 'withdrawn' };
     if (request.blocked || submission?.status === 'blocked') return { kind: 'blocked' };
     if (!submission) throw new Error('Assignment has no submission intent');
-    const outcome = await this.confirm({ request: request.id, event: submission.event, attempts: submission.attempts });
-    if (outcome.runs[0]!.run !== run || outcome.runs[0]!.state !== 'claimed') throw new Error('Assignment is not the source event\'s active run');
-    return this.gateway.store.reserve(request.id, run);
+    try {
+      const outcome = await this.confirm({ request: request.id, event: submission.event, attempts: submission.attempts });
+      if (outcome.runs[0]!.run !== run || outcome.runs[0]!.state !== 'claimed') throw new Error('Assignment is not the source event\'s active run');
+      return this.gateway.store.reserve(request.id, run);
+    } catch (error) {
+      // Source I/O may fail after an owner has durably withdrawn this unstarted request.
+      if (this.gateway.store.request(request.id)?.blocked === OWNER_WITHDRAWN) return { kind: 'withdrawn' };
+      throw error;
+    }
   }
 
   private async deliver(): Promise<void> {
