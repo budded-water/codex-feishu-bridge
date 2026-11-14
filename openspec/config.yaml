@@ -1,0 +1,20 @@
+schema: spec-driven
+
+context: |
+  Language: English. Keep structural headings and SHALL/MUST keywords in English.
+  This independent TypeScript bridge connects Feishu to native Codex app-server.
+  Read AGENTS.md, docs/architecture.md and docs/live-acceptance.md before changes.
+  docs/agent-system-plan.md owns the proposed Autoloop direction and milestones.
+  Preserve native identity, permissions, ownership and uncertain-effect handling.
+  Proposed requirements are not implemented or deployed capabilities.
+  Existing runtime documents remain authoritative until delivered changes sync specs.
+  No credentials, personal IDs, host paths, transcripts or private state belong here.
+
+rules:
+  proposal:
+    - State scope, exclusions and affected responsibility owners.
+  specs:
+    - Give testable scenarios for authorization, uncertainty and recovery where affected.
+  tasks:
+    - Separate simulated, protocol-only, inference, live interaction and deployment evidence.
+    - Check off work only with corresponding artifacts and actual verification results.
