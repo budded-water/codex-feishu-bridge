@@ -94,4 +94,4 @@ The legacy entry can then start under the restored role and continue the latest 
 
 The imported conversation becomes the preferred legacy mapping for that owner and canonical directory, including automatic routing and aliases for the same directory. This also supports a deliberately selected older source session. A later explicit `/new` creates and selects a fresh conversation.
 
-SDK messages sent during the consumer transition may require resubmission after the maintenance window. The bot's receipt and deduplication guarantees apply to durably admitted messages. The [acceptance record](live-acceptance.md) lists the executed fixture rehearsals and the live acceptance still to run.
+SDK messages sent during the consumer transition may require resubmission after the maintenance window. The bot's receipt and deduplication guarantees apply to durably admitted messages. The [acceptance record](live-acceptance.md) lists the executed fixture rehearsals and the observed owner-private activation/recovery and remaining live-family limits.

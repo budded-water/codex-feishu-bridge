@@ -56,11 +56,11 @@ This uses the host's native Codex identity/configuration for two fixed-text roun
 
 Observed acceptance is recorded in [live acceptance](live-acceptance.md), separately from deployed bot evidence. The default automated suite covers adapter ownership, pending-request validity, expiry, cancellation, uncertainty and receipt guarding; the explicit integration verifier adds real Hub/Worker supervision and fault injection.
 
-Decision: the documented Autoloop plugin boundary is viable for this single-host execution probe. Continue to a separate P1 handoff design; retain the existing production scheduler until that design and its acceptance pass. This result does not establish production migration readiness.
+Initial probe decision: the documented Autoloop plugin boundary is viable for this single-host execution probe. Continue to a separate P1 handoff design; retain the existing production scheduler until that design and its acceptance pass. This result does not establish production migration readiness.
 
-The [P1 contract and routing feasibility check](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) are now available for review. They do not close P0's pending native interaction/recovery acceptance or activate a new scheduler.
+The [P1 handoff](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) subsequently implemented and activated the authorized M6 owner-private pilot. Its dated real-model steering, stop, command approval/refusal and inspected app-server-loss recovery complete P0's bounded native campaign. P0's isolated command itself still uses synthetic transport; the initial decision above records its original handoff boundary.
 
-P1 must resolve:
+The P1 handoff requirements below are implemented and accepted within the recorded owner-private scope. The project-evidence contract remains planned for P3:
 
 - One Feishu consumer, verified identity-to-assignment mapping, and durable control/answer delivery with correlation and duplicate handling.
 - One production scheduling authority: drain/transfer existing queued and in-flight tasks, backup state and define rollback.
@@ -68,6 +68,6 @@ P1 must resolve:
 - Policy ownership and supported native interaction families under the actual deployment policy; business-round decisions must remain distinct from native approvals.
 - Durable result/artifact schemas and evidence acceptance for project checks, UI-eval and release-kit, with explicit publication authority.
 - Real-model steering, approval/rejection and process-loss acceptance in a dedicated pilot project. Fault-injected protocol acceptance is not a substitute.
-- Review the pinned kernel and plugin contract before each upgrade. The prototype shares Bridge code but does not yet remove its production queue; that consolidation belongs to P1.
+- Review the pinned kernel and plugin contract before each upgrade. The isolated prototype shares Bridge code; P1 owns the deployed single-assignment path and scheduling consolidation.
 
 No parallel Hatchet implementation, custom dashboard, additional harness or automatic issue discovery is introduced by P0.

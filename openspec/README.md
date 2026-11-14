@@ -1,6 +1,6 @@
 # Specification workflow
 
-OpenSpec is used here for proposed changes to execution, orchestration, authorization, interactions, recovery and evidence contracts. It is a development process, not the runtime scheduler. Autoloop remains the proposed runtime orchestration choice.
+OpenSpec is used here for proposed changes to execution, orchestration, authorization, interactions, recovery and evidence contracts. It is a development process, not the runtime scheduler. Pinned Autoloop is the runtime orchestration choice for the authorized M6 pilot.
 
 ## Where facts belong
 
@@ -15,7 +15,7 @@ OpenSpec is used here for proposed changes to execution, orchestration, authoriz
 | [Current architecture](../docs/architecture.md) and [implementation status](../docs/implementation-plan.md) | What the repository currently implements |
 | [Live acceptance](../docs/live-acceptance.md) | What was actually observed in a deployment |
 
-No production orchestration baseline has been archived. The isolated P0 probe is implemented with scoped evidence, but its change remains open for pending real-model interaction/recovery acceptance. Existing production-behavior documents continue to apply; proposed production migration stays under a separate change until implemented and verified.
+No orchestration baseline has been archived. P0 and P1 have completed bounded implementation/acceptance, including the authorized M6 owner-private deployment and inspected app-server-loss recovery. The changes remain reviewable under the open implementation PR, pending merge; current deployment evidence and unexecuted live families remain in the dated record. A checked pilot task does not imply universal deployment acceptance.
 
 ## Working method
 
@@ -45,8 +45,8 @@ Future CLI upgrades must inspect supported commands and generated-file changes i
 
 ## P1 handoff change
 
-[integrate-feishu-autoloop-handoff](changes/integrate-feishu-autoloop-handoff/README.md) owns pilot admission, the scheduling/identity split, controls, project guards and drain-first migration/rollback. Durable admission/source/guards and single-assignment native execution are implemented, including authenticated owner/checkpoint recovery and actual Hub/Worker verification. Durable control relay and human outbox/reaction projections are also implemented in the isolated pilot gateway. Closed-state migration and both rollback windows are implemented with fixture evidence. Complete candidate checks and independent review passed. The owner-authorized fresh M6 deployment has basic private-chat and background-restart evidence. Full native interactive and remaining owner-chat capability acceptance remain open. Validate this change separately from P0 and retain the pending native/live acceptance tasks.
+[integrate-feishu-autoloop-handoff](changes/integrate-feishu-autoloop-handoff/README.md) owns pilot admission, the scheduling/identity split, controls, project guards and drain-first migration/rollback. Durable admission/source/guards and single-assignment native execution are implemented, including authenticated owner/checkpoint recovery and actual Hub/Worker verification. Durable control relay and human outbox/reaction projections are also implemented in the isolated pilot gateway. Closed-state migration and both rollback windows are implemented with fixture evidence. Complete candidate checks and independent review passed. The owner-authorized fresh M6 deployment completed bounded private-chat assignment, steering, stop, command approval/refusal, app-server loss and inspected recovery with fresh continuation. Validate this change separately from P0 and retain the dated limits, including local-operator recovery and unexecuted colleague/group interaction families.
 
 ## General workspace change
 
-[enable-general-workspace-mode](changes/enable-general-workspace-mode/proposal.md) adds explicit neutral-workspace execution, direct task targeting through native Codex and workspace status. It preserves one canonical resource and existing native authorization. Implementation and independent review passed. The authorized M6 workspace deployment is running, with owner-confirmed workspace status and no-fixed-project reply. Read-only evidence verified continuation in the original native conversation and drained execution/delivery state; its bounded tasks are complete. Full native interactive acceptance remains in P0/P1.
+[enable-general-workspace-mode](changes/enable-general-workspace-mode/proposal.md) adds explicit neutral-workspace execution, direct task targeting through native Codex and workspace status. It preserves one canonical resource and existing native authorization. Implementation and independent review passed. The authorized M6 workspace deployment is running, with owner-confirmed workspace status and no-fixed-project reply. Read-only evidence verified continuation in the original native conversation and drained execution/delivery state; its bounded tasks are complete. The bounded native interaction/recovery campaign is recorded under P0/P1; broader live interaction families remain separately scoped.

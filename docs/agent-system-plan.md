@@ -1,12 +1,12 @@
 # Agent system direction and delivery plan
 
-Status: proposed production direction, with an implemented [isolated P0 execution probe](autoloop-p0.md). This document records the planning discussion; production routing and deployment have not migrated. Consult the probe's scoped evidence before relying on any acceptance claim.
+Status: selected composition, implemented through the [P0 execution probe](autoloop-p0.md) and the P1 handoff. One owner-authorized fresh M6 instance runs the pinned Autoloop gateway/Worker path in general-workspace mode and has completed bounded owner-private acceptance. This roadmap also describes future milestones; use [dated acceptance](live-acceptance.md) to distinguish deployed evidence from planned capability.
 
 ## Intended outcome
 
 An operator can assign work through Feishu while away from the execution host, inspect it, add context, answer an actual Codex request, stop it, and continue the associated native Codex conversation. The system can later accept evidence-backed observations and scheduled investigations under explicit execution policies.
 
-The initial scope is one persistent macOS execution host, one Feishu bot, an operator acceptance chat and one registered pilot project. Remote devices control work on that host; they do not migrate a running process. Native Codex remains the default harness and retains its local authentication, tools, configuration and permissions. Existing desktop chats and UI-only integrations are not automatically attached.
+The initial scope is one persistent macOS execution host, one Feishu bot, an operator acceptance chat and one canonical neutral workspace. Remote devices control work on that host; they do not migrate a running process. Native Codex remains the default harness and retains its local authentication, tools, configuration and permissions. Existing desktop chats and UI-only integrations are not automatically attached.
 
 ## Recommended composition
 
@@ -80,14 +80,14 @@ Research, document and data tasks can use the same native executor with appropri
 | Milestone | Deliverable | Exit evidence |
 | --- | --- | --- |
 | P0: execution baseline and boundary | Version-aligned Codex integration and an isolated Autoloop execution probe | Matched identities and demonstrated native start/resume, control, cancellation and uncertain-result handling |
-| P1: remote workflow | Unified Feishu entry, one scheduling authority and a pilot project | Owner-chat assignment, status, follow-up, live interaction, stop and continuation |
+| P1: remote workflow | Unified Feishu entry, one scheduling authority and a neutral workspace | Owner-chat assignment, status, follow-up, live interaction, stop and continuation |
 | P2: reliable operation | Fault handling, service operation, state recovery and reviewed upgrade/rollback | Duplicate delivery, lost acknowledgement, process restart, stale interaction and result-delivery exercises |
 | P3: evidence-based completion | Project checks, UI-eval and required review | Source-bound reports and correct complete/continue/blocked decisions |
 | P4: proactive work | Approved discovery sources and bounded execution policies | Evidence-backed candidates, deduplication, authorization and stopping rules |
 
 P0-P2 form the first daily-use target. Later milestones extend the same boundaries. Create a separate OpenSpec change when a milestone becomes actionable; do not create a single permanently open checklist for every future capability.
 
-The first change is [verify-codex-autoloop-execution-boundary](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md). Its isolated implementation and scoped acceptance are recorded; live-model interaction/recovery acceptance remains open. The [P1 handoff change](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) now implements durable admission/source/guards and a single-assignment native executor through the pinned Hub/Worker. Authenticated owner/checkpoint recovery and bounded native continuation are verified. The isolated pilot gateway now also persists correlated controls and projects native prompts/results into the existing human outbox and reaction cleanup. Closed-state migration and both rollback windows now have fixture-tested tools. Native interactive acceptance and owner-authorized activation remain in the P1 task list. Check the installed CLI against [the compatibility authority](../src/codex/generated/version.ts) when work starts, rather than copying a version into this roadmap.
+The first change is [verify-codex-autoloop-execution-boundary](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md). Its isolated implementation is verified; subsequent deployed owner-chat tests complete bounded native interaction/recovery acceptance. The [P1 handoff change](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) now implements durable admission/source/guards and a single-assignment native executor through the pinned Hub/Worker. Authenticated owner/checkpoint recovery and bounded native continuation are verified. The isolated pilot gateway now also persists correlated controls and projects native prompts/results into the existing human outbox and reaction cleanup. Closed-state migration and both rollback windows now have fixture-tested tools. The authorized fresh M6 activation and bounded owner-private acceptance are complete. Inspected unknown recovery currently uses local maintenance; P2 operation, P3 project/UI evidence and P4 discovery remain separate milestones. Check the installed CLI against [the compatibility authority](../src/codex/generated/version.ts) when work starts, rather than copying a version into this roadmap.
 
 ## Alternatives and deferred work
 

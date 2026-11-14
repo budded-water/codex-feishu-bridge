@@ -4,7 +4,7 @@ The proposed agent system reuses native Codex for reasoning and Autoloop for orc
 
 Before changing production routing, establish a version-matched native baseline and verify that an isolated Autoloop assignment can drive a real, continuable Codex conversation without losing controls or replaying uncertain work. See the [direction and roadmap](../../../docs/agent-system-plan.md).
 
-Status: implemented as an isolated experimental probe, with scoped acceptance recorded in [the probe documentation](../../../docs/autoloop-p0.md). Production handoff and real-model interactive/recovery acceptance remain pending. This change does not authorize deployment.
+Status: implemented as an isolated experimental probe, with scoped acceptance recorded in [the probe documentation](../../../docs/autoloop-p0.md). Subsequent authorized P1 owner-chat tests complete the bounded native interaction/recovery campaign; P1 owns deployment and its dated evidence. This change does not authorize deployment.
 
 ## What Changes
 

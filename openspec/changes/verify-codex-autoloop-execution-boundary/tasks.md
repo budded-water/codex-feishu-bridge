@@ -18,9 +18,9 @@
 - [x] 3.3 Verify stop settlement and terminal-race behavior without treating cancellation acknowledgement as completion.
 - [x] 3.4 Exercise worker/app-server loss and start/completion acknowledgement loss; reconcile before any new attempt and retain unknown outcomes when inconclusive.
 - [x] 3.5 Verify that result-delivery retries do not start another native execution.
-- [ ] 3.6 Perform only authorized bounded native inference/interaction/recovery acceptance; leave unexecuted cases explicitly pending.
+- [x] 3.6 Perform only authorized bounded native inference/interaction/recovery acceptance; leave unexecuted cases explicitly pending.
 
-3.1-3.5 use the actual plugin/Hub/Worker with a scripted RPC process plus existing Bridge behavior regressions; native model continuation is also verified. For 3.6, two fixed-text model rounds and stored-history verification passed. The subsequent deployed P1 owner-chat case verified active steering through the shared native adapter, with a repository analysis and exact supplement in one turn. The subsequent owner-chat stop case interrupted an executing native wait command and drained its state. Owner manual refusal is also verified. Native approval and process-loss acceptance remain pending. The isolated P0 command uses synthetic transport. Subsequent deployment evidence is recorded in the dated acceptance document.
+3.1-3.5 use the actual plugin/Hub/Worker with a scripted RPC process plus existing Bridge behavior regressions; native model continuation is also verified. For 3.6, two fixed-text model rounds and stored-history verification passed. The subsequent deployed P1 owner-chat case verified active steering through the shared native adapter, with a repository analysis and exact supplement in one turn. The subsequent owner-chat stop case interrupted an executing native wait command and drained its state. Owner command approval and manual refusal are verified. App-server loss retained an unknown guard across gateway restart; inspected local maintenance then released the guard, and a fresh owner message resumed the original native thread. This completes the bounded 3.6 campaign. Live file-change/question families and Worker/owner/ack-loss variants were not separately exercised with real inference; their scripted coverage is not reclassified as live acceptance. The isolated P0 command uses synthetic transport. Subsequent deployment evidence is recorded in the dated acceptance document.
 
 ## 4. Evidence and handoff
 
@@ -28,4 +28,4 @@
 - [x] 4.2 Update architecture, implementation status and sanitized acceptance evidence with actual outcomes; preserve deployment gaps.
 - [x] 4.3 Record the P0 readiness decision, limitations and exact requirements for the separate P1 production-handoff proposal.
 
-Evidence and conditional P1 handoff requirements are maintained in [the probe document](../../../docs/autoloop-p0.md) and [dated acceptance](../../../docs/live-acceptance.md). Keep this change open while 3.6 remains incomplete.
+Evidence and conditional P1 handoff requirements are maintained in [the probe document](../../../docs/autoloop-p0.md) and [dated acceptance](../../../docs/live-acceptance.md). All bounded tasks are complete. Retain the change with the open implementation PR pending merge and subsequent spec synchronization; preserve unexecuted live-family limits in the acceptance record.
