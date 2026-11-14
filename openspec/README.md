@@ -54,3 +54,6 @@ Future CLI upgrades must inspect supported commands and generated-file changes i
 ## P2 inspected recovery change
 
 [enable-feishu-inspected-recovery](changes/enable-feishu-inspected-recovery/proposal.md) adds a bounded owner-private maintenance path through Feishu, reusing sealed native evidence, the recovery ledger and durable transport. It is a separate slice above P1; its [tasks](changes/enable-feishu-inspected-recovery/tasks.md) distinguish implementation, review and actual live rollout. A human still owns descendant-process and external-effect inspection.
+
+
+The P2 inspected-recovery change has completed its bounded implementation, source review, deployment and real M6 owner-private acceptance. Gateway restart retained the single recovery decision and notice, and a fresh no-tool turn continued the original native conversation. It remains under the open dependent implementation PR pending merge/spec synchronization. Human effects inspection, separate Hub maintenance and broader operation remain outside the completed slice.
