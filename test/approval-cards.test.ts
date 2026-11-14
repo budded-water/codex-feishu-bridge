@@ -13,6 +13,7 @@ import { Feishu } from '../src/feishu.js';
 import { record } from '../src/types.js';
 import { message, setup, until } from './helpers.js';
 import { journalProjection } from '../src/handoff/journal.js';
+import type { DeliveryOptions } from '../src/types.js';
 
 async function pending(t: import('node:test').TestContext, command = 'printf "literal `code`"', reason = 'Inspect the exact local operation') {
   const h = setup(); t.after(h.close); h.deliveries(); h.config.projectRouting = 'workspace';
@@ -43,7 +44,7 @@ test('only an acknowledged matching card and authorized actor can decide the exa
   assert.deepEqual(h.codex.replies, [{ id: 'approval', result: { decision: 'accept' } }]);
   assert.equal(h.bridge.cardAction(click), 'rejected'); assert.equal(h.bridge.cardAction(h.click({ decision: 'reject' })), 'rejected');
   assert.equal(h.codex.replies.length, 1); assert.equal(h.turns().length, 1); assert.equal(Number(h.state.drainStatus().outbox) >= 1, true);
-  for (const row of h.state.pending()) if (!row.updateMessage) h.state.delivered(row.id);
+  for (const row of h.state.pending()) if (!row.updateMessage) { assert.equal(row.replyTo, 'om_card'); h.state.delivered(row.id); }
   const update = h.state.pending().find(row => row.updateMessage)!; assert.equal(update.updateMessage, 'om_card'); assert.equal(update.approvalView, 'approved');
 });
 
@@ -63,7 +64,9 @@ test('expiry, interruption and a newer native turn cannot give an old card autho
 
 test('lost initial acknowledgement rejects clicks; durable update retries target the same message after reopen', async t => {
   const h = await pending(t); let fail = true; const sent: string[] = [], updates: string[] = [];
-  const sender = { send: async (_chat: string, _text: string, id: string) => { sent.push(id); if (fail) throw Error('uncertain'); return 'om_card'; },
+  const texts: string[] = [];
+  const sender = { send: async (_chat: string, text: string, id: string, options?: DeliveryOptions) => {
+    assert.ok(!options?.replyTo?.startsWith('card/')); texts.push(text); sent.push(id); if (fail) throw Error('uncertain'); return 'om_card'; },
     updateApproval: async (id: string) => { updates.push(id); if (fail) throw Error('update uncertain'); } };
   const outbox = new Outbox(h.state, sender); await outbox.flush(); assert.equal(h.bridge.cardAction(h.click()), 'rejected');
   const db = new DatabaseSync(join(h.config.stateDirectory, 'bridge.db')); db.prepare('UPDATE outbox SET next=0').run(); db.close(); fail = false; await outbox.flush();
@@ -76,6 +79,8 @@ test('lost initial acknowledgement rejects clicks; durable update retries target
   const reopened = transport.pending(Number.MAX_SAFE_INTEGER).find(row => row.updateMessage)!; assert.equal(reopened.id, retry.id); assert.equal(reopened.approvalView, 'rejected');
   const db2 = new DatabaseSync(join(h.config.stateDirectory, 'bridge.db')); db2.prepare('UPDATE outbox SET next=0').run(); db2.close(); fail = false; await new Outbox(transport, sender).flush();
   assert.deepEqual(updates, ['om_card', 'om_card']); assert.equal(h.codex.replies.length, 1); assert.equal(transport.drainStatus().outbox, 0);
+  h.codex.complete(h.current().threadId, h.current().turnId); for (let i = 0; i < 4; i++) await outbox.flush();
+  assert.ok(texts.some(text => text.includes('Done'))); assert.equal(h.state.drainStatus().outbox, 0);
 });
 
 test('oversized exact actions retain structured manual preview instead of a truncated actionable card', async t => {

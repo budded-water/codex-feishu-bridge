@@ -5,7 +5,7 @@ import { openPrivateDatabase } from './private-database.js';
 import { OWNER_WITHDRAWN, type RequestRecord, type ControlRecord } from './handoff/store.js';
 import type { JournalProjection } from './handoff/journal.js';
 import { splitReply } from './reply.js';
-import { approvalCard, parseApproval, cardMessage, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
+import { approvalCard, parseApproval, cardMessage, approvalReplyTarget, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
 import { ownerKey, type IncomingMessage, type Session, type Task, type DeliveryOptions, type NativeControlTarget, type ControlDisposition } from './types.js';
 
 export interface Delivery {
@@ -161,7 +161,7 @@ export class State {
           VALUES (?,?,?,?,?,?,?,?,?)`).run(row.id, row.chat, this.redact(row.body), row.reply_to, row.mentions,
           request.execution, row.final, row.prompt_id ? request.execution + ':' + row.prompt_id : null, row.transient ? request.execution : null);
         if (row.approval) {
-          const p = row.approval;
+          const p = this.redactApproval(row.approval);
           this.db.prepare('UPDATE outbox SET approval=? WHERE id=?').run(JSON.stringify(p), row.id);
           this.db.prepare('INSERT OR IGNORE INTO approval_cards(id,prompt,delivery,payload) VALUES (?,?,?,?)')
             .run(p.id, request.execution + ':' + p.prompt, row.id, JSON.stringify(p));
@@ -180,7 +180,7 @@ export class State {
       if (this.db.prepare('SELECT 1 FROM projected_control_notices WHERE origin=? AND status=?').get(control.origin, control.status)) return;
       const id = randomUUID();
       this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(control.origin, control.status, id);
-      this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to) VALUES (?,?,?,?)').run(id, control.message.chat, this.redact(control.result), control.message.id);
+      this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to) VALUES (?,?,?,?)').run(id, control.message.chat, this.redact(control.result), approvalReplyTarget(control.message) ?? null);
     });
   }
 
@@ -421,9 +421,7 @@ export class State {
 
   send(chat: string, body: string, options: DeliveryOptions = {}): void {
     if (options.approval) {
-      const raw = options.approval;
-      const p = { ...raw, context: this.redact(raw.context), reason: this.redact(raw.reason), action: this.redact(raw.action),
-        ...(raw.sourceLink && { sourceLink: this.redact(raw.sourceLink) }) };
+      const p = this.redactApproval(options.approval);
       if (Buffer.byteLength(JSON.stringify(approvalCard(p))) <= APPROVAL_CARD_BYTES) {
         parseApproval(p);
         this.transaction(() => {
@@ -444,6 +442,11 @@ export class State {
   private redact(body: string): string {
     for (const secret of this.secrets) body = body.split(secret).join('[redacted]');
     return body;
+  }
+
+  private redactApproval(p: ApprovalPresentation): ApprovalPresentation {
+    return { ...p, context: this.redact(p.context), reason: this.redact(p.reason), action: this.redact(p.action),
+      ...(p.sourceLink && { sourceLink: this.redact(p.sourceLink) }) };
   }
 
   sendStatus(task: string, chat: string, body: string, promptId?: string): void {

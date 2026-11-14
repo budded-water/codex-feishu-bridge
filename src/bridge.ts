@@ -1,4 +1,4 @@
-import { approvalPresentation, approvalText, approvalActorAllowed, type ApprovalClick, type CardResult } from './approval.js';
+import { approvalPresentation, approvalText, approvalActorAllowed, approvalReplyTarget, type ApprovalClick, type CardResult } from './approval.js';
 import { MAX_NOTIFICATION_MEMBERS, naturalControl, duration, taskTitle, deadline, terminalText, statusNames, fencedPreview, notificationBody } from './ux.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { realpathSync, mkdirSync } from 'node:fs';
@@ -729,7 +729,7 @@ export class Bridge {
       }
       this.decide(prompt, command === '/approve', undefined, message.user);
     }
-    this.state.send(message.chat,prompt.kind === 'question' ? '已收到你的回答，正在继续。' : command === '/approve' ? '已批准这一步，正在等待继续。' : '已拒绝这一步操作。',{replyTo:message.id});
+    this.state.send(message.chat,prompt.kind === 'question' ? '已收到你的回答，正在继续。' : command === '/approve' ? '已批准这一步，正在等待继续。' : '已拒绝这一步操作。',{replyTo:approvalReplyTarget(message)});
     if (prompt.replyChat !== prompt.active.session.chat) this.state.sendStatus(prompt.active.task.id,prompt.active.session.chat,command === '/approve' ? '管理员已批准这一步，正在继续。' : '管理员已拒绝这一步操作。');
     return true;
   }

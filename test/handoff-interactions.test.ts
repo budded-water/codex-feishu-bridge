@@ -11,7 +11,7 @@ import { PilotInteractions } from '../src/handoff/interactions.js';
 import type { DeliveryOptions, ContextPort } from '../src/types.js';
 import { FakeCodex, until } from './helpers.js';
 import { readJournal } from '../src/handoff/journal.js';
-import type { ApprovalClick, ApprovalView } from '../src/approval.js';
+import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
   async start() { this.ready = true; this.generation = randomUUID(); }
@@ -32,12 +32,13 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const sent: { chat: string; text: string; id: string; options?: DeliveryOptions }[] = [];
   const reactions = new Map<string, string>();
   let send = async (chat: string, text: string, id: string, options?: DeliveryOptions): Promise<string> => {
+    assert.ok(!options?.replyTo?.startsWith('card/'), 'Feishu cannot reply to a synthetic event ID');
     sent.push({ chat, text, id, options }); return 'delivered-' + id;
   };
   let remove = async (message: string) => { reactions.delete(message); };
-  const cardUpdates: { message: string; view: ApprovalView }[] = [];
+  const cardUpdates: { message: string; view: ApprovalView; approval: ApprovalPresentation }[] = [];
   const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options),
-    updateApproval: async (message: string, _approval: unknown, view: ApprovalView) => { cardUpdates.push({ message, view }); } };
+    updateApproval: async (message: string, approval: ApprovalPresentation, view: ApprovalView) => { cardUpdates.push({ message, view, approval }); } };
   const port = { addReaction: async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; },
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
   let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
@@ -81,10 +82,30 @@ test('private card callbacks preserve delivered identity and original native tar
   await drain(h); await h.restart(); await drain(h);
   assert.equal(relayCount, 1); assert.deepEqual(h.codex.replies, [{ id: 'card-native', result: { decision: 'accept' } }]);
   assert.equal(h.admission.store.control(command)!.status, 'sent');
-  assert.deepEqual(h.cardUpdates, [{ message: click.message, view: 'approved' }]);
+  assert.deepEqual(h.cardUpdates.map(({ message, view }) => ({ message, view })), [{ message: click.message, view: 'approved' }]);
+  assert.ok(h.sent.some(row => row.text.includes('已批准这一步') && row.options?.replyTo === click.message));
   assert.equal(h.interactions.cardAction({ ...click, event: randomUUID(), decision: 'reject' }), 'rejected');
   h.codex.complete(task.thread, task.turn); await task.running; await drain(h);
   assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, 1);
+});
+
+test('native card projection redacts transport secrets in sends and updates without changing the sealed journal', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const task = await h.launch();
+  h.codex.ask('private-card', 'item/commandExecution/requestApproval', { threadId: task.thread, turnId: task.turn,
+    command: 'echo fixture-private-secret', reason: 'Inspect fixture-private-secret' });
+  const source = await h.native.projection(task.request.execution);
+  const p = source.messages.find(row => row.approval)!.approval!; assert.ok(p.action.includes('fixture-private-secret'));
+  await drain(h);
+  const sent = h.sent.find(row => row.options?.approval)!; assert.ok(sent);
+  assert.ok(!JSON.stringify(sent).includes('fixture-private-secret')); assert.equal(sent.options!.approval!.id, p.id);
+  const click: ApprovalClick = { event: randomUUID(), tenant: 'tenant', user: 'ou_owner', chat: 'chat', message: 'delivered-' + sent.id, id: p.id, decision: 'reject' };
+  assert.equal(h.interactions.cardAction(click), 'accepted'); await drain(h);
+  assert.equal(h.cardUpdates.length, 1); assert.ok(!JSON.stringify(h.cardUpdates).includes('fixture-private-secret'));
+  h.codex.complete(task.thread, task.turn); await task.running;
+  const path = join(h.config.stateDirectory, 'executions', task.request.execution, 'bridge.db'); const before = readFileSync(path);
+  await drain(h); assert.deepEqual(readFileSync(path), before); assert.equal(h.codex.replies.length, 1);
+  assert.ok(h.sent.some(row => row.text.includes('Done'))); assert.equal(h.interactions.transport.state.drainStatus().outbox, 0);
 });
 
 test('lost control acknowledgement is lookup-only and gateway restart retains original execution and actor', async t => {

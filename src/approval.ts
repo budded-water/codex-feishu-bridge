@@ -63,7 +63,12 @@ export function normalizeApprovalClick(input: unknown, appId: string): ApprovalC
 }
 
 export function cardMessage(click: ApprovalClick, p: ApprovalPresentation): IncomingMessage {
-  return { tenant: click.tenant, user: click.user, chat: click.chat, id: 'card/' + click.event, chatType: 'p2p', text: '/' + click.decision + ' ' + p.prompt };
+  return { tenant: click.tenant, user: click.user, chat: click.chat, id: 'card/' + click.event, parentId: click.message,
+    chatType: 'p2p', text: '/' + click.decision + ' ' + p.prompt };
+}
+
+export function approvalReplyTarget(message: IncomingMessage): string | undefined {
+  return message.id.startsWith('card/') ? message.parentId : message.id;
 }
 
 export function approvalActorAllowed(config: Config, click: ApprovalClick): boolean {
