@@ -15,7 +15,7 @@ export async function incidentReport(admission: PilotAdmission, native: NativeEx
     source.diagnose(request.id).catch((): HubDiagnostic => ({ status: 'unavailable' }))]);
   const queued = admission.store.requests().filter(row => row.project === execution.project && ownerKey(row.message) === ownerKey(request.message));
   const pending = queued.filter(row => !row.blocked && !admission.store.execution(row.execution) && admission.store.submission(row.id)?.status !== 'blocked').length;
-  const blocked = queued.filter(row => row.blocked).length;
+  const blocked = queued.filter(row => row.blocked || admission.store.submission(row.id)?.status === 'blocked').length;
   const delivery = state.drainStatus();
   const current = admission.store.execution(execution.id)!;
   const held = admission.store.unsettled().some(row => row.id === execution.id);

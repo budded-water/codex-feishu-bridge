@@ -610,3 +610,17 @@ test('invalid or cross-bound process metadata stays unverified without hiding va
     assert.equal(h.admission.store.unsettled().length, 1); assert.equal(h.admission.store.recoveries().length, 0);
   }
 });
+
+test('diagnostic blocked count includes routing blocks and counts combined block reasons once', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const task = await h.launch();
+  const routedBlock = h.interactions.receive(h.actor('Source routing rejected')); assert.ok('request' in routedBlock);
+  h.admission.store.routed(routedBlock.request.id, false);
+  const combined = h.interactions.receive(h.actor('Queued before uncertain outcome')); assert.ok('request' in combined);
+  h.codex.exit(); await task.running;
+  assert.equal(h.admission.store.reserve(combined.request.id, 2).kind, 'blocked'); h.admission.store.routed(combined.request.id, false);
+  const guardBlock = h.interactions.receive(h.actor('Blocked after uncertain outcome')); assert.equal(guardBlock.status, 'blocked');
+  const query = h.actor('/恢复'); h.interactions.receive(query); await drain(h);
+  const report = h.sent.find(row => row.options?.replyTo === query.id)!.text;
+  assert.match(report, /已接收未执行：0；已阻断：3/);
+});
