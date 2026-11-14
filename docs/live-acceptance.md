@@ -240,3 +240,10 @@ This evidence uses synthetic human transport and temporary state. The candidate 
 
 
 The initial independent P2 review found a recovery-notice loss window during rollback: a decision could commit without projection, close cleanly and convert to a runtime without a recovery projector. Two failing regressions reproduced this gap. Graceful closure now materializes the notice, and rollback rejects missing projection or undelivered notices before replacing ownership; the positive conversion retains the acknowledged source identity and native conversation. Full checks passed with 222 tests after the fix. The corrected complete candidate still requires fresh independent review and live rollout.
+
+
+## 2026-11-14 — Reviewed P2 deployment awaiting owner recovery acceptance
+
+After the rollback correction, the complete candidate passed fresh independent review with no actionable findings, exact-head CI and preflight. A separate locked artifact passed build and native compatibility doctor. The M6 deployment was paused and drained; both old services were observed removed and the Hub port closed before state/configuration snapshots. Gateway and Worker references switched to the reviewed artifact. The Hub became healthy, the gateway reconnected under managed Feishu ownership, and admission reopened with no pending execution or delivery state. No credentials, global native configuration or authorization audience changed.
+
+Private inventory records the reviewed candidate, compatible old artifact, closed-state backup, service processes and readiness evidence. The first artifact prepared before the rollback correction was never activated. The owner has been asked to start the bounded live recovery case; its actual result remains pending.
