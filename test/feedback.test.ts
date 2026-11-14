@@ -127,7 +127,7 @@ test('waiting for group context is reported honestly before Codex starts', async
   h.bridge.receive(message('Question', { chatType: 'group' })); await setImmediate();
   t.mock.timers.tick(LONG_WAIT_MS);
   assert.deepEqual(h.deliveries(), []); assert.equal(h.turns().length, 0);
-  h.bridge.receive(message('/status 详情')); assert.ok(h.deliveries()[0]!.includes('尚未收到本次 Codex 事件'));
+  h.bridge.receive(message('/status details')); assert.ok(h.deliveries()[0]!.includes('尚未收到本次 Codex 事件'));
   resolve({ status: 'available', messages: [], note: '' }); await setImmediate();
   h.codex.complete(h.current().threadId, h.current().turnId);
 });

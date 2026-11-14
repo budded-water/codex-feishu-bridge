@@ -6,7 +6,7 @@ The deployed diagnostic report is read-only. An admitted but unstarted queue can
 
 ## Scope
 
-Add owner-private `/队列` and `/撤回` controls through the existing gateway. List bounded, owned unstarted requests; withdraw one exact request by execution ID or by replying to its original message. Commit the withdrawal and launch prohibition together, retaining an actor/message audit and original routing/block reason. Refuse once any execution permit exists. Preserve unknown guards, native history, pause and Hub runs/cards.
+Add owner-private `/queue` and `/withdraw` controls through the existing gateway. List bounded, owned unstarted requests; withdraw one exact request by execution ID or by replying to its original message. Commit the withdrawal and launch prohibition together, retaining an actor/message audit and original routing/block reason. Refuse once any execution permit exists. Preserve unknown guards, native history, pause and Hub runs/cards.
 
 Use the existing SQLite database and transport notice tombstones, without model inference, new credentials or configuration. Project acknowledged withdrawal notices and terminal transport feedback after restart; require their projection and drained delivery before rollback. Preserve the audit in archived pilot state and command deduplication in reverse conversion.
 

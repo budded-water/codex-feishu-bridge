@@ -126,9 +126,9 @@ test('pending ownership, live controls and lost native process preserve their bo
   assert.equal((await recovery.recover())[0]!.status, 'live');
   const owner = JSON.parse(readFileSync(join(h.state, 'executions', grant.permit.execution, 'native-owner.json'), 'utf8'));
   await assert.rejects(probeOwner(owner.socket, 'wrong', grant.permit.execution), /reply/);
-  await recovery.control(grant.permit.execution, { ...h.actor('/补充 wrong owner'), user: 'ou_intruder' });
+  await recovery.control(grant.permit.execution, { ...h.actor('/steer wrong owner'), user: 'ou_intruder' });
   assert.ok(!client.calls.some(call => call.method === 'turn/steer'));
-  const supplement = h.actor('/补充 Inspect current changes');
+  const supplement = h.actor('/steer Inspect current changes');
   await recovery.control(grant.permit.execution, supplement);
   await recovery.control(grant.permit.execution, supplement);
   assert.equal(client.calls.filter(call => call.method === 'turn/steer').length, 1);
@@ -217,9 +217,9 @@ test('assigned workspace execution preserves general instructions, scoped contro
   assert.ok(!Object.hasOwn(start, 'approvalPolicy') && !Object.hasOwn(start, 'sandbox'));
   await runtime.control(grant.permit.execution, h.actor('/status'));
   assert.ok((await runtime.projection(grant.permit.execution)).messages.some(row => row.body.includes('当前：通用工作区')));
-  await runtime.control(grant.permit.execution, { ...h.actor('/补充 other target'), user: 'ou_intruder' });
+  await runtime.control(grant.permit.execution, { ...h.actor('/steer other target'), user: 'ou_intruder' });
   assert.ok(!client.calls.some(call => call.method === 'turn/steer'));
-  await runtime.control(grant.permit.execution, h.actor('/补充 Keep the target explicit'));
+  await runtime.control(grant.permit.execution, h.actor('/steer Keep the target explicit'));
   assert.equal(client.calls.find(call => call.method === 'turn/steer')!.params.expectedTurnId, turn.turn);
   client.exit(); assert.equal((await running).outcome.status, 'unknown');
   assert.equal(h.gateway.store.unsettled()[0]!.id, grant.permit.execution);

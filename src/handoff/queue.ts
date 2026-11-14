@@ -6,7 +6,7 @@ import { isMaintenanceOwner } from './owner-access.js';
 import { OWNER_WITHDRAWN, type WithdrawalRecord } from './store.js';
 
 const LIMIT = 10;
-const usage = '查看 /队列 后发送 /撤回 完整请求编号，或引用自己原来的任务消息发送 /撤回。只处理尚未取得执行授权的请求。';
+const usage = '查看 /queue 后发送 /withdraw 完整请求编号，或引用自己原来的任务消息发送 /withdraw。只处理尚未取得执行授权的请求。';
 
 export function withdrawalNoticeTarget(admission: PilotAdmission, receipt: WithdrawalRecord): Pick<IncomingMessage, 'chat' | 'id'> | undefined {
   const request = admission.store.request(receipt.request);
@@ -28,7 +28,7 @@ export class OwnerQueue {
     const text = message.text.trim();
     const owned = this.admission.store.requests().filter(row => row.project === this.admission.project &&
       ownerKey(row.message) === ownerKey(message) && row.message.chatType === 'p2p');
-    if (text === '/队列') {
+    if (text === '/queue') {
       const queued = owned.filter(row => row.blocked !== OWNER_WITHDRAWN && !this.admission.store.execution(row.execution));
       const lines = queued.slice(0, LIMIT).map(row => {
         const stamp = Number(row.message.createTime);
@@ -40,7 +40,7 @@ export class OwnerQueue {
         lines.join('\n\n') + '\n' + usage, { replyTo: message.id });
       return { status: 'queue' as const };
     }
-    const selector = /^\/撤回(?:\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/i.exec(text);
+    const selector = /^\/withdraw(?:\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/i.exec(text);
     const quoted = message.parentId ? owned.find(row => row.message.id === message.parentId) : undefined;
     const target = selector?.[1] ? owned.find(row => row.execution === selector[1]!.toLowerCase()) : quoted;
     if (!selector || !target || (message.parentId && quoted?.id !== target.id)) {
@@ -50,7 +50,7 @@ export class OwnerQueue {
     let fresh: boolean;
     try { fresh = this.admission.store.withdraw(message, target.execution, this.admission.project).fresh; }
     catch {
-      this.state.send(message.chat, '未撤回：请求可能已取得执行授权或身份不匹配。请查看 /status；运行中的任务使用 /stop，结果未确认时使用 /恢复。', { replyTo: message.id });
+      this.state.send(message.chat, '未撤回：请求可能已取得执行授权或身份不匹配。请查看 /status；运行中的任务使用 /stop，结果未确认时使用 /recover。', { replyTo: message.id });
       return { status: 'rejected' as const };
     }
     if (!fresh) this.state.send(message.chat, '该请求已撤回，不会再次执行。', { replyTo: message.id });

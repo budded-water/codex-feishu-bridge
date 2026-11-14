@@ -175,14 +175,14 @@ try {
   await until('native session published', async () => (await request('/v1/state')).runs.find(run => run.id === first.id)?.session === original.thread);
   assert.ok((await control(first.id, undefined, {}, 'wrong-token')).error);
   await control(first.id, '/stop', { user: 'another-owner' });
-  await control(first.id, '/补充 wrong chat', { chat: 'another-chat' });
+  await control(first.id, '/steer wrong chat', { chat: 'another-chat' });
   assert.equal(audit().filter(item => ['turn/interrupt', 'turn/steer'].includes(item.event)).length, 0);
   assert.equal((await control(first.id, '/status')).execution.status, 'running');
   await stopUp('SIGKILL');
   process.kill(original.pid, 0); // Losing Hub/Worker did not terminate the detached native owner.
   start();
   await until('hub restart', () => fetch(hub + '/healthz').then(result => result.ok).catch(() => false));
-  await control(first.id, '/补充 finish this fixture');
+  await control(first.id, '/steer finish this fixture');
   const finished = await ended(first.id);
   assert.equal(finished.session, original.thread);
   assert.equal(starts().length, 1);
@@ -215,9 +215,9 @@ try {
     approvalToken = seen.messages.find(item => item.chat === 'probe-admin-chat')?.body.match(/请求 ([a-f0-9]{8})/)?.[1];
     return approvalToken;
   });
-  await control(approval.id, '/批准 ' + approvalToken);
+  await control(approval.id, '/approve ' + approvalToken);
   assert.equal(audit().filter(item => item.event === 'decision').length, 0);
-  await control(approval.id, '/批准 ' + approvalToken, { user: 'probe-admin', chat: 'probe-admin-chat' });
+  await control(approval.id, '/approve ' + approvalToken, { user: 'probe-admin', chat: 'probe-admin-chat' });
   await ended(approval.id);
   assert.equal(audit().filter(item => item.event === 'decision').length, 1);
   passed.push('native approval uses designated actor/chat, independently of business receipts');

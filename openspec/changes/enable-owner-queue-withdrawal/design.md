@@ -2,7 +2,7 @@
 
 ## Authority and selection
 
-The enrolled owner must also satisfy the existing approval-role/private-chat boundary. `/队列` reads owned requests without an execution or withdrawal. Its bounded list exposes execution references, receipt time and scheduling/block state, without task text, commands, credentials or paths. `/撤回 <execution>` selects one exact request; bare `/撤回` requires a quote of that owner's original admitted message. A conflicting quote, malformed selector, foreign request or unsupported input cannot change state. No fuzzy intent or bulk cancellation is added.
+The enrolled owner must also satisfy the existing approval-role/private-chat boundary. `/queue` reads owned requests without an execution or withdrawal. Its bounded list exposes execution references, receipt time and scheduling/block state, without task text, commands, credentials or paths. `/withdraw <execution>` selects one exact request; bare `/withdraw` requires a quote of that owner's original admitted message. A conflicting quote, malformed selector, foreign request or unsupported input cannot change state. No fuzzy intent or bulk cancellation is added.
 
 ## Transaction and scheduling race
 

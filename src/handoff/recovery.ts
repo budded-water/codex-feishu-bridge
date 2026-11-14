@@ -8,7 +8,7 @@ import type { SourceOutbox } from './source.js';
 import { incidentReport } from './diagnostics.js';
 import { isMaintenanceOwner } from './owner-access.js';
 
-const usage = '请先核对原命令及其后代进程均已停止，并检查文件和外部副作用。确认后发送 /恢复 编号 检查依据。无法核实时请使用本机维护检查。';
+const usage = '请先核对原命令及其后代进程均已停止，并检查文件和外部副作用。确认后发送 /recover 编号 检查依据。无法核实时请使用本机维护检查。';
 
 export function recoveryNoticeTarget(admission: PilotAdmission, recovery: RecoveryRecord): Pick<IncomingMessage, 'chat' | 'id'> | undefined {
   const execution = admission.store.execution(recovery.execution);
@@ -31,7 +31,7 @@ export class FeishuRecovery {
     if (!this.state.remember(message)) return { status: 'duplicate' as const };
     this.work = this.work.then(() => this.handle(message)).catch(() => {
       if (!this.admission.store.recoveries().some(row => row.origin === JSON.stringify([message.tenant, message.id]))) {
-        this.state.send(message.chat, '恢复条件尚未满足，未解除保护。请重新查看 /恢复；仍无法核实时需要本机维护检查。', { replyTo: message.id });
+        this.state.send(message.chat, '恢复条件尚未满足，未解除保护。请重新查看 /recover；仍无法核实时需要本机维护检查。', { replyTo: message.id });
       }
     });
     return { status: 'recovery' as const };
@@ -45,7 +45,7 @@ export class FeishuRecovery {
 
   private async handle(message: IncomingMessage): Promise<void> {
     const text = message.text.trim();
-    if (text === '/恢复') {
+    if (text === '/recover') {
       const incidents = this.admission.store.unsettled().filter(row => this.held(message, row.id));
       const lines: string[] = [];
       for (const incident of incidents) {
@@ -56,7 +56,7 @@ export class FeishuRecovery {
         (backlog ? '仍有已接收的未执行任务，需要先通过本机维护核对队列。\n' : '') + usage : '当前没有属于本私聊的待恢复任务。', { replyTo: message.id });
       return;
     }
-    const command = /^\/恢复\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s+([\s\S]+)$/i.exec(text);
+    const command = /^\/recover\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s+([\s\S]+)$/i.exec(text);
     if (!command || command[2]!.trim().length > 1800) {
       this.state.send(message.chat, usage + ' 检查依据最长 1800 字符。', { replyTo: message.id });
       return;

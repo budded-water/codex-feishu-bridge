@@ -5,7 +5,7 @@ The owner-private recovery flow works through Feishu, but the last live test sti
 ## What Changes
 
 - Capture private, request-bound owner/native process identities and bounded observed descendant relationships while an assigned native child runs.
-- Expand `/恢复` with task-scoped native connection, sealed-journal, registered-process, queue and source-scoped Hub observations.
+- Expand `/recover` with task-scoped native connection, sealed-journal, registered-process, queue and source-scoped Hub observations.
 - Label each observation as verified, running or unverified, include snapshot time/coverage, and retain explicit human effects inspection.
 - Make report collection read-only for admission, native journals and Hub. Preserve normal receipt/outbox delivery and existing confirmation revalidation.
 - Archive the optional process metadata with closed native evidence during migration/rollback.

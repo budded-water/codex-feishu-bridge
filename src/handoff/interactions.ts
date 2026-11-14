@@ -32,36 +32,47 @@ export class PilotInteractions {
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
-    if (/^\/恢复(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
-    if (/^\/(?:队列|撤回)(?:\s|$)/.test(message.text.trim())) return this.queue.receive(message);
+    if (/^\/recover(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
+    if (/^\/(?:queue|withdraw)(?:\s|$)/.test(message.text.trim())) return this.queue.receive(message);
     const operator = message.tenant === this.admission.scope.tenant && message.user === this.admission.scope.operator && message.chat === this.admission.scope.chat;
-    const approval = /^\/(?:批准|拒绝|回答)(?:\s|$)/.test(message.text.trim());
+    const approval = /^\/(?:approve|reject|answer)(?:\s|$)/.test(message.text.trim());
     const admin = approval && message.tenant === this.admission.scope.tenant && this.config.approvalUsers.includes(message.user) &&
       message.chat === (this.config.approvalChat ?? this.admission.scope.chat) &&
       (this.config.accessMode !== 'allowlist' || this.config.allowedUsers.includes(message.user));
     if (!operator && !admin) return { status: 'ignored' as const };
     const natural = naturalControl(message.text.trim());
-    const command = /^\/(?:status|stop|补充|批准|拒绝|回答)(?:\s|$)/.test(message.text.trim());
+    const command = /^\/(?:help|status|stop|steer|approve|reject|answer)(?:\s|$)/.test(message.text.trim());
     if (!command && !natural) {
       const result = this.admission.receive(message);
       if ('request' in result) this.transport.admit(result.request);
       if (result.status === 'rejected' && result.reason === 'maintenance') this.transport.state.transaction(() => {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '系统正在维护，这条新请求没有开始。恢复后请重新发送需求。', { replyTo: message.id });
       });
-      if (result.status === 'rejected' && result.reason === 'control_requires_live_gateway' && this.config.projectRouting === 'workspace' && /^\/project(?:\s|$)/.test(message.text.trim())) {
+      if (result.status === 'rejected' && result.reason === 'control_requires_live_gateway') {
         this.transport.state.transaction(() => {
-          if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '当前为通用工作区。直接说明任务，需要操作仓库时请说明目标目录或项目。', { replyTo: message.id });
+          if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
+            this.config.projectRouting === 'workspace' && /^\/project(?:\s|$)/.test(message.text.trim())
+              ? '当前为通用工作区。直接说明任务，需要操作仓库时请说明目标目录或项目。'
+              : '命令不可用，请发送 /help 查看支持的英文命令。', { replyTo: message.id });
         });
       }
       return result;
     }
     if (message.unsupported || message.text.length > 30_000 || (message.chatType === 'group' && !this.config.enableGroups)) return { status: 'rejected' as const };
+    if (message.text.trim() === '/help') {
+      if (!this.transport.state.remember(message)) return { status: 'duplicate' as const };
+      this.transport.state.send(message.chat,
+        '命令：/help、/status、/status details、/steer 内容、/stop、/approve 编号、/reject 编号、/answer 编号 内容。\n' +
+        '本人私聊维护命令：/recover [编号 检查依据]、/queue、/withdraw [完整请求编号]；维护操作还须具备审批角色。\n' +
+        '普通消息交办任务；撤回仅处理尚未取得执行授权的请求。', { replyTo: message.id });
+      return { status: 'help' as const };
+    }
     const previous = this.admission.store.control(message);
     if (previous) return { status: 'duplicate' as const, control: previous };
     const held = this.admission.store.unsettled();
     const execution = held.length === 1 ? held[0] : undefined;
     const reference = message.parentId ? this.transport.state.referencedTask(message.parentId, ownerKey(message)) : undefined;
-    const quotedSupplement = /^\/补充\s/.test(message.text.trim()) && !reference;
+    const quotedSupplement = /^\/steer\s/.test(message.text.trim()) && !reference;
     if (!execution || (!approval && message.parentId && reference !== execution.id && !quotedSupplement)) {
       this.transport.state.transaction(() => {
         if (!this.transport.state.remember(message)) return;
@@ -77,7 +88,7 @@ export class PilotInteractions {
     if (execution.status === 'unknown' && /^\/status(?:\s|$)/.test(message.text.trim())) {
       this.transport.state.transaction(() => {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
-          '原任务结果未确认，执行保护仍保留。本人可在登记私聊发送 /恢复 查看检查条件；不会自动重跑。', { replyTo: message.id });
+          '原任务结果未确认，执行保护仍保留。本人可在登记私聊发送 /recover 查看检查条件；不会自动重跑。', { replyTo: message.id });
       });
       return { status: 'rejected' as const };
     }
@@ -90,7 +101,7 @@ export class PilotInteractions {
   private dispatchMessage(control: ControlRecord): IncomingMessage {
     if (control.message.text.trim().startsWith('/')) return control.message;
     const intent = naturalControl(control.message.text.trim());
-    return { ...control.message, text: intent === 'stop' ? '/stop' : '/补充 ' + control.message.text };
+    return { ...control.message, text: intent === 'stop' ? '/stop' : '/steer ' + control.message.text };
   }
 
   private async relay(control: ControlRecord): Promise<void> {
@@ -102,7 +113,7 @@ export class PilotInteractions {
       } catch { /* Uncertain dispatch is lookup-only; approvals are never resent. */ }
       return;
     }
-    if (message.chatType === 'group' && message.parentId && /^\/补充\s/.test(message.text.trimStart())) {
+    if (message.chatType === 'group' && message.parentId && /^\/steer\s/.test(message.text.trimStart())) {
       const execution = this.admission.store.execution(control.execution)!;
       await this.prepareReference(this.admission.store.request(execution.request)!, message, 0);
     }

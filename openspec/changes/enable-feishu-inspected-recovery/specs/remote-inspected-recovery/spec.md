@@ -5,7 +5,7 @@
 The pilot gateway SHALL accept recovery controls only from the admitted task owner who is also a configured approval administrator in the enrolled private approval chat. Recovery inspection SHALL NOT start model inference or tools, expose another conversation's incident or relax native permissions.
 
 #### Scenario: An owner asks for recovery status
-- **WHEN** the admitted owner sends `/恢复` in the enrolled private chat
+- **WHEN** the admitted owner sends `/recover` in the enrolled private chat
 - **THEN** the gateway SHALL show only that conversation's held unknown executions and bounded checkpoint readiness
 - **AND** it SHALL explain the required human process/effects inspection before any confirmation
 

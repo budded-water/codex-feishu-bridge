@@ -4,8 +4,8 @@ The M6 owner-private pilot retains uncertain execution guards correctly, includi
 
 ## What Changes
 
-- Add `/恢复` to inspect the enrolled owner's guarded unknown execution without inference or tool execution.
-- Accept `/恢复 <execution-id> <inspection-reference>` only from that task's enrolled owner, who must also be a configured approval administrator in the enrolled private approval chat.
+- Add `/recover` to inspect the enrolled owner's guarded unknown execution without inference or tool execution.
+- Accept `/recover <execution-id> <inspection-reference>` only from that task's enrolled owner, who must also be a configured approval administrator in the enrolled private approval chat.
 - Require a valid, request-bound sealed native checkpoint proving the native child settled, an unreachable authenticated owner, and the human's explicit process/effects inspection reference before releasing exactly that guard.
 - Preserve the original unknown outcome, maintenance pause, blocked requests and revoked launch authority. Recovery does not execute or replay work.
 - Persist the deciding actor/message and checkpoint-bound inspection reference through the existing recovery ledger, with repairable result delivery across gateway restart.

@@ -95,3 +95,8 @@ The [bounded change](../openspec/changes/enable-owner-queue-withdrawal/tasks.md)
 Initial independent review identified a source-confirmation failure race after withdrawal: the request could remain unstarted but emit a false native-uncertainty question. Held POST/GET regressions reproduced unavailable, invalid-route and wrong-state responses. The source catch path now rechecks the committed withdrawal before reporting failure. Corrected full checks passed with 249 tests; fresh candidate review/CI and actual rollout remain separate.
 
 The corrected complete candidate passed fresh independent review and CI/preflight. A locked artifact passed build/doctor and is deployed on M6 after paused/drained replacement, private closed-state snapshots and managed Feishu readiness. Actual owner-private queue acceptance remains pending. The earlier artifact was not activated.
+
+
+## English chat command contract
+
+The owner-requested syntax change uses `/steer`, `/approve`, `/reject`, `/answer`, `/notify`, `/recover`, `/queue`, `/withdraw` and `/status details` consistently across core, P1 and native/probe allowlists. Core and P1 help advertise only their supported operations; retired Chinese slash commands cannot execute or decide requests. Natural Chinese conversation/control intent and body spacing remain supported. Full local type/behavior/build checks passed with 251 tests. No database/configuration/protocol schema or subscription identity changed. See the [bounded change](../openspec/changes/standardize-english-chat-commands/tasks.md) for integration/review/deployment gates. Queue live acceptance remains pending independently.

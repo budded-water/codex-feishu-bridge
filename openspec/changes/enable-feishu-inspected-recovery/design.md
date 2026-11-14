@@ -4,9 +4,9 @@ Recovery is an authenticated human maintenance control, outside native inference
 
 ## Selection and evidence
 
-`/恢复` shows only held unknown executions for that owner/conversation. It reports whether a request-bound sealed checkpoint is available and gives the exact immutable execution ID. The prompt requires the owner to verify command descendants and actual file/external effects before sending an inspection reference. It does not display task input, raw tool arguments, private paths or credentials.
+`/recover` shows only held unknown executions for that owner/conversation. It reports whether a request-bound sealed checkpoint is available and gives the exact immutable execution ID. The prompt requires the owner to verify command descendants and actual file/external effects before sending an inspection reference. It does not display task input, raw tool arguments, private paths or credentials.
 
-`/恢复 <execution-id> <inspection-reference>` rechecks the exact held unknown execution, ownership, authenticated owner availability and the sealed checkpoint. A reachable owner, missing/mutated checkpoint or absent guard fails closed. The machine proves only native-child settlement and checkpoint integrity. The inspection reference is a human attestation, not independent proof of descendant/external-effect settlement.
+`/recover <execution-id> <inspection-reference>` rechecks the exact held unknown execution, ownership, authenticated owner availability and the sealed checkpoint. A reachable owner, missing/mutated checkpoint or absent guard fails closed. The machine proves only native-child settlement and checkpoint integrity. The inspection reference is a human attestation, not independent proof of descendant/external-effect settlement.
 
 An immutable execution ID replaces a transient approval token: this is a fresh maintenance decision about one retained incident, not a response to an expired native request. A previous execution's ID cannot address a newer guard. The recovery ledger stores the original source-message identity, deciding owner and checkpoint-bound inspection reference. A guard check inside the recovery transaction prevents concurrent local/remote confirmations from recording a second decision after the guard is gone. Duplicate completed recovery messages cannot execute again.
 

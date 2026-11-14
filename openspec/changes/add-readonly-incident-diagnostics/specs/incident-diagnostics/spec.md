@@ -19,7 +19,7 @@ The native owner SHALL retain private process observations bound to its executio
 The existing enrolled owner/private-chat/approval-role boundary SHALL gate diagnostic collection. The report SHALL bind native, process, queue and source observations to the exact held incident, include observation time and coverage, and keep missing facts explicit. Collection SHALL NOT change admission, native journals, native conversations or Hub state or start inference.
 
 #### Scenario: The owner views an uncertain incident
-- **WHEN** an authorized owner sends `/恢复`
+- **WHEN** an authorized owner sends `/recover`
 - **THEN** the reply SHALL show verified, running or unverified observations with the exact incident ID
 - **AND** business effects SHALL remain a human inspection obligation
 - **AND** no task, guard, pause, queue or conversation reference SHALL change as a result of collecting the report

@@ -44,6 +44,8 @@ Assigned group references are prepared by the gateway using the existing Context
 
 Workspace mode uses one canonical default execution directory and one serialized resource. Native Codex resolves business targets from the verified current request under its native permissions and approval policy. Project-routing rules for registered business aliases apply to automatic/manual mode. Follow [configuration](docs/configuration.md) and the [workspace change](openspec/changes/enable-general-workspace-mode/design.md).
 
+Read openspec/changes/standardize-english-chat-commands for canonical English slash tokens across bridge/gateway/native allowlists. Preserve original stored message identities and dated command evidence; drain work and prompts before a coordinated syntax upgrade.
+
 ## Maintaining bot behavior
 
 Transport formatting, context bounds, authorization, session ownership, and delivery deduplication belong in runtime code and behavioral tests. Conversation style is supplied through thread developer instructions. Use this file and the referenced docs for the repository maintenance workflow; extract a skill only when a repeated workflow must be reused beyond this repository. A skill must reference live contracts instead of duplicating config defaults or acceptance status, and it never grants platform access.

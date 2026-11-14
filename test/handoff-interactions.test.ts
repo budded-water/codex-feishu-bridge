@@ -66,7 +66,7 @@ test('lost control acknowledgement is lookup-only and gateway restart retains or
   assert.ok(h.sent.some(row => row.text.includes('当前项目：pilot')));
   const original = h.native.relay.bind(h.native);
   h.native.relay = async (...args) => { await original(...args); throw new Error('Acknowledgement lost'); };
-  const message = h.actor('/补充 保留中文 👩🏽‍💻\n  indented', { parentId: task.message.id });
+  const message = h.actor('/steer 保留中文 👩🏽‍💻\n  indented', { parentId: task.message.id });
   assert.equal(h.interactions.receive(message).status, 'control');
   await h.interactions.flush();
   assert.ok(['unknown', 'accepted'].includes(h.admission.store.control(message)!.status));
@@ -89,26 +89,26 @@ test('native approvals and expired prompts are never replayed after acknowledgem
   const h = setup(t); const task = await h.launch();
   h.codex.ask('approval', 'item/commandExecution/requestApproval', { threadId: task.thread, turnId: task.turn, command: 'echo fixture' });
   await drain(h);
-  const prompt = h.sent.find(row => row.chat === 'admin' && row.text.includes('/批准'))!;
+  const prompt = h.sent.find(row => row.chat === 'admin' && row.text.includes('/approve'))!;
   const token = prompt.text.match(/请求 ([a-f0-9]{8})/)![1];
-  assert.equal(h.interactions.receive(h.actor('/批准 ' + token, { chat: 'admin', user: 'ou_intruder' })).status, 'ignored');
+  assert.equal(h.interactions.receive(h.actor('/approve ' + token, { chat: 'admin', user: 'ou_intruder' })).status, 'ignored');
   const original = h.native.relay.bind(h.native);
   h.native.relay = async (...args) => { await original(...args); throw new Error('Lost approval acknowledgement'); };
-  const message = h.actor(' \t/批准 ' + token, { chat: 'admin', user: 'ou_admin' });
+  const message = h.actor(' \t/approve ' + token, { chat: 'admin', user: 'ou_admin' });
   h.interactions.receive(message); await h.interactions.flush();
   assert.equal(h.codex.replies.length, 1);
   await h.restart(); await drain(h);
   assert.equal(h.admission.store.control(message)!.status, 'sent');
   assert.equal(h.codex.replies.length, 1);
   h.codex.complete(task.thread, task.turn); await task.running; await drain(h);
-  const late = h.actor('/批准 ' + token, { chat: 'admin', user: 'ou_admin' });
+  const late = h.actor('/approve ' + token, { chat: 'admin', user: 'ou_admin' });
   assert.equal(h.interactions.receive(late).status, 'rejected');
   assert.equal(h.codex.replies.length, 1);
 });
 
 test('uncertain dispatch with no native record never retries its approval', async t => {
   const h = setup(t); const task = await h.launch();
-  const message = h.actor('/批准 absent', { chat: 'admin', user: 'ou_admin' });
+  const message = h.actor('/approve absent', { chat: 'admin', user: 'ou_admin' });
   h.interactions.receive(message);
   let attempts = 0;
   h.native.relay = async () => { attempts++; throw new Error('No confirmed native receipt'); };
@@ -126,9 +126,9 @@ test('leading whitespace controls retain original receipts through native decisi
   assert.equal(h.admission.store.control(status)!.status, 'accepted');
   h.codex.ask('decline-whitespace', 'item/commandExecution/requestApproval', { threadId: task.thread, turnId: task.turn, command: 'echo fixture' });
   await drain(h);
-  const prompt = h.sent.find(row => row.chat === 'admin' && row.text.includes('/拒绝'))!;
+  const prompt = h.sent.find(row => row.chat === 'admin' && row.text.includes('/reject'))!;
   const token = prompt.text.match(/请求 ([a-f0-9]{8})/)![1];
-  const decision = h.actor(' /拒绝 ' + token, { chat: 'admin', user: 'ou_admin' });
+  const decision = h.actor(' /reject ' + token, { chat: 'admin', user: 'ou_admin' });
   h.interactions.receive(decision); await drain(h);
   assert.equal(h.admission.store.control(decision)!.status, 'sent');
   assert.deepEqual(h.codex.replies, [{ id: 'decline-whitespace', result: { decision: 'decline' } }]);
@@ -136,7 +136,7 @@ test('leading whitespace controls retain original receipts through native decisi
     db.prepare('SELECT message,status FROM relayed_controls WHERE origin=?').get(JSON.stringify([decision.tenant, decision.id])) as { message: string; status: string });
   assert.deepEqual(JSON.parse(saved.message), decision);
   assert.equal(saved.status, 'sent');
-  assert.equal(h.interactions.receive({ ...decision, text: '/批准 ' + token }).status, 'duplicate');
+  assert.equal(h.interactions.receive({ ...decision, text: '/approve ' + token }).status, 'duplicate');
   await drain(h); assert.equal(h.codex.replies.length, 1);
   const stop = h.actor('\n \t/stop');
   h.interactions.receive(stop); await task.running; await drain(h);
@@ -187,7 +187,7 @@ test('a prompt that expires while another chat is sending is suppressed at the n
   await until(() => !first);
   h.codex.complete(task.thread, task.turn); await task.running;
   release(); await flushing; await drain(h);
-  assert.ok(!h.sent.some(row => row.chat === 'admin' && row.text.includes('/批准')));
+  assert.ok(!h.sent.some(row => row.chat === 'admin' && row.text.includes('/approve')));
 });
 
 test('polling a newly reserved assignment does not revoke its launch window', async t => {
@@ -215,7 +215,7 @@ test('an in-flight native control stays unconfirmed until its RPC acknowledges',
     if (method === 'turn/steer') await gate;
     return result;
   };
-  const message = h.actor('/补充 Continue only after this constraint');
+  const message = h.actor('/steer Continue only after this constraint');
   h.interactions.receive(message); await h.interactions.flush();
   assert.equal(h.admission.store.control(message)!.status, 'unknown');
   assert.ok(!h.sent.some(row => row.text.includes('已把补充要求传给当前任务')));
@@ -262,7 +262,7 @@ test('reaction removal failure survives a restart without repeating the final an
 
 test('a stale native generation cannot dispatch a control and dispatch records survive final sealing', async t => {
   const h = setup(t); const task = await h.launch();
-  const message = h.actor('/补充 Stale generation');
+  const message = h.actor('/steer Stale generation');
   const rejected = await h.native.relay(task.request.execution, message, { generation: 'stale', thread: task.thread, turn: task.turn });
   assert.equal(rejected, 'rejected');
   assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 0);
@@ -300,7 +300,7 @@ test('a stalled source publisher does not block controls for the active native e
   const h = setup(t, () => gate);
   try {
     const task = await h.launch();
-    const message = h.actor('/补充 This control bypasses source publication');
+    const message = h.actor('/steer This control bypasses source publication');
     h.interactions.receive(message); await h.interactions.flush();
     assert.equal(h.admission.store.control(message)!.status, 'accepted');
     assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 1);
@@ -318,7 +318,7 @@ test('a slow human send cannot delay a newly admitted live control', async t => 
   const flushing = h.interactions.flush();
   try {
     await until(() => sending);
-    const message = h.actor('/补充 Apply this before the human delivery finishes');
+    const message = h.actor('/steer Apply this before the human delivery finishes');
     h.interactions.receive(message);
     await until(() => h.admission.store.control(message)!.status === 'accepted');
     assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 1);
@@ -350,7 +350,7 @@ test('assigned group execution and quoted steering preserve scoped context and s
   assert.equal(calls.length, 1); assert.equal(calls[0]!.limit, 12);
   assert.equal(calls[0]!.session.chat, message.chat); assert.equal(calls[0]!.session.user, message.user);
   assert.equal(calls[0]!.source.id, message.id); assert.equal(calls[0]!.source.createTime, 12345);
-  const supplement = h.actor(' \t/补充 Use this quoted detail', { chatType: 'group', createTime: 12346, parentId: 'steering-quote' });
+  const supplement = h.actor(' \t/steer Use this quoted detail', { chatType: 'group', createTime: 12346, parentId: 'steering-quote' });
   assert.equal(h.interactions.receive(supplement).status, 'control'); await h.interactions.flush();
   const steer = h.codex.calls.find(call => call.method === 'turn/steer')!.params.input as typeof input;
   assert.ok(steer[0]!.text!.includes('steering-quote')); assert.ok(steer.some(item => item.type === 'image'));
@@ -367,7 +367,7 @@ test('a slow quoted group reference cannot block stop or steer a completed nativ
   let fetching = false;
   const h = setup(t, async () => {}, { context: async () => { fetching = true; await gate; return { status: 'available', messages: [], note: 'Quote' }; } });
   h.config.enableGroups = true; const task = await h.launch();
-  const supplement = h.actor('/补充 Read this quote', { chatType: 'group', parentId: 'slow-quote' });
+  const supplement = h.actor('/steer Read this quote', { chatType: 'group', parentId: 'slow-quote' });
   h.interactions.receive(supplement); await until(() => fetching);
   h.interactions.receive(h.actor('/stop'));
   await until(() => h.codex.calls.some(call => call.method === 'turn/interrupt'));
@@ -414,14 +414,14 @@ test('owner-private inspected recovery retains unknown, pause and blocked work w
   const { h, task, report } = await unknownForRecovery(t);
   const calls = h.codex.calls.length;
   h.interactions.receive(h.actor(' /status')); await drain(h);
-  assert.ok(h.sent.some(row => row.text.includes('/恢复 查看检查条件')));
-  const inspect = h.actor(' \t/恢复'); assert.equal(h.interactions.receive(inspect).status, 'recovery'); await drain(h);
+  assert.ok(h.sent.some(row => row.text.includes('/recover 查看检查条件')));
+  const inspect = h.actor(' \t/recover'); assert.equal(h.interactions.receive(inspect).status, 'recovery'); await drain(h);
   const prompt = h.sent.find(row => row.options?.replyTo === inspect.id)!;
   assert.ok(prompt.text.includes(task.request.execution)); assert.ok(prompt.text.includes('后代进程'));
   assert.ok(!prompt.text.includes(task.request.input));
   const blocked = h.interactions.receive(h.actor('Do not replay this blocked request')); assert.ok('request' in blocked); assert.equal(blocked.status, 'blocked');
   h.admission.store.maintenance.quiesce();
-  const confirm = h.actor('/恢复 ' + task.request.execution + ' fixture processes stopped; inspected file and external effects');
+  const confirm = h.actor('/recover ' + task.request.execution + ' fixture processes stopped; inspected file and external effects');
   assert.equal(h.interactions.receive(confirm).status, 'recovery'); await drain(h);
   assert.equal(h.admission.store.unsettled().length, 0); assert.equal(h.admission.store.execution(task.request.execution)!.status, 'unknown');
   assert.equal(h.admission.store.maintenance.paused, true);
@@ -436,7 +436,7 @@ test('owner-private inspected recovery retains unknown, pause and blocked work w
   assert.equal(h.admission.store.reserve(fresh.request.id, 3).kind, 'start');
   assert.equal(h.admission.store.conversationThread(fresh.request.conversation), task.thread);
   assert.equal(h.interactions.receive(confirm).status, 'duplicate');
-  assert.equal(h.interactions.receive({ ...confirm, text: '/恢复 ' + fresh.request.execution + ' changed input' }).status, 'duplicate');
+  assert.equal(h.interactions.receive({ ...confirm, text: '/recover ' + fresh.request.execution + ' changed input' }).status, 'duplicate');
   h.interactions.receive(h.actor(confirm.text)); await drain(h);
   assert.equal(h.admission.store.unsettled()[0]!.id, fresh.request.execution);
   assert.equal(h.admission.store.recoveries().length, 1);
@@ -444,7 +444,7 @@ test('owner-private inspected recovery retains unknown, pause and blocked work w
 
 test('recovery excludes other users, tenants, chats, groups and non-administrator owners', async t => {
   const { h, task } = await unknownForRecovery(t); const count = h.sent.length;
-  const text = '/恢复 ' + task.request.execution + ' fixture inspection';
+  const text = '/recover ' + task.request.execution + ' fixture inspection';
   for (const fields of [{ user: 'ou_admin' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' as const }]) {
     assert.equal(h.interactions.receive(h.actor(text, fields)).status, 'ignored');
   }
@@ -453,7 +453,7 @@ test('recovery excludes other users, tenants, chats, groups and non-administrato
   h.config.approvalChat = 'chat'; h.config.allowedUsers = []; assert.equal(h.interactions.receive(h.actor(text)).status, 'ignored');
   h.config.allowedUsers = ['ou_owner'];
   assert.equal(h.interactions.receive(h.actor(text, { unsupported: true })).status, 'rejected');
-  assert.equal(h.interactions.receive(h.actor('/恢复 ' + 'x'.repeat(30_000))).status, 'rejected');
+  assert.equal(h.interactions.receive(h.actor('/recover ' + 'x'.repeat(30_000))).status, 'rejected');
   await drain(h); assert.equal(h.sent.length, count); assert.equal(h.admission.store.recoveries().length, 0);
   assert.equal(h.admission.store.unsettled().length, 1);
 });
@@ -464,12 +464,12 @@ test('missing or mutated sealed evidence and empty inspection references leave t
   for (const name of ['native-result.json', 'bridge.db']) {
     const path = join(folder, name), original = readFileSync(path);
     if (name === 'native-result.json') unlinkSync(path); else writeFileSync(path, Buffer.concat([original, Buffer.from('changed')]));
-    h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' fixture inspection')); await drain(h);
+    h.interactions.receive(h.actor('/recover ' + task.request.execution + ' fixture inspection')); await drain(h);
     assert.equal(h.admission.store.unsettled().length, 1); assert.equal(h.admission.store.recoveries().length, 0);
     writeFileSync(path, original);
   }
   for (const suffix of ['', '   ', 'x'.repeat(1801)]) {
-    h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' ' + suffix)); await drain(h);
+    h.interactions.receive(h.actor('/recover ' + task.request.execution + ' ' + suffix)); await drain(h);
     assert.equal(h.admission.store.recoveries().length, 0);
   }
   assert.ok(h.sent.some(row => row.text.includes('恢复条件尚未满足')));
@@ -478,7 +478,7 @@ test('missing or mutated sealed evidence and empty inspection references leave t
 test('an authenticated reachable native owner prevents remote recovery', async t => {
   const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
   const task = await h.launch(); h.admission.store.ownerUnconfirmed(task.request.execution);
-  h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' fixture inspection')); await drain(h);
+  h.interactions.receive(h.actor('/recover ' + task.request.execution + ' fixture inspection')); await drain(h);
   assert.equal(h.admission.store.unsettled().length, 1); assert.equal(h.admission.store.recoveries().length, 0);
   h.codex.complete(task.thread, task.turn); await task.running; await drain(h);
 });
@@ -487,16 +487,16 @@ test('unstarted admitted backlog prevents remote guard release', async t => {
   const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
   const task = await h.launch(); const queued = h.interactions.receive(h.actor('Already admitted next work')); assert.ok('request' in queued);
   h.codex.exit(); await task.running; await drain(h);
-  h.interactions.receive(h.actor('/恢复')); await drain(h);
+  h.interactions.receive(h.actor('/recover')); await drain(h);
   assert.ok(h.sent.some(row => row.text.includes('核对队列')));
-  h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' fixture inspection')); await drain(h);
+  h.interactions.receive(h.actor('/recover ' + task.request.execution + ' fixture inspection')); await drain(h);
   assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.unsettled().length, 1);
   assert.equal(h.admission.store.execution(queued.request.execution), undefined);
 });
 
 test('gateway restart repairs committed recovery notice once without repeating its decision', async t => {
   const { h, task } = await unknownForRecovery(t);
-  const confirm = h.actor('/恢复 ' + task.request.execution + ' inspected fixture effects');
+  const confirm = h.actor('/recover ' + task.request.execution + ' inspected fixture effects');
   h.interactions.receive(confirm); await until(() => h.admission.store.recoveries().length === 1);
   const original = h.interactions.transport.state.projectRecoveryNotice.bind(h.interactions.transport.state);
   let lost = true;
@@ -512,7 +512,7 @@ test('gateway restart repairs committed recovery notice once without repeating i
 
 test('uncommitted maintenance messages are not replayed on restart and task identities cannot become decisions', async t => {
   const { h, task } = await unknownForRecovery(t);
-  const pending = h.actor('/恢复 ' + task.request.execution + ' inspected fixture effects');
+  const pending = h.actor('/recover ' + task.request.execution + ' inspected fixture effects');
   h.interactions.transport.state.remember(pending); // Crash after receipt, before any decision.
   await h.restart(); await drain(h);
   assert.equal(h.interactions.receive(pending).status, 'duplicate');
@@ -527,7 +527,7 @@ test('a concurrent inspected local recovery cannot let a remote decision release
   let release!: () => void, checking = false;
   const gate = new Promise<void>(resolve => { release = resolve; });
   h.native.recoveryCheckpoint = async () => { checking = true; await gate; return checkpoint; };
-  h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' inspected fixture effects'));
+  h.interactions.receive(h.actor('/recover ' + task.request.execution + ' inspected fixture effects'));
   await until(() => checking);
   h.admission.store.reconcileLocal('fixture-maintenance', task.request.execution, 'independent inspected recovery');
   const fresh = h.interactions.receive(h.actor('Fresh next work')); assert.ok('request' in fresh);
@@ -545,14 +545,14 @@ test('sealed recovery retains a native conversation when no earlier snapshot rea
   const task = await h.launch(); h.codex.exit(); await task.running; await drain(h);
   h.admission.store.nativeSnapshot = snapshot;
   assert.equal(h.admission.store.conversationThread(task.request.conversation), null);
-  h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' inspected fixture processes and effects')); await drain(h);
+  h.interactions.receive(h.actor('/recover ' + task.request.execution + ' inspected fixture processes and effects')); await drain(h);
   assert.equal(h.admission.store.unsettled().length, 0);
   assert.equal(h.admission.store.conversationThread(task.request.conversation), task.thread);
 });
 
 test('closing materializes a committed recovery notice before the restarted gateway polls', async t => {
   const { h, task } = await unknownForRecovery(t);
-  const confirm = h.actor('/恢复 ' + task.request.execution + ' inspected fixture processes and effects');
+  const confirm = h.actor('/recover ' + task.request.execution + ' inspected fixture processes and effects');
   h.interactions.receive(confirm); await until(() => h.admission.store.recoveries().length === 1);
   assert.equal(h.interactions.transport.state.pending().some(row => row.replyTo === confirm.id), false);
   await h.restart();
@@ -575,7 +575,7 @@ test('incident preview reports native and scheduler facts without changing admis
   const admissionPath = join(h.admission.stateDirectory, 'handoff.db'), journalPath = join(h.admission.stateDirectory, 'executions', task.request.execution, 'bridge.db');
   const beforeAdmission = readFileSync(admissionPath), beforeJournal = readFileSync(journalPath), nativeCalls = h.codex.calls.length;
   const snapshot = h.admission.store.nativeSnapshot; h.admission.store.nativeSnapshot = () => { throw new Error('Diagnostic attempted a reference write'); };
-  const query = h.actor('/恢复'); assert.equal(recovery.receive(query).status, 'recovery'); await recovery.idle(); h.admission.store.nativeSnapshot = snapshot;
+  const query = h.actor('/recover'); assert.equal(recovery.receive(query).status, 'recovery'); await recovery.idle(); h.admission.store.nativeSnapshot = snapshot;
   const report = h.interactions.transport.state.pending().find(row => row.replyTo === query.id)!.body;
   assert.match(report, /核查快照/); assert.match(report, /任务结果：未确认/); assert.match(report, /封存日志：已核实完整/);
   assert.match(report, /Hub 调度轮次：已核实，已结束/); assert.match(report, /任务进程登记：无法核实/); assert.match(report, /业务副作用：无法自动核实/);
@@ -587,7 +587,7 @@ test('incident preview reports native and scheduler facts without changing admis
 test('unauthorized diagnostic views cannot trigger native or source probes', async t => {
   const { h } = await unknownForRecovery(t); let probes = 0;
   h.native.diagnostics = async () => { probes++; throw new Error('Must not probe'); };
-  for (const override of [{ user: 'ou_admin' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' }]) assert.equal(h.interactions.receive(h.actor('/恢复', override)).status, 'ignored');
+  for (const override of [{ user: 'ou_admin' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' }]) assert.equal(h.interactions.receive(h.actor('/recover', override)).status, 'ignored');
   await drain(h); assert.equal(probes, 0);
 });
 
@@ -620,12 +620,12 @@ test('diagnostic blocked count includes routing blocks and counts combined block
   h.codex.exit(); await task.running;
   assert.equal(h.admission.store.reserve(combined.request.id, 2).kind, 'blocked'); h.admission.store.routed(combined.request.id, false);
   const guardBlock = h.interactions.receive(h.actor('Blocked after uncertain outcome')); assert.equal(guardBlock.status, 'blocked');
-  const query = h.actor('/恢复'); h.interactions.receive(query); await drain(h);
+  const query = h.actor('/recover'); h.interactions.receive(query); await drain(h);
   const report = h.sent.find(row => row.options?.replyTo === query.id)!.text;
   assert.match(report, /已接收未执行：0；已阻断：3/);
   assert.ok('request' in guardBlock);
-  assert.equal(h.interactions.receive(h.actor('/撤回 ' + guardBlock.request.execution)).status, 'withdrawn');
-  const after = h.actor('/恢复'); h.interactions.receive(after); await drain(h);
+  assert.equal(h.interactions.receive(h.actor('/withdraw ' + guardBlock.request.execution)).status, 'withdrawn');
+  const after = h.actor('/recover'); h.interactions.receive(after); await drain(h);
   assert.match(h.sent.find(row => row.options?.replyTo === after.id)!.text, /已接收未执行：0；已阻断：2/);
   assert.equal(h.admission.store.unsettled()[0]!.id, task.request.execution);
 });
@@ -635,7 +635,7 @@ test('owner-private queue view is bounded, content-free and does not mutate admi
   const requests = Array.from({ length: 12 }, (_, i) => h.interactions.receive(h.actor('Private command and path fixture-private-secret ' + i, { createTime: String(1000 + i) })));
   h.admission.store.accept(h.actor('Foreign secret', { user: 'ou_other' }), 'Foreign secret', h.admission.project);
   const first = requests[0]!; assert.ok('request' in first);
-  const view = h.actor(' \t/队列');
+  const view = h.actor(' \t/queue');
   const before = readFileSync(join(h.admission.stateDirectory, 'handoff.db'));
   for (const changes of [{ user: 'ou_other' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' as const }]) assert.equal(h.interactions.receive({ ...view, ...changes, id: randomUUID() }).status, 'ignored');
   assert.equal(h.interactions.receive(view).status, 'queue');
@@ -643,15 +643,15 @@ test('owner-private queue view is bounded, content-free and does not mutate admi
   assert.match(reply.body, /12 个（显示前 10 个）/); assert.equal((reply.body.match(/请求编号：/g) ?? []).length, 10);
   assert.ok(reply.body.includes(first.request.execution)); assert.doesNotMatch(reply.body, /Private command|Foreign secret|fixture-private-secret/);
   assert.deepEqual(readFileSync(join(h.admission.stateDirectory, 'handoff.db')), before); assert.equal(h.codex.calls.length, 0);
-  assert.equal(h.interactions.receive({ ...view, text: '/撤回 ' + first.request.execution }).status, 'duplicate');
-  h.config.approvalUsers = ['ou_admin']; assert.equal(h.interactions.receive(h.actor('/队列')).status, 'ignored');
+  assert.equal(h.interactions.receive({ ...view, text: '/withdraw ' + first.request.execution }).status, 'duplicate');
+  h.config.approvalUsers = ['ou_admin']; assert.equal(h.interactions.receive(h.actor('/queue')).status, 'ignored');
   assert.equal(h.admission.store.withdrawals().length, 0);
 });
 
 test('quoted exact withdrawal retires queued feedback while preserving the actual active native turn and maintenance pause', async t => {
   const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat'; const active = await h.launch();
   const queued = h.interactions.receive(h.actor('Queued request')); assert.ok('request' in queued); await h.interactions.flush();
-  h.admission.store.maintenance.quiesce(); const decision = h.actor(' /撤回', { parentId: queued.request.message.id });
+  h.admission.store.maintenance.quiesce(); const decision = h.actor(' /withdraw', { parentId: queued.request.message.id });
   assert.equal(h.interactions.receive(decision).status, 'withdrawn'); await drain(h);
   assert.equal(h.admission.store.withdrawals().length, 1); assert.equal(h.admission.store.withdrawals()[0]!.actor, JSON.stringify(['tenant', 'ou_owner', 'chat']));
   assert.equal(h.admission.store.execution(queued.request.execution), undefined); assert.equal(h.admission.store.drainStatus().queued, 0);
@@ -668,16 +668,16 @@ test('quoted exact withdrawal retires queued feedback while preserving the actua
 test('withdrawal requires an exact owned unstarted request and cannot use a conflicting quote or stale authority', async t => {
   const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat'; const active = await h.launch();
   const one = h.interactions.receive(h.actor('one')), two = h.interactions.receive(h.actor('two')); assert.ok('request' in one && 'request' in two);
-  for (const message of [h.actor('/撤回'), h.actor('/撤回 not-an-id'), h.actor('/撤回 ' + active.request.execution),
-    h.actor('/撤回 ' + one.request.execution, { parentId: two.request.message.id }), h.actor('/撤回', { parentId: 'foreign-message' }),
-    h.actor('/撤回 ' + randomUUID()), h.actor('/撤回 ' + one.request.execution + ' and another')]) {
+  for (const message of [h.actor('/withdraw'), h.actor('/withdraw not-an-id'), h.actor('/withdraw ' + active.request.execution),
+    h.actor('/withdraw ' + one.request.execution, { parentId: two.request.message.id }), h.actor('/withdraw', { parentId: 'foreign-message' }),
+    h.actor('/withdraw ' + randomUUID()), h.actor('/withdraw ' + one.request.execution + ' and another')]) {
     assert.equal(h.interactions.receive(message).status, 'rejected');
   }
   assert.equal(h.admission.store.withdrawals().length, 0);
   h.codex.complete(active.thread, active.turn); await active.running;
-  assert.equal(h.interactions.receive(h.actor('/撤回 ' + active.request.execution)).status, 'rejected');
-  assert.equal(h.interactions.receive(h.actor('/撤回 ' + one.request.execution.toUpperCase())).status, 'withdrawn');
-  assert.equal(h.interactions.receive(h.actor('/撤回 ' + one.request.execution)).status, 'withdrawn');
+  assert.equal(h.interactions.receive(h.actor('/withdraw ' + active.request.execution)).status, 'rejected');
+  assert.equal(h.interactions.receive(h.actor('/withdraw ' + one.request.execution.toUpperCase())).status, 'withdrawn');
+  assert.equal(h.interactions.receive(h.actor('/withdraw ' + one.request.execution)).status, 'withdrawn');
   assert.equal(h.admission.store.withdrawals().length, 1); assert.equal(h.admission.store.request(two.request.id)!.blocked, null);
 });
 
@@ -686,7 +686,7 @@ test('committed withdrawal notices repair after projection interruption and retr
   const task = h.interactions.receive(h.actor('queued')); assert.ok('request' in task);
   const project = h.interactions.transport.state.projectWithdrawalNotice.bind(h.interactions.transport.state);
   h.interactions.transport.state.projectWithdrawalNotice = () => { throw new Error('Interrupted projection'); };
-  const decision = h.actor('/撤回 ' + task.request.execution);
+  const decision = h.actor('/withdraw ' + task.request.execution);
   assert.equal(h.interactions.receive(decision).status, 'withdrawn');
   assert.equal(h.admission.store.withdrawals().length, 1); assert.equal(h.interactions.transport.state.withdrawalNoticeProjected(JSON.stringify([decision.tenant, decision.id])), false);
   h.interactions.transport.state.projectWithdrawalNotice = project;
@@ -698,4 +698,21 @@ test('committed withdrawal notices repair after projection interruption and retr
   db.prepare('UPDATE outbox SET next=0').run(); db.close(); await drain(h);
   assert.equal(h.sent.filter(row => row.id === attempted[0]).length, 1); assert.equal(h.admission.store.withdrawals().length, 1);
   assert.equal(h.codex.calls.length, 0); assert.equal(h.admission.store.unsettled().length, 0); assert.equal(h.reactions.size, 0);
+});
+
+test('pilot English help is local, deduplicated and available while paused; retired controls cannot schedule or decide', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat'; h.admission.store.maintenance.quiesce();
+  const help = h.actor(' \t/help');
+  assert.equal(h.interactions.receive({ ...help, user: 'other' }).status, 'ignored');
+  assert.equal(h.interactions.receive(help).status, 'help'); assert.equal(h.interactions.receive(help).status, 'duplicate');
+  await drain(h); const body = h.sent.find(row => row.options?.replyTo === help.id)!.text;
+  for (const token of ['/steer', '/approve', '/reject', '/answer', '/recover', '/queue', '/withdraw', '/status details']) assert.ok(body.includes(token));
+  assert.ok(!body.includes('/notify') && !body.includes('/clear')); assert.equal(h.admission.store.requests().length, 0); assert.equal(h.codex.calls.length, 0);
+  h.admission.store.maintenance.resume();
+  for (const text of ['/恢复', '/队列', '/撤回 ' + randomUUID(), '/批准 missing', '/回答 missing answer', '/补充 text']) {
+    const message = h.actor(text); assert.equal(h.interactions.receive(message).status, 'rejected');
+    await drain(h); assert.ok(h.sent.some(row => row.options?.replyTo === message.id && row.text.includes('/help')));
+  }
+  assert.equal(h.admission.store.requests().length, 0); assert.equal(h.admission.store.controls().length, 0);
+  assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.withdrawals().length, 0); assert.equal(h.codex.calls.length, 0);
 });

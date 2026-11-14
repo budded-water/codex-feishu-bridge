@@ -63,7 +63,7 @@ test('quiesced legacy tasks drain while new requests stay durably rejected', asy
   await until(() => codex.calls.some(call => call.method === 'turn/start'));
   state.maintenance.quiesce();
   const held = actor('New work while maintenance'); bridge.receive(held);
-  bridge.receive(actor('/补充 Keep the existing task constrained'));
+  bridge.receive(actor('/steer Keep the existing task constrained'));
   await until(() => codex.calls.some(call => call.method === 'turn/steer'));
   assert.equal(codex.calls.filter(call => call.method === 'turn/start').length, 1);
   assert.equal(state.drainStatus().running, 1);
@@ -116,7 +116,7 @@ test('post-traffic rollback imports deduplication, native continuation and deliv
   const running = native.run(grant.permit);
   await until(() => codex.calls.some(call => call.method === 'turn/start'));
   assert.equal(codex.calls.find(call => call.method === 'thread/resume')!.params.threadId, 'retained-native-thread');
-  const controlMessage = { ...message, id: 'pilot-control', text: '/补充 Keep this constraint' };
+  const controlMessage = { ...message, id: 'pilot-control', text: '/steer Keep this constraint' };
   interactions.receive(controlMessage); await interactions.flush();
   codex.complete('retained-native-thread', 'turn-1'); await running;
   const processMetadata = Buffer.from(JSON.stringify({ version: 1, observation: 'fixture-private-process-evidence' }));
@@ -368,7 +368,7 @@ test('rollback refuses unprojected and undelivered recovery decisions before ret
   const running = native.run(grant.permit); await until(() => codex.calls.some(call => call.method === 'turn/start'));
   codex.exit(); const report = await running;
   for (let i = 0; i < 6; i++) await interactions.flush();
-  const confirm = { ...message, id: 'inspected-before-rollback', text: '/恢复 ' + accepted.request.execution + ' inspected fixture processes and effects' };
+  const confirm = { ...message, id: 'inspected-before-rollback', text: '/recover ' + accepted.request.execution + ' inspected fixture processes and effects' };
   interactions.receive(confirm); await until(() => admission.store.recoveries().length === 1);
   admission.store.maintenance.quiesce();
   // Simulate an older/crashed runtime that closed without projecting its committed decision.
@@ -395,7 +395,7 @@ test('rollback requires withdrawn-request notice projection and delivery, preser
   const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope); admission.store.maintenance.resume();
   const message = { ...h.message, chatType: 'p2p' as const, id: 'queued-before-withdrawal', text: 'Unstarted fixture task' };
   const accepted = admission.receive(message); assert.ok('request' in accepted);
-  const command = { ...message, id: 'withdraw-before-rollback', text: '/撤回 ' + accepted.request.execution };
+  const command = { ...message, id: 'withdraw-before-rollback', text: '/withdraw ' + accepted.request.execution };
   const receipt = admission.store.withdraw(command, accepted.request.execution, admission.project).receipt;
   const transport = new State(join(h.plan.pilotDirectory, 'transport'));
   transport.projectAssignedTask(admission.store.request(accepted.request.id)!, 'pilot', h.plan.scope.projects.pilot!, 'interrupted');

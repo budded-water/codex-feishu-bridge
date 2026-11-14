@@ -146,10 +146,10 @@ try {
     const queueConfig = { ...loadConfig(bridgeConfig), approvalUsers: [scope.operator], approvalChat: scope.chat };
     await interactions.close(); interactions = openInteractions(queueConfig); await interactions.recover();
     const withdrawn = await submit('withdrawn-queued', 'case-complete');
-    const view = normalizeMessage(raw('queue-view', '/队列'), 'ou_fixture_bot');
+    const view = normalizeMessage(raw('queue-view', '/queue'), 'ou_fixture_bot');
     assert.equal(interactions.receive(view).status, 'queue'); await interactions.flush();
     assert.ok(deliveries.some(item => item.options?.replyTo === view.id && item.text.includes(withdrawn.execution)));
-    const withdraw = normalizeMessage(raw('withdraw-exact', '/撤回 ' + withdrawn.execution), 'ou_fixture_bot');
+    const withdraw = normalizeMessage(raw('withdraw-exact', '/withdraw ' + withdrawn.execution), 'ou_fixture_bot');
     assert.equal(interactions.receive(withdraw).status, 'withdrawn'); await interactions.flush();
     assert.equal(admission.store.execution(withdrawn.execution), undefined);
     assert.equal(admission.store.unsettled()[0].id, first.execution);
@@ -159,7 +159,7 @@ try {
     await stopUp('SIGKILL');
     assert.equal((await runtime.recover())[0].status, 'live');
     start(); await ready();
-    const supplement = actor(' \t/补充 finish this fixture');
+    const supplement = actor(' \t/steer finish this fixture');
     const relay = runtime.relay.bind(runtime);
     runtime.relay = async (...args) => { const result = await relay(...args); throw new Error('Fixture acknowledgement lost after native dispatch: ' + result); };
     interactions.receive(supplement); await interactions.flush();
@@ -201,7 +201,7 @@ try {
       const withdrawingFailure = await submit('withdraw-source-failure', 'case-complete');
       await until('worker source confirmation before withdrawal', () => sourceReached);
       assert.equal(admission.store.execution(withdrawingFailure.execution), undefined);
-      assert.equal(interactions.receive(normalizeMessage(raw('withdraw-during-failed-source', '/撤回 ' + withdrawingFailure.execution), 'ou_fixture_bot')).status, 'withdrawn');
+      assert.equal(interactions.receive(normalizeMessage(raw('withdraw-during-failed-source', '/withdraw ' + withdrawingFailure.execution), 'ou_fixture_bot')).status, 'withdrawn');
       sourceRelease(); await settledHub(); await interactions.flush();
       const failedSourceOutcome = await new AutoloopSource(url, sourceKey).inspect(admission.store.submission(withdrawingFailure.id).event);
       assert.equal(failedSourceOutcome.runs[0].state, 'nothing');
@@ -225,12 +225,12 @@ try {
     let token;
     await until('native approval', async () => {
       await interactions.flush();
-      token = deliveries.find(item => item.chat === 'oc_fixture_admin' && item.text.includes('/批准'))?.text.match(/请求 ([a-f0-9]{8})/)?.[1];
+      token = deliveries.find(item => item.chat === 'oc_fixture_admin' && item.text.includes('/approve'))?.text.match(/请求 ([a-f0-9]{8})/)?.[1];
       return token;
     });
-    interactions.receive(actor('/批准 ' + token)); await interactions.flush();
+    interactions.receive(actor('/approve ' + token)); await interactions.flush();
     assert.equal(audit().filter(item => item.event === 'decision').length, 0);
-    const decision = actor(' \t/批准 ' + token, { user: 'ou_fixture_admin', chat: 'oc_fixture_admin' });
+    const decision = actor(' \t/approve ' + token, { user: 'ou_fixture_admin', chat: 'oc_fixture_admin' });
     interactions.receive(decision); assert.equal(interactions.receive(decision).status, 'duplicate'); await interactions.flush();
     await ended(approval); await settledHub();
     assert.equal(audit().filter(item => item.event === 'decision').length, 1);
@@ -255,7 +255,7 @@ try {
       if (mode === 'loss') {
         const recoveryConfig = { ...loadConfig(bridgeConfig), approvalUsers: [scope.operator], approvalChat: scope.chat };
         await interactions.close(); interactions = openInteractions(recoveryConfig); await interactions.recover();
-        interactions.receive(normalizeMessage(raw('inspect-' + mode, ' \t/恢复'), 'ou_fixture_bot')); await interactions.flush();
+        interactions.receive(normalizeMessage(raw('inspect-' + mode, ' \t/recover'), 'ou_fixture_bot')); await interactions.flush();
         await until('recovery inspection delivery', async () => { await interactions.flush(); return deliveries.some(item => item.text.includes('恢复编号：' + request.execution)); });
         const diagnostic = deliveries.find(item => item.text.includes('恢复编号：' + request.execution)).text;
         assert.ok(diagnostic.includes('Hub 调度轮次：已核实，已结束'));
@@ -264,7 +264,7 @@ try {
         assert.ok(!diagnostic.includes(project) && !diagnostic.includes(sourceKey));
         const processEvidence = JSON.parse(readFileSync(join(state, 'executions', request.execution, 'native-processes.json'), 'utf8'));
         assert.ok(processEvidence.native && processEvidence.owner && processEvidence.observedAt > 0);
-        const confirm = normalizeMessage(raw('recovery-' + mode, '/恢复 ' + request.execution + ' Inspected scripted fixture process exit and absence of external effects'), 'ou_fixture_bot');
+        const confirm = normalizeMessage(raw('recovery-' + mode, '/recover ' + request.execution + ' Inspected scripted fixture process exit and absence of external effects'), 'ou_fixture_bot');
         assert.equal(interactions.receive(confirm).status, 'recovery'); await interactions.flush();
         assert.equal(admission.store.unsettled().length, 0); assert.equal(admission.store.execution(request.execution).status, 'unknown');
         assert.ok(admission.store.recoveries().some(item => item.origin === JSON.stringify([scope.tenant, confirm.id]) && item.actor !== 'local-runtime-operator'));

@@ -67,7 +67,7 @@ export class AutoloopExecutionProbe {
   control(message: IncomingMessage): void {
     if (this.closed) throw new Error('Probe is closed');
     // This fixture endpoint cannot submit another task or change registered projects.
-    if (!/^\/(?:status(?:\s|$)|stop(?:\s|$)|补充\s|批准\s|拒绝\s|回答\s)/.test(message.text)) {
+    if (!/^\/(?:status(?:\s|$)|stop(?:\s|$)|steer\s|approve\s|reject\s|answer\s)/.test(message.text)) {
       throw new Error('Only live controls are supported by the probe');
     }
     this.bridge.receive(message);

@@ -41,7 +41,7 @@ function setup(t: TestContext) {
 test('verified input, immutable identity and source intent persist through reopen and alias changes', t => {
   const h = setup(t);
   for (const changes of [{ user: 'ou_other' }, { tenant: 'other' }, { chat: 'other' }, { type: 'group' }]) assert.equal(h.ingress.receive(event('ignored', undefined, changes)).status, 'ignored');
-  assert.equal(h.ingress.receive(event('control', '/批准 stale')).status, 'rejected');
+  assert.equal(h.ingress.receive(event('control', '/approve stale')).status, 'rejected');
   assert.equal(h.ingress.receive(event('outside', 'other: work')).status, 'rejected');
   const first = h.accept('first', 'alias: Preserve this task');
   const original = h.ingress.receive(event('first', 'different redelivered content'));
@@ -212,7 +212,7 @@ test('withdrawal retains prior blocks and exact identities across database owner
   const blocked = h.accept('blocked');
   h.gateway.store.rememberEvent(queued.id, 4); h.gateway.store.routed(queued.id, false);
   const other = h.reopen();
-  const actor = (id: string) => ({ ...queued.message, id, text: '/撤回 ' + queued.execution });
+  const actor = (id: string) => ({ ...queued.message, id, text: '/withdraw ' + queued.execution });
   const first = other.store.withdraw(actor('withdraw-queued'), queued.execution, h.gateway.project);
   assert.equal(first.fresh, true); assert.equal(first.receipt.previous_problem, 'source_not_routed');
   assert.equal(other.store.withdraw(actor('withdraw-queued'), queued.execution, h.gateway.project).fresh, false);
@@ -235,7 +235,7 @@ test('withdrawal retains prior blocks and exact identities across database owner
 
 test('simultaneous reservation and withdrawal across actual SQLite owners have one winner', async t => {
   const h = setup(t); const request = h.accept('contended'); const barrier = new SharedArrayBuffer(4);
-  const withdraw = { ...request.message, id: 'withdraw-race', text: '/撤回 ' + request.execution };
+  const withdraw = { ...request.message, id: 'withdraw-race', text: '/withdraw ' + request.execution };
   const workers = [false, true].map(action => new Worker(new URL('./fixtures/admission-worker.mjs', import.meta.url), {
     execArgv: ['--import', 'tsx'], workerData: { state: h.state, scope: h.scope, request: request.id, execution: request.execution, run: 1, barrier, ...(action && { withdraw }) },
   }));
@@ -264,7 +264,7 @@ for (const phase of ['POST', 'GET']) for (const outcome of ['success', 'unavaila
   t.after(() => new Promise<void>(resolve => { release(); server.closeAllConnections(); server.close(() => resolve()); }));
   const outbox = new SourceOutbox(h.gateway, new AutoloopSource('http://127.0.0.1:' + (server.address() as AddressInfo).port, 'fixture-key'));
   const claiming = outbox.claim(h.job(request.id, 5)); await reached;
-  other.store.withdraw({ ...request.message, id: 'withdraw-in-flight', text: '/撤回 ' + request.execution }, request.execution, h.gateway.project); release();
+  other.store.withdraw({ ...request.message, id: 'withdraw-in-flight', text: '/withdraw ' + request.execution }, request.execution, h.gateway.project); release();
   assert.equal((await claiming).kind, 'withdrawn');
   assert.equal(h.gateway.store.submission(request.id)!.status, 'blocked'); assert.equal(h.gateway.store.submission(request.id)!.problem, 'owner_withdrawn');
   assert.equal(h.gateway.store.execution(request.execution), undefined); assert.equal(h.gateway.store.pending().length, 0);

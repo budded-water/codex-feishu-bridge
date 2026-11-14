@@ -60,7 +60,7 @@ The P2 inspected-recovery change has completed its bounded implementation, sourc
 
 ## Read-only incident diagnostics change
 
-[add-readonly-incident-diagnostics](changes/add-readonly-incident-diagnostics/proposal.md) adds bounded process observations and an owner-private report through `/恢复`, without new recovery authority or model inference. Its [tasks](changes/add-readonly-incident-diagnostics/tasks.md) separate implementation, source review and live deployment acceptance. Compatible archival retains the optional metadata; absent or incomplete facts remain explicit.
+[add-readonly-incident-diagnostics](changes/add-readonly-incident-diagnostics/proposal.md) adds bounded process observations and an owner-private report through `/recover`, without new recovery authority or model inference. Its [tasks](changes/add-readonly-incident-diagnostics/tasks.md) separate implementation, source review and live deployment acceptance. Compatible archival retains the optional metadata; absent or incomplete facts remain explicit.
 
 
 The read-only diagnostic slice has completed source review, deployment and bounded real owner-private acceptance. A registered running wait appeared in the actual report while logical admission, native evidence and Hub run stayed unchanged across viewing. Separate operator inspection/cleanup, an actual owner recovery confirmation and fresh same-thread continuation completed the test. The dependent PR remains open pending owner merge authorization; complete descendant/effect proof and automatic cleanup are outside this slice.
@@ -69,3 +69,8 @@ The read-only diagnostic slice has completed source review, deployment and bound
 ## Owner-private queue withdrawal change
 
 [enable-owner-queue-withdrawal](changes/enable-owner-queue-withdrawal/proposal.md) adds a bounded queue view and exact unstarted-request withdrawal. It preserves launch-race arbitration, deciding actor/message, prior block reasons, durable notice delivery and rollback deduplication. Its [tasks](changes/enable-owner-queue-withdrawal/tasks.md) track candidate verification and live acceptance separately. Sampled process diagnostics remain outside process-termination authority.
+
+
+## English chat command contract
+
+[standardize-english-chat-commands](changes/standardize-english-chat-commands/proposal.md) supersedes the slash spellings in earlier changes. Current examples use English; dated acceptance retains the syntax actually observed. It includes gateway-local help, retired-token rejection and coordinated drained activation. Existing owner/approval policy, stored message identity and the outstanding queue live-acceptance gap remain unchanged.

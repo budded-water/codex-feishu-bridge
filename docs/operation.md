@@ -75,7 +75,7 @@ Drain current work and retain a compatible artifact/configuration pair before ch
 
 ## Inspected recovery through the pilot gateway
 
-The P2 pilot command `/恢复` exposes only the enrolled owner's unknown guarded execution, and only in the enrolled private approval chat when that owner is also a configured approval administrator. `/恢复 <execution-id> <inspection-reference>` requires the exact current guard, a request-bound sealed checkpoint with native-child settlement, an unreachable authenticated owner and the human's process/effects inspection reference. Missing or mutated evidence and unstarted admitted backlog require local maintenance. No new configuration fields, keys or model calls are involved.
+The P2 pilot command `/recover` exposes only the enrolled owner's unknown guarded execution, and only in the enrolled private approval chat when that owner is also a configured approval administrator. `/recover <execution-id> <inspection-reference>` requires the exact current guard, a request-bound sealed checkpoint with native-child settlement, an unreachable authenticated owner and the human's process/effects inspection reference. Missing or mutated evidence and unstarted admitted backlog require local maintenance. No new configuration fields, keys or model calls are involved.
 
 The human attestation covers command descendants and file/external effects; native-child settlement alone does not establish those facts. Recovery records the deciding message/owner and checkpoint reference in the existing ledger, releases exactly one guard and retains the unknown outcome. Maintenance pause and blocked requests remain unchanged. The original permit cannot launch again. Hub reconciliation cards remain separate and may be closed through supported owner maintenance after inspection; this gateway has no Hub owner capability.
 
@@ -94,6 +94,11 @@ Use the compatible diagnostic-version migration tools to archive the optional si
 
 ## Remote unstarted queue control
 
-The enrolled owner/approver can inspect `/队列` and withdraw one unstarted private-chat request using its exact execution reference or a quote of its original message. The admission decision and block commit together. An already granted execution refuses withdrawal; use native stop or inspected recovery as appropriate. The success notice and reaction cleanup are durable transport projections. A queued Hub round can still end without model execution; this is not a Hub run/card cancellation operation.
+The enrolled owner/approver can inspect `/queue` and withdraw one unstarted private-chat request using its exact execution reference or a quote of its original message. The admission decision and block commit together. An already granted execution refuses withdrawal; use native stop or inspected recovery as appropriate. The success notice and reaction cleanup are durable transport projections. A queued Hub round can still end without model execution; this is not a Hub run/card cancellation operation.
 
 Withdrawal leaves process control, unknown guards and maintenance pause unchanged. Sampled PID/start-time observations cannot supply safe post-fault termination authority. Remote descendant cleanup is deferred until an execution-owned supervision/containment mechanism has its own verified lifecycle. See [migration](handoff-migration.md) before downgrading a runtime with withdrawal receipts.
+
+
+## English command upgrade
+
+The English-command artifact changes gateway, native-owner and probe allowlists together. Drain running/granted executions, controls, prompts and delivery before replacing both gateway/Worker references. Configuration fields, protocol bindings and authentication are unchanged. Retained original messages/controls and dated campaign evidence are never rewritten. For downgrade, finish post-upgrade pending English controls with the compatible artifact before activating a Chinese-only owner; never replay uncertain approvals or restore an old database over new receipts.

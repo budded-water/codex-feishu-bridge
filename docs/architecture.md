@@ -72,12 +72,12 @@ These commands belong to the bridge, not the Codex CLI:
 | `/chat` | Select a neutral per-user/chat discussion workspace. |
 | `/new` | Create a new session when the selected session has no pending work. |
 | `/status` | Display active task, queued work, and pending approvals. |
-| `/补充 <text>` | Steer the selected active turn through `turn/steer`; reject if none is active. |
+| `/steer <text>` | Steer the selected active turn through `turn/steer`; reject if none is active. |
 | `/stop` | Interrupt the selected active turn through `turn/interrupt`. |
 | `/clear` | Cancel the selected session's queued tasks. |
-| `/批准 <id>` | Configured administrators accept a live approval in its designated chat. |
-| `/拒绝 <id>` | Configured administrators decline an approval; the submitter can decline their own question. |
-| `/回答 <id> <question-id> <answer>` | Answer a single non-sensitive question. |
+| `/approve <id>` | Configured administrators accept a live approval in its designated chat. |
+| `/reject <id>` | Configured administrators decline an approval; the submitter can decline their own question. |
+| `/answer <id> <question-id> <answer>` | Answer a single non-sensitive question. |
 
 Discussion sessions use private per-user/chat directories under the state directory. Older project histories are preserved; switch with `/chat` to leave an existing selected project. Neutral mode instructs Codex not to browse a repository to guess group context, without relaxing local sandbox or approvals. The missing-history shortcut applies only to a fresh neutral discussion with an explicit chat reference; self-contained project tasks and follow-ups in existing Codex threads are not rejected by optional missing group history. Free-form steering and question answers preserve embedded newlines and indentation.
 
@@ -138,7 +138,7 @@ Approval previews preserve exact fenced action text, show intent and a concrete 
 
 Native notifications preserve the user message body after removing only leading recipient selectors and are an explicit in-group transport action targeting up to 20 distinct members selected in the current admitted event. They do not resolve contacts from plain names or historical content, create tasks, notify all, or send to another chat. Native `at` elements are rendered only from the supplied allowlist; ordinary model markup cannot notify arbitrary IDs. Fenced code previews remain exact. Notification selection is not execution/approval authority or evidence of reading. Unknown/unsupported messages only receive help after existing admission and bot-mention checks; unauthorized traffic remains silent.
 
-Status defaults to current work, queue and required action; `/status 详情` exposes process/event diagnostics. Failures and interruptions have one truthful explanation, with uncertain prior effects explicit. Recovery notices are grouped by owner/chat without replay. SQLite additionally records receive/routing/handoff/execution/feedback/result-delivery timestamps. Local metrics load `.env` and honor `BRIDGE_CONFIG` like the runtime, exclude legacy tasks without timestamps and summarize at most the latest 1000 records. First-result latency describes the first delivered chunk, not proof that all chunks or a human read have completed; no telemetry leaves the host.
+Status defaults to current work, queue and required action; `/status details` exposes process/event diagnostics. Failures and interruptions have one truthful explanation, with uncertain prior effects explicit. Recovery notices are grouped by owner/chat without replay. SQLite additionally records receive/routing/handoff/execution/feedback/result-delivery timestamps. Local metrics load `.env` and honor `BRIDGE_CONFIG` like the runtime, exclude legacy tasks without timestamps and summarize at most the latest 1000 records. First-result latency describes the first delivered chunk, not proof that all chunks or a human read have completed; no telemetry leaves the host.
 
 同一项目的执行结果未确认时，此前已进入分类流程的请求也会在交接时停止；先核对本机结果，再发起新请求，不自动重跑。简化问题回答只移除编号后的一个分隔符，保留内容的换行和缩进。
 
@@ -165,7 +165,7 @@ The bounded M6 diagnostic deployment is observed through the real owner-private 
 
 ## Owner-private unstarted queue withdrawal
 
-The [queue-withdrawal change](../openspec/changes/enable-owner-queue-withdrawal/design.md) reuses the recovery owner's private-chat/approval-role boundary. A bounded `/队列` view exposes receipt time and exact execution references without task content. `/撤回` selects an exact reference or the original owned request quote; conflicting selectors do not guess a target.
+The [queue-withdrawal change](../openspec/changes/enable-owner-queue-withdrawal/design.md) reuses the recovery owner's private-chat/approval-role boundary. A bounded `/queue` view exposes receipt time and exact execution references without task content. `/withdraw` selects an exact reference or the original owned request quote; conflicting selectors do not guess a target.
 
 Admission SQLite is canonical for the withdrawal decision. One immediate transaction retains actor/origin and prior block reasons, prohibits reservation and records the command identity. Any existing execution prevents withdrawal, including a granted execution that has not launched Codex yet. Reservation checks the same transaction boundary. Late source replies cannot remove a committed block. A previously queued Hub run can finish with a known unstarted-withdrawal receipt rather than manufacture an uncertain native outcome; no Hub cancellation or management capability is added.
 
