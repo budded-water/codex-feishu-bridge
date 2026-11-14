@@ -104,3 +104,5 @@ workspace 模式保留任务原文，已配置的别名前缀也按普通文字�
 `别名：具体需求` 是明确选择已登记目录的可选入口，自动与手动模式都支持；普通自然提问的自动分类由 `projectRouting` 控制。该前缀代表独立新任务，会清除旧待澄清请求，并保留人工选择版本防止旧分类覆盖。
 
 The experimental prepared pilot entry uses a private handoff configuration and migration plan. Its fields and managed startup are documented in [the migration guide](handoff-migration.md). Existing bridge configuration fields and both installation templates retain their current defaults.
+
+P2 的 P1 网关检查恢复命令沿用 `approvalUsers`、`approvalChat` 和现有访问配置，无新增字段。仅任务本人同时具备审批权限、且处于已登记私聊时可用；管理员身份不允许替另一个任务主人恢复。详见 [检查后恢复](usage.md#p2检查后恢复p1-网关)。实际部署状态见 [验收记录](live-acceptance.md)。

@@ -10,6 +10,7 @@ export type RequestRecord = {
 };
 export type ControlRecord = { origin: string; execution: string; message: IncomingMessage; target: NativeControlTarget | null;
   status: 'received' | ControlDisposition; result: string | null };
+export type RecoveryRecord = { origin: string; execution: string; actor: string; evidence: string; created: number };
 export type Submission = { request: string; event: number | null; attempts: number };
 export type Permit = { execution: string; token: string };
 export type ExecutionRecord = {
@@ -341,6 +342,10 @@ export class AdmissionStore {
     });
   }
 
+  recoveries(): RecoveryRecord[] {
+    return this.db.prepare('SELECT * FROM recoveries ORDER BY created,origin').all() as RecoveryRecord[];
+  }
+
   reconcile(message: IncomingMessage, execution: string, evidence: string): void {
     this.recordRecovery(JSON.stringify([message.tenant, message.id]), ownerKey(message), execution, evidence);
   }
@@ -357,7 +362,7 @@ export class AdmissionStore {
         if (previous.execution !== execution || previous.evidence !== evidence) throw new Error('Recovery identity changed');
         return;
       }
-      if (this.execution(execution)?.status !== 'unknown') throw new Error('Only uncertain execution can be reconciled');
+      if (this.execution(execution)?.status !== 'unknown' || !this.db.prepare('SELECT 1 FROM guards WHERE execution=?').get(execution)) throw new Error('Only guarded uncertain execution can be reconciled');
       this.db.prepare('INSERT INTO recoveries VALUES (?,?,?,?,?)').run(origin, execution, actor, evidence, Date.now());
       this.db.prepare('DELETE FROM guards WHERE execution=?').run(execution);
       // Keep the original uncertain outcome. A new request carries any remaining-work authorization.

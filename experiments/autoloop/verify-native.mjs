@@ -78,7 +78,7 @@ try {
   const ingress = new FeishuAdmission(admission, 'ou_fixture_bot');
   const outbox = new SourceOutbox(admission, new AutoloopSource(url, sourceKey));
   runtime = new NativeExecutions(admission, loadConfig(bridgeConfig));
-  const openInteractions = () => new PilotInteractions(admission, loadConfig(bridgeConfig), outbox, runtime, {
+  const openInteractions = (config = loadConfig(bridgeConfig)) => new PilotInteractions(admission, config, outbox, runtime, {
     send: async (chat, text, id, options) => { deliveries.push({ chat, text, id, options }); return 'fixture-reply-' + id; },
   }, {
     addReaction: async message => { reactions.set(message, 'fixture-reaction-' + message); return reactions.get(message); },
@@ -199,7 +199,23 @@ try {
       assert.equal((await ended(request)).status, 'unknown'); await settledHub();
       assert.equal(interactions.receive(normalizeMessage(raw('blocked-' + mode, 'more work'), 'ou_fixture_bot')).status, 'blocked');
       assert.equal(audit().filter(item => item.event === 'turn/start').length, before + 1);
-      ingress.reconcile(raw('recovery-' + mode, '/reconcile ' + request.execution), { execution: request.execution, processSettled: true, effectsChecked: true,
+      if (mode === 'loss') {
+        const recoveryConfig = { ...loadConfig(bridgeConfig), approvalUsers: [scope.operator], approvalChat: scope.chat };
+        await interactions.close(); interactions = openInteractions(recoveryConfig); await interactions.recover();
+        interactions.receive(normalizeMessage(raw('inspect-' + mode, ' \t/恢复'), 'ou_fixture_bot')); await interactions.flush();
+        await until('recovery inspection delivery', async () => { await interactions.flush(); return deliveries.some(item => item.text.includes('恢复编号：' + request.execution)); });
+        const confirm = normalizeMessage(raw('recovery-' + mode, '/恢复 ' + request.execution + ' Inspected scripted fixture process exit and absence of external effects'), 'ou_fixture_bot');
+        assert.equal(interactions.receive(confirm).status, 'recovery'); await interactions.flush();
+        assert.equal(admission.store.unsettled().length, 0); assert.equal(admission.store.execution(request.execution).status, 'unknown');
+        assert.ok(admission.store.recoveries().some(item => item.origin === JSON.stringify([scope.tenant, confirm.id]) && item.actor !== 'local-runtime-operator'));
+        assert.equal(audit().filter(item => item.event === 'turn/start').length, before + 1);
+        await interactions.close(); interactions = openInteractions(recoveryConfig); await interactions.recover(); await interactions.flush();
+        assert.equal(interactions.receive(confirm).status, 'duplicate');
+        await until('recovery confirmation delivery', async () => { await interactions.flush(); return deliveries.some(item => item.options?.replyTo === confirm.id && item.text.includes('解除该任务')); });
+        assert.equal(deliveries.filter(item => item.options?.replyTo === confirm.id && item.text.includes('解除该任务')).length, 1);
+        await interactions.close(); interactions = openInteractions(); await interactions.recover();
+        console.log('PASS: owner-private inspected recovery through actual Hub/Worker retains uncertainty, deduplicates its receipt and never replays native work');
+      } else ingress.reconcile(raw('recovery-' + mode, '/reconcile ' + request.execution), { execution: request.execution, processSettled: true, effectsChecked: true,
         reference: 'Inspected scripted fixture process loss and absence of external effects' });
     }
     assert.ok(audit().filter(item => item.event === 'initialize').every(item => item.schedulerSecrets === false));

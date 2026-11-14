@@ -50,7 +50,7 @@ Arrows show the proposed logical integration, not installed services or a mandat
 | Publication outcome | The release tool's journal plus platform reconciliation |
 | Accepted backlog item, if the existing follow-up flow is used | Its existing task store; not a duplicate orchestration backlog |
 
-The gateway's current task queue remains the production implementation until an explicit handoff is delivered. The target has one authority for each execution assignment. Message inbox/outbox records are transport state, not a competing business scheduler.
+The default entry retains its legacy queue; the authorized M6 pilot uses the delivered single-assignment handoff. The target has one authority for each execution assignment. Message inbox/outbox records are transport state, not a competing business scheduler.
 
 ## Execution and interaction rules
 
@@ -126,3 +126,6 @@ OpenSpec format validation does not establish implementation, protocol compatibi
 - [DSH native Codex provider](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subagent/subagent-codex/README.md).
 - [Dim Pursuit design](https://github.com/arcships/dim/blob/4789808fe844e4b006d085df4d3d879d3616c1d3/docs/design/plugins/Pursuit.md).
 - [UI-eval integration contract](https://github.com/budded-water/ui-eval/blob/main/docs/integration-runner.md), [release-kit](https://github.com/budded-water/release-kit) and [agent-followups](https://github.com/budded-water/agent-followups). These are integration references, not bundled dependencies or acceptance claims.
+
+
+The first bounded P2 slice is [owner-private inspected recovery](../openspec/changes/enable-feishu-inspected-recovery/proposal.md), addressing the local-command dependency observed during P1 acceptance. Its change tracks candidate checks, independent review and live rollout separately. It reuses the existing ledger and transport; broader operation, process cleanup and project evidence remain later work.

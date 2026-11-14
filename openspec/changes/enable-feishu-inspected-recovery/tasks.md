@@ -1,0 +1,20 @@
+## 1. Contract
+
+- [x] 1.1 Inspect current recovery, ownership, transport and M6 acceptance boundaries.
+- [x] 1.2 Specify owner-private inspection, exact evidence-backed release and delivery/restart semantics.
+
+## 2. Implementation
+
+- [x] 2.1 Implement recovery inspection and confirmation without inference, replay or extra credentials.
+- [x] 2.2 Preserve atomic guard/decision identity and repair success delivery from the recovery ledger.
+- [x] 2.3 Add boundary regressions for authorization, evidence, backlog, duplicates, restart and stale guard safety.
+- [x] 2.4 Synchronize current architecture, usage, maintenance and implementation status.
+
+## 3. Verification and delivery
+
+- [x] 3.1 Pass focused/required checks and strict OpenSpec validation.
+- [ ] 3.2 Obtain independent review of the complete candidate and resolve findings.
+- [ ] 3.3 Publish a separate dependent PR, verify CI and retain the owner merge boundary.
+- [ ] 3.4 Deploy the reviewed version to the authorized instance and complete bounded owner-chat recovery acceptance; record actual limits.
+
+Required type/behavior/build checks passed with 220 tests. The actual pinned Hub/Worker verifier passed owner-private inspected recovery, receipt deduplication across restart and no native replay, alongside its existing interaction/fault cases. A red regression reproduced missing conversation retention when the checkpoint arrived before any admission snapshot; recovery now retains verified native references before guard release. All four OpenSpec changes passed strict validation. Independent review, dependent-PR CI and live rollout remain pending.
