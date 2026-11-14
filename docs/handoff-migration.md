@@ -103,3 +103,7 @@ The [P2 recovery change](../openspec/changes/enable-feishu-inspected-recovery/de
 Before pilot rollback, committed remote recovery notices must be projected and the outbox must be drained. Graceful gateway closure materializes pending recovery notices; missing projection or undelivered notices prevent conversion. Reopen the pilot to finish delivery before retrying rollback.
 
 Use the reviewed P2-or-later artifact to validate recovery-notice readiness and perform rollback after P2 has accepted a remote recovery. A P1 artifact cannot reconstruct an unprojected P2 recovery notice. Before a code-only downgrade to P1, use the compatible current gateway to project every committed remote decision and drain its delivery; preserve post-upgrade receipts and verify closure. Do not restore an old database over new recovery facts.
+
+## Diagnostic metadata compatibility
+
+The read-only diagnostics version retains optional `native-processes.json` and its UUID atomic-write remnants in the native archive manifest and hashes them like other execution artifacts. It does not change SQLite schema or native terminal outcome authority. Legacy executions without this sidecar remain valid, with process coverage unverified. Use the diagnostic-version-or-newer converter when these files exist; older converters may reject the additional evidence filename. Preserve metadata and post-upgrade facts when preparing a downgrade.

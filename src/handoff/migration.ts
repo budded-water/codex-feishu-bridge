@@ -352,7 +352,7 @@ export async function rollbackHandoff(plan: MigrationPlan) {
       if (!lstatSync(source).isDirectory() || lstatSync(source).isSymbolicLink()) throw new Error('Invalid native archive');
       const directory = join(archive, execution); mkdirSync(directory, { mode: 0o700 });
       for (const name of readdirSync(source)) {
-        if (!['bridge.db', 'bridge.db-journal', 'native-owner.json', 'native-result.json'].includes(name) && !/^native-result\.json\.[0-9a-f-]{36}\.tmp$/.test(name)) throw new Error('Unexpected native state artifact');
+        if (!['bridge.db', 'bridge.db-journal', 'native-owner.json', 'native-result.json', 'native-processes.json'].includes(name) && !/^native-(?:result|processes)\.json\.[0-9a-f-]{36}\.tmp$/.test(name)) throw new Error('Unexpected native state artifact');
         nativeFiles[execution + '/' + name] = copyClosed(join(source, name), join(directory, name));
       }
     }

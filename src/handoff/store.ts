@@ -248,6 +248,10 @@ export class AdmissionStore {
     this.db.prepare("UPDATE submissions SET next=?+MIN(60000,1000*(1 << MIN(attempts+1,6))), attempts=attempts+1, problem='source_unconfirmed' WHERE request=? AND status='pending'").run(Date.now(), request);
   }
 
+  assignmentRuns(request: string): number[] {
+    return (this.db.prepare('SELECT run FROM assignments WHERE request=? ORDER BY run').all(request) as { run: number }[]).map(row => row.run);
+  }
+
   execution(id: string): ExecutionRecord | undefined {
     return this.db.prepare('SELECT id,request,project,status,evidence,problem FROM executions WHERE id=?').get(id) as ExecutionRecord | undefined;
   }

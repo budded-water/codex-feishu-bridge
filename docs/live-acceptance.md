@@ -2,7 +2,7 @@
 
 This record describes the owner installation. It does not imply that a new installation is already configured. Keep credentials, account identifiers, project paths, and chat transcripts in private local configuration/state only.
 
-Current bounded M6 status: P0/P1 owner-private acceptance and the P2 inspected-recovery slice are complete. The latest P2 record covers actual Feishu confirmation, restart-retained decisions and fresh continuation; older pending statements below are dated campaign snapshots. Human process/effect inspection and separate deployment/family limits remain applicable.
+Current bounded M6 status: P0/P1 owner-private acceptance and the P2 inspected-recovery slice are complete. The P2 records cover actual Feishu confirmation, restart-retained decisions, read-only incident reporting and fresh continuation; older pending statements below are dated campaign snapshots. Human process/effect inspection and separate deployment/family limits remain applicable.
 
 ## Observed
 
@@ -264,3 +264,30 @@ A bounded official API read reconciled all eight messages in this controlled exc
 Task 3.4 and the bounded P2 change are complete. Runtime/test/verifier source is unchanged from the independently reviewed and deployed candidate with 222 passing tests; this closeout updates documentation only. PR #9 remains open above PR #8 pending owner merge authorization. Exact process, message, checkpoint and effect references remain private.
 
 This verifies owner-private inspected recovery, not automatic process/effect forensics. The operator supplied the controlled-process and two-marker-file inspection, and the human confirmed it through Feishu. Missing sealed evidence or unstarted backlog still requires local maintenance. Colleague/group recovery, other live fault families, host-login exercise and general descendant cleanup remain unverified or separate work. The version-compatibility boundary for rollback remains in the migration guide.
+
+## 2026-11-14 — Read-only incident diagnostics candidate
+
+The candidate records private task-bound process observations and expands the existing recovery view with native, registered-process, queue and source-scoped Hub facts. It uses a separate authenticated presence-only IPC operation, avoiding ordinary snapshot/pending-message cleanup. The view reads evidence without applying native conversation references, guard changes or Hub publication. Report generation time, sampled coverage, proven absence, identity/visibility uncertainty and human business-effect checks remain distinct.
+
+The complete local type/behavior/build check passed with 234 tests. Actual owned process fixtures verified a registered child remaining after its native parent exited and exclusion of an unrelated sibling. A process-backed native fixture verified observation persistence through terminal publication and the corresponding running-PID warning. Other boundary coverage includes identity reuse/limited visibility, unavailable sampling, in-flight closure, malformed/cross-bound metadata, byte-identical sealed/admission files, read-only live IPC, GET-only source validation, owner authorization and metadata archive integrity.
+
+The actual pinned Hub/Worker scripted verifier passed process metadata capture and bound Hub-state rendering alongside existing assignment, interaction, restart and fault cases. Real Codex stdio initialization, model catalog and tool-disabled thread metadata smoke passed without inference. This evidence uses temporary state and synthetic human transport. Independent review, CI and M6 diagnostic rollout/live acceptance remain pending. No process-control or automatic business-effects verification is claimed.
+
+The initial complete-source review found that submission-level source-routing blocks were omitted from the report's blocked-request count. A failing SQLite/report regression reproduced the omission and overlapping reasons. The count now includes request-level or submission-level blocks once per request. Corrected-candidate checks and fresh review remain separate evidence.
+
+The routing-count correction passed full checks with 234 tests and the actual pinned integration verifier. Fresh complete-source review approved the corrected candidate with no actionable findings; its CI/preflight passed. A locked artifact passed build/doctor and replaced the quiesced/drained M6 gateway/Worker after observed shutdown and closed-state snapshots. Managed Feishu readiness and open/drained admission were verified. Actual owner-private diagnostic report acceptance remains pending.
+
+
+## 2026-11-14 — Real read-only incident report and separate recovery
+
+The reviewed diagnostic artifact received the owner's bounded wait task through the enrolled Feishu private chat. Authenticated native identity and an actual owned process graph established the running wait; its PID/start-time identity was present in task-bound observations before fault injection. The operator killed only this task's app-server, leaving the registered wait running for diagnosis. Native closure sealed the journal with an unknown outcome and retained the guard.
+
+The owner sent `/恢复` and received a timestamped report bound to that exact incident. The official API reconciled the owner command and its bot reply. The report showed the registered wait PID still running, native outcome unknown and protection held, queue/delivery counts, and the bound Hub run independently verified as finished. It stated sampled-process coverage and unverified business effects. The response excluded the original command, task marker, local paths and credentials.
+
+Before/after read-only snapshots retained identical logical admission rows, native journal/result hashes, process-observation hash, Hub run and approved-marker hash. There were no new requests, assignments or recovery decisions. Viewing neither ran model work, cleaned processes nor released protection; normal maintenance-message deduplication and reply delivery remained allowed.
+
+After the report was verified, the operator separately terminated only the captured wait after rechecking its exact PID, start time and command. All captured test processes were then verified exited; the approved marker hash remained unchanged and the previously refused target stayed absent. This was controlled-test inspection, not a product cleanup function or proof of all unobserved descendants. The owner submitted a fresh Feishu confirmation with the inspection reference. Exactly one owner/message/checkpoint-bound recovery decision released the guard without a local reconcile command, while the original request and single assignment retained unknown history.
+
+A fresh no-tool owner request completed in a new turn of the original native conversation, now containing fourteen turns. The exact answer, settled child, sealed hash, imported checkpoint and acknowledged reply association were verified. A bounded official API read reconciled all eight messages, including one recovery-success reply linked to the actual confirmation and one associated continuation reply; the interrupted completion marker was absent. Admission, queue, controls, publication and delivery drained with no uncertain guard. The matching finished-run Hub question was closed separately through the supported operator owner API.
+
+Task 3.3 and this bounded diagnostic change are complete. Runtime/test/verifier source remains the reviewed and deployed candidate with 234 passing tests; closeout updates documentation only. PR #10 stays open above PR #9 and PR #8 pending owner merge authorization. Private process, chat, native, snapshot and cleanup evidence is retained in the deployment inventory. This does not establish automatic descendant/effect forensics, remote cleanup, backlog editing, replay, colleague/group recovery or universal deployment acceptance. The optional sidecar compatibility boundary remains in the migration guide.
