@@ -85,7 +85,7 @@ test('status presents current work; diagnostics only appear on demand and simpli
 test('administrator approval messages never reply into the submitter chat and plain agreement cannot approve', async t => {
  const h=setup();t.after(h.close);h.config.approvalChat='oc_admin';h.deliveries();const input=message('Check identity');h.bridge.receive(input);await until(()=>h.turns().length===1);
  h.codex.ask('approve','item/commandExecution/requestApproval',{...h.current(),command:'aws sts get-caller-identity',reason:'Verify the configured account'});
- const approval=h.state.pending().find(x=>x.chat==='oc_admin')!;assert.ok(!approval.replyTo);assert.ok(!approval.mentions);assert.ok(approval.body.startsWith('需要你确认'));assert.match(approval.body,/aws sts get-caller-identity/);assert.match(approval.body,/本次动作/);
+ const approval=h.state.pending().find(x=>x.chat==='oc_admin')!;assert.ok(!approval.replyTo);assert.ok(!approval.mentions);assert.ok(approval.body.startsWith('### 需要你确认'));assert.match(approval.body,/aws sts get-caller-identity/);assert.match(approval.body,/本次动作/);
  h.bridge.receive(message('好',{chat:'oc_admin'}));assert.equal(h.codex.replies.length,0);
 });
 

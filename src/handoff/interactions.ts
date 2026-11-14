@@ -10,6 +10,7 @@ import { HandoffTransport } from './transport.js';
 import type { ControlRecord, RequestRecord } from './store.js';
 import { FeishuRecovery } from './recovery.js';
 import { OwnerQueue } from './queue.js';
+import { approvalActorAllowed, type ApprovalClick, type CardResult } from '../approval.js';
 
 export class PilotInteractions {
   readonly transport: HandoffTransport;
@@ -102,6 +103,17 @@ export class PilotInteractions {
     if (control.message.text.trim().startsWith('/')) return control.message;
     const intent = naturalControl(control.message.text.trim());
     return { ...control.message, text: intent === 'stop' ? '/stop' : '/steer ' + control.message.text };
+  }
+
+  cardAction(click: ApprovalClick): CardResult {
+    if (this.closing || click.tenant !== this.admission.scope.tenant || !approvalActorAllowed(this.config, click)) return 'rejected';
+    const selected = this.transport.state.approvalClick(click);
+    if (!selected || !this.admission.store.unsettled().some(row => row.id === selected.task && row.status === 'active')) return 'rejected';
+    const previous = this.admission.store.control(selected.message);
+    if (previous) return 'duplicate';
+    this.admission.store.acceptControl(selected.task, selected.message, selected.target);
+    void this.flushControls().catch(() => console.error('Card decision outcome awaits lookup'));
+    return 'accepted';
   }
 
   private async relay(control: ControlRecord): Promise<void> {

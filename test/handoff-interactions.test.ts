@@ -11,6 +11,7 @@ import { PilotInteractions } from '../src/handoff/interactions.js';
 import type { DeliveryOptions, ContextPort } from '../src/types.js';
 import { FakeCodex, until } from './helpers.js';
 import { readJournal } from '../src/handoff/journal.js';
+import type { ApprovalClick, ApprovalView } from '../src/approval.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
   async start() { this.ready = true; this.generation = randomUUID(); }
@@ -34,7 +35,9 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
     sent.push({ chat, text, id, options }); return 'delivered-' + id;
   };
   let remove = async (message: string) => { reactions.delete(message); };
-  const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options) };
+  const cardUpdates: { message: string; view: ApprovalView }[] = [];
+  const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options),
+    updateApproval: async (message: string, _approval: unknown, view: ApprovalView) => { cardUpdates.push({ message, view }); } };
   const port = { addReaction: async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; },
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
   let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
@@ -54,11 +57,35 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   };
   const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context); await interactions.recover(); return interactions; };
   t.after(async () => { await native.stop(); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
-  return { config, admission, native, codex, sent, reactions, actor, launch, restart, get interactions() { return interactions; },
+  return { config, admission, native, codex, sent, cardUpdates, reactions, actor, launch, restart, get interactions() { return interactions; },
     setSend: (value: typeof send) => { send = value; }, setRemove: (value: typeof remove) => { remove = value; } };
 }
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
+
+test('private card callbacks preserve delivered identity and original native target through lost IPC acknowledgment and restart', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const task = await h.launch();
+  h.codex.ask('card-native', 'item/commandExecution/requestApproval', { threadId: task.thread, turnId: task.turn, command: 'echo bounded-card' });
+  await drain(h);
+  const delivered = h.sent.find(row => row.options?.approval)!; assert.ok(delivered);
+  const p = delivered.options!.approval!;
+  const click: ApprovalClick = { event: randomUUID(), tenant: 'tenant', user: 'ou_owner', chat: 'chat', message: 'delivered-' + delivered.id, id: p.id, decision: 'approve' };
+  for (const change of [{ user: 'ou_admin' }, { tenant: 'other' }, { chat: 'admin' }, { message: 'another-card' }]) assert.equal(h.interactions.cardAction({ ...click, ...change }), 'rejected');
+  let relayCount = 0; const relay = h.native.relay.bind(h.native);
+  h.native.relay = async (...args) => { relayCount++; await relay(...args); throw Error('ack lost'); };
+  assert.equal(h.interactions.cardAction(click), 'accepted');
+  const command = { ...h.actor('/approve ' + p.prompt), id: 'card/' + click.event };
+  assert.deepEqual(h.admission.store.control(command)!.target, p.target);
+  assert.equal(h.interactions.cardAction(click), 'duplicate');
+  await drain(h); await h.restart(); await drain(h);
+  assert.equal(relayCount, 1); assert.deepEqual(h.codex.replies, [{ id: 'card-native', result: { decision: 'accept' } }]);
+  assert.equal(h.admission.store.control(command)!.status, 'sent');
+  assert.deepEqual(h.cardUpdates, [{ message: click.message, view: 'approved' }]);
+  assert.equal(h.interactions.cardAction({ ...click, event: randomUUID(), decision: 'reject' }), 'rejected');
+  h.codex.complete(task.thread, task.turn); await task.running; await drain(h);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, 1);
+});
 
 test('lost control acknowledgement is lookup-only and gateway restart retains original execution and actor', async t => {
   const h = setup(t); const task = await h.launch();

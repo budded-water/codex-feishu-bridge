@@ -125,7 +125,7 @@ async function main(): Promise<void> {
     await feishu.start(message => {
       try { bridge.receive(message); void feedback.flush(); void outbox.flush(); }
       catch { console.error('Message could not be persisted; Feishu may retry the event'); throw new Error('Local message processing failed'); }
-    });
+    }, click => bridge.cardAction(click));
     if (!stopping) console.log('Bridge running; configured tenant/user access and per-user sessions are enforced');
   } catch {
     const intentionalStop = stopping;

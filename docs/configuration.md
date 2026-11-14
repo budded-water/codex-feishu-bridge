@@ -106,3 +106,7 @@ workspace 模式保留任务原文，已配置的别名前缀也按普通文字�
 The experimental prepared pilot entry uses a private handoff configuration and migration plan. Its fields and managed startup are documented in [the migration guide](handoff-migration.md). Existing bridge configuration fields and both installation templates retain their current defaults.
 
 P2 的 P1 网关检查恢复命令沿用 `approvalUsers`、`approvalChat` 和现有访问配置，无新增字段。仅任务本人同时具备审批权限、且处于已登记私聊时可用；管理员身份不允许替另一个任务主人恢复。详见 [检查后恢复](usage.md#p2检查后恢复p1-网关)。实际部署状态见 [验收记录](live-acceptance.md)。
+
+## 审批卡片
+
+卡片沿用 `approvalUsers`、`approvalChat`、租户 / allowlist 和原生超时，不增加配置开关。仅已知同一私聊且提交者为指定审批人时使用按钮；路由到其他审批聊天、群聊和超长动作使用整理后的完整命令预览。应用需额外订阅 `card.action.trigger` 回调，见 [飞书应用设置](feishu-setup.md#审批卡片回调)。两份示例配置无需新增权限或字段。

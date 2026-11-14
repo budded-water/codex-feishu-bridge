@@ -216,6 +216,12 @@ export class NativeExecutions {
     const task = projection.task;
     if (!task || task.id !== outcome.task || task.owner !== ownerKey(request.message) || task.trigger !== request.message.id ||
       task.directory !== this.gateway.directory || task.thread !== outcome.thread || task.turn !== outcome.turn) throw new Error('Native projection identity changed');
+    for (const row of projection.messages) if (row.approval) {
+      const p = row.approval, prompt = projection.prompts.find(item => item.id === p.prompt);
+      if (request.message.chatType !== 'p2p' || p.task !== task.id || p.tenant !== request.message.tenant || p.chat !== request.message.chat ||
+        p.chat !== row.chat || row.prompt_id !== p.prompt || prompt?.expires !== p.expires ||
+        p.target.thread !== outcome.thread || p.target.turn !== outcome.turn || p.target.generation !== outcome.generation) throw new Error('Approval presentation binding changed');
+    }
     return { ...projection, sealed, checkpoint, outcome,
       messages: projection.messages.filter(row => (!row.final || sealed) &&
         (!(row.transient || row.prompt_id) || (!sealed && ['queued', 'running'].includes(String(outcome.status))))) };

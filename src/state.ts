@@ -5,6 +5,7 @@ import { openPrivateDatabase } from './private-database.js';
 import { OWNER_WITHDRAWN, type RequestRecord, type ControlRecord } from './handoff/store.js';
 import type { JournalProjection } from './handoff/journal.js';
 import { splitReply } from './reply.js';
+import { approvalCard, parseApproval, cardMessage, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
 import { ownerKey, type IncomingMessage, type Session, type Task, type DeliveryOptions, type NativeControlTarget, type ControlDisposition } from './types.js';
 
 export interface Delivery {
@@ -17,6 +18,9 @@ export interface Delivery {
   mentions?: string | null;
   taskId?: string;
   final?: number;
+  approval?: ApprovalPresentation;
+  updateMessage?: string;
+  approvalView?: ApprovalView;
 }
 
 export interface FeedbackRecord {
@@ -60,6 +64,8 @@ export class State {
           attempts INTEGER DEFAULT 0, next INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS projected_control_notices (origin TEXT NOT NULL, status TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(origin,status));
+        CREATE TABLE IF NOT EXISTS approval_cards (id TEXT PRIMARY KEY, prompt TEXT NOT NULL UNIQUE, delivery TEXT NOT NULL UNIQUE,
+          payload TEXT NOT NULL, message TEXT, rendered TEXT NOT NULL DEFAULT 'pending');
         CREATE TABLE IF NOT EXISTS projected_tasks (execution TEXT PRIMARY KEY, checkpoint TEXT, notified INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS projected_deliveries (id TEXT PRIMARY KEY, execution TEXT NOT NULL, live INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS relayed_controls (origin TEXT PRIMARY KEY, message TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL);
@@ -77,7 +83,7 @@ export class State {
       if (!taskColumns.some(column => column.name === 'routing_origin')) this.db.exec('ALTER TABLE tasks ADD COLUMN routing_origin TEXT');
       const outboxColumns = this.db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[];
       if (!outboxColumns.some(column => column.name === 'task')) this.db.exec('ALTER TABLE outbox ADD COLUMN task TEXT');
-      for (const [name, definition] of Object.entries({ reply_to: 'TEXT', mentions: 'TEXT', response_task: 'TEXT', final: 'INTEGER DEFAULT 0', prompt_id: 'TEXT' })) {
+      for (const [name, definition] of Object.entries({ reply_to: 'TEXT', mentions: 'TEXT', response_task: 'TEXT', final: 'INTEGER DEFAULT 0', prompt_id: 'TEXT', approval: 'TEXT', update_message: 'TEXT', approval_view: 'TEXT' })) {
         if (!outboxColumns.some(column => column.name === name)) this.db.exec(`ALTER TABLE outbox ADD COLUMN ${name} ${definition}`);
       }
       this.db.exec('CREATE TABLE IF NOT EXISTS task_messages (message TEXT PRIMARY KEY, task TEXT REFERENCES tasks(id), chat TEXT)');
@@ -100,7 +106,7 @@ export class State {
       running: count("SELECT COUNT(*) AS n FROM tasks WHERE status='running'"),
       unknown: count("SELECT COUNT(*) AS n FROM tasks WHERE status='unknown' AND NOT EXISTS(SELECT 1 FROM migration_reconciliations WHERE task=tasks.id)"),
       prompts: count("SELECT COUNT(*) AS n FROM approvals WHERE status='pending'"),
-      outbox: count('SELECT COUNT(*) AS n FROM outbox'),
+      outbox: count('SELECT COUNT(*) AS n FROM outbox') + this.cardChanges(Date.now()).length,
       reactions: count('SELECT COUNT(*) AS n FROM feedback'),
       clarifications: count('SELECT COUNT(*) AS n FROM routing WHERE pending IS NOT NULL'),
     };
@@ -142,9 +148,9 @@ export class State {
   projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }): void {
     this.transaction(() => {
       for (const prompt of projection.prompts) {
-        this.db.prepare(`INSERT INTO approvals(id,task,method,status,created,expires) VALUES (?,?,'native-projection',?,?,?)
-          ON CONFLICT(id) DO UPDATE SET status=excluded.status,expires=excluded.expires`)
-          .run(request.execution + ':' + prompt.id, request.execution, prompt.status, Date.now(), prompt.expires);
+        this.db.prepare(`INSERT INTO approvals(id,task,method,status,created,expires,actor) VALUES (?,?,'native-projection',?,?,?,?)
+          ON CONFLICT(id) DO UPDATE SET status=excluded.status,expires=excluded.expires,actor=excluded.actor`)
+          .run(request.execution + ':' + prompt.id, request.execution, prompt.status, Date.now(), prompt.expires, prompt.actor ?? null);
       }
       for (const row of projection.messages) {
         if (!this.db.prepare('INSERT OR IGNORE INTO projected_deliveries VALUES (?,?,?)').run(row.id, request.execution, projection.sealed ? 0 : 1).changes) {
@@ -154,6 +160,12 @@ export class State {
         this.db.prepare(`INSERT INTO outbox(id,chat,body,reply_to,mentions,response_task,final,prompt_id,task)
           VALUES (?,?,?,?,?,?,?,?,?)`).run(row.id, row.chat, this.redact(row.body), row.reply_to, row.mentions,
           request.execution, row.final, row.prompt_id ? request.execution + ':' + row.prompt_id : null, row.transient ? request.execution : null);
+        if (row.approval) {
+          const p = row.approval;
+          this.db.prepare('UPDATE outbox SET approval=? WHERE id=?').run(JSON.stringify(p), row.id);
+          this.db.prepare('INSERT OR IGNORE INTO approval_cards(id,prompt,delivery,payload) VALUES (?,?,?,?)')
+            .run(p.id, request.execution + ':' + p.prompt, row.id, JSON.stringify(p));
+        }
       }
       if (projection.sealed) this.db.prepare('UPDATE projected_tasks SET checkpoint=? WHERE execution=?').run(projection.checkpoint, request.execution);
     });
@@ -408,6 +420,21 @@ export class State {
   }
 
   send(chat: string, body: string, options: DeliveryOptions = {}): void {
+    if (options.approval) {
+      const raw = options.approval;
+      const p = { ...raw, context: this.redact(raw.context), reason: this.redact(raw.reason), action: this.redact(raw.action),
+        ...(raw.sourceLink && { sourceLink: this.redact(raw.sourceLink) }) };
+      if (Buffer.byteLength(JSON.stringify(approvalCard(p))) <= APPROVAL_CARD_BYTES) {
+        parseApproval(p);
+        this.transaction(() => {
+          const id = randomUUID();
+          this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to,response_task,prompt_id,approval) VALUES (?,?,?,?,?,?,?)')
+            .run(id, chat, this.redact(body), options.replyTo ?? null, options.taskId ?? null, options.promptId ?? null, JSON.stringify(p));
+          this.db.prepare('INSERT INTO approval_cards(id,prompt,delivery,payload) VALUES (?,?,?,?)').run(p.id, p.prompt, id, JSON.stringify(p));
+        });
+        return;
+      }
+    }
     // Split before persistence so each part retains its UUID across delivery retries.
     for (const part of splitReply(this.redact(body))) {
       this.db.prepare('INSERT INTO outbox (id, chat, body, reply_to, mentions, response_task, final, prompt_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), chat, part, options.replyTo ?? null, options.mentions?.length ? JSON.stringify(options.mentions) : null, options.taskId ?? null, options.final ? 1 : 0, options.promptId ?? null);
@@ -460,14 +487,17 @@ export class State {
   }
 
   pending(now = Date.now()): Delivery[] {
+    this.queueCardUpdates(Date.now());
     // A delayed status must never appear after its task has finished.
     this.db.prepare(`DELETE FROM outbox WHERE task IS NOT NULL AND task IN
       (SELECT id FROM tasks WHERE status NOT IN ('queued','running'))`).run();
     this.db.prepare(`DELETE FROM outbox WHERE prompt_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM approvals WHERE approvals.id=outbox.prompt_id AND status='pending' AND (expires IS NULL OR expires>?))`).run(Date.now());
     // Preserve message ordering within each chat, even if its first message is backing off.
-    return this.db.prepare(`SELECT id, chat, body, attempts, next, reply_to AS replyTo, mentions, response_task AS taskId, final FROM outbox AS current WHERE next<=?
+    const rows = this.db.prepare(`SELECT id, chat, body, attempts, next, reply_to AS replyTo, mentions, response_task AS taskId, final, approval,
+      update_message AS updateMessage,approval_view AS approvalView FROM outbox AS current WHERE next<=?
       AND NOT EXISTS (SELECT 1 FROM outbox AS previous WHERE previous.chat=current.chat AND previous.sequence<current.sequence)
-      ORDER BY sequence LIMIT 20`).all(now) as unknown as Delivery[];
+      ORDER BY sequence LIMIT 20`).all(now) as unknown as (Omit<Delivery, 'approval'> & { approval: string | null })[];
+    return rows.map(row => ({ ...row, approval: row.approval ? parseApproval(JSON.parse(row.approval)) : undefined }));
   }
 
   deliveryReady(id: string): boolean {
@@ -480,6 +510,9 @@ export class State {
   }
 
   delivered(id: string, message?: string): void {
+    const card = this.db.prepare('SELECT update_message,approval_view FROM outbox WHERE id=?').get(id) as { update_message: string | null; approval_view: string | null } | undefined;
+    if (card?.update_message) this.db.prepare('UPDATE approval_cards SET rendered=? WHERE message=?').run(card.approval_view!, card.update_message);
+    else if (message) this.db.prepare('UPDATE approval_cards SET message=? WHERE delivery=?').run(message, id);
     const delivery = this.db.prepare('SELECT response_task AS task,final,chat FROM outbox WHERE id=?').get(id) as {task:string|null;final:number;chat:string}|undefined;
     if (delivery?.task) {
       if (message) this.db.prepare('INSERT OR IGNORE INTO task_messages (message,task,chat) VALUES (?,?,?)').run(message,delivery.task,delivery.chat);
@@ -487,6 +520,43 @@ export class State {
       this.db.prepare(`UPDATE tasks SET ${field}=COALESCE(${field},?) WHERE id=?`).run(Date.now(),delivery.task);
     }
     this.db.prepare('DELETE FROM outbox WHERE id=?').run(id);
+  }
+
+  private cardView(prompt: string, now: number): ApprovalView {
+    const row = this.db.prepare('SELECT approvals.status,actor,expires,tasks.status AS task_status FROM approvals JOIN tasks ON tasks.id=approvals.task WHERE approvals.id=?')
+      .get(prompt) as { status: string; actor: string | null; expires: number | null; task_status: string } | undefined;
+    if (row?.status === 'accept_sent') return 'approved';
+    if (row?.status === 'decline_sent' && row.actor) return 'rejected';
+    if (row?.expires != null && row.expires <= now) return 'expired';
+    return row?.status === 'pending' && row.task_status === 'running' ? 'pending' : 'unavailable';
+  }
+
+  private cardChanges(now: number) {
+    const cards = this.db.prepare('SELECT * FROM approval_cards WHERE message IS NOT NULL').all() as { id: string; prompt: string; payload: string; message: string; rendered: ApprovalView }[];
+    const changed: { payload: string; message: string; view: ApprovalView }[] = [];
+    for (const card of cards) {
+      const view = this.cardView(card.prompt, now);
+      if (view === card.rendered || this.db.prepare('SELECT 1 FROM outbox WHERE update_message=?').get(card.message)) continue;
+      changed.push({ payload: card.payload, message: card.message, view });
+    }
+    return changed;
+  }
+
+  private queueCardUpdates(now: number): void {
+    for (const card of this.cardChanges(now)) {
+      const p = parseApproval(JSON.parse(card.payload));
+      this.db.prepare('INSERT INTO outbox(id,chat,body,approval,update_message,approval_view) VALUES (?,?,?,?,?,?)')
+        .run(randomUUID(), p.chat, '', card.payload, card.message, card.view);
+    }
+  }
+
+  approvalClick(click: ApprovalClick) {
+    const row = this.db.prepare('SELECT approval_cards.*,approvals.task FROM approval_cards JOIN approvals ON approvals.id=approval_cards.prompt WHERE approval_cards.id=?').get(click.id) as
+      { payload: string; prompt: string; task: string; message: string | null } | undefined;
+    if (!row || row.message !== click.message || this.cardView(row.prompt, Date.now()) !== 'pending') return;
+    const p = parseApproval(JSON.parse(row.payload));
+    if (p.tenant !== click.tenant || p.chat !== click.chat) return;
+    return { task: row.task, target: p.target, message: cardMessage(click, p), prompt: p.prompt };
   }
 
   retry(delivery: Delivery): void {

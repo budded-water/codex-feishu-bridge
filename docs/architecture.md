@@ -33,7 +33,7 @@ This is an independent project that can route work to multiple local repositorie
 | Reaction feedback | Add native received reactions without blocking answers; reconcile ambiguous adds and retry durable removal after terminal task states. |
 | State store | Persist session mappings, received message IDs, task status, and recoverable outbound delivery state in SQLite. |
 
-The first version uses app-server's default stdio transport. It does not expose Codex on a network port. Feishu receives messages using its SDK long connection; text commands avoid needing a separate card callback endpoint in the initial version.
+The first version uses app-server's default stdio transport. It does not expose Codex on a network port. Feishu receives messages and card.action.trigger callbacks through the same SDK long connection. No public callback endpoint is required. Same-chat private approval cards retain English manual commands; routed/group approvals keep the structured manual preview.
 
 ## Startup
 
@@ -170,3 +170,9 @@ The [queue-withdrawal change](../openspec/changes/enable-owner-queue-withdrawal/
 Admission SQLite is canonical for the withdrawal decision. One immediate transaction retains actor/origin and prior block reasons, prohibits reservation and records the command identity. Any existing execution prevents withdrawal, including a granted execution that has not launched Codex yet. Reservation checks the same transaction boundary. Late source replies cannot remove a committed block. A previously queued Hub run can finish with a known unstarted-withdrawal receipt rather than manufacture an uncertain native outcome; no Hub cancellation or management capability is added.
 
 The transport projects withdrawn tasks as interrupted unstarted work for feedback cleanup and uses stable `withdrawn` notice tombstones. The admission ledger and transport notice projection are separate durable facts: synchronization repairs a missing projection, while rollback requires projection and drained delivery before exporting. The complete audit stays in archived pilot SQLite; reverse conversion retains command/request deduplication and never restores the withdrawn task to queued. Compatible converters are required to enforce the new notice gate. Native journals, unknown guards, maintenance pause and process control are independent.
+
+## Approval card transport
+
+[The card change](../openspec/changes/enable-feishu-approval-cards/design.md) adds Card JSON 2.0 for same-chat private approvals whose submitter is an approval administrator. Full redacted action content is required; oversized cards and routed/group approvals use structured manual commands. Callback selectors are not credentials. The authenticated SDK validates app/operator/tenant/context, and the bridge requires a confirmed delivered message ID plus the exact task/thread/turn/generation. Native request policy remains authoritative. Pilot admission atomically stores the callback event and original target; uncertain dispatch is lookup-only. No model or network work is awaited in the callback.
+
+Typed optional journal presentation and deciding actor are projected read-only; platform message IDs live in transport state. Existing durable outbox rows update acknowledged cards after submitted decisions, expiry or invalidation, with no new task or replacement card on uncertain HTTP errors. Drain checks include derived pending updates. Legacy sealed journals without the optional fields remain readable without byte changes. Compatible rollback archives card payload/message facts and retains callback event deduplication; old cards do not become fresh authorization in the restored role.

@@ -171,14 +171,14 @@ export class AdmissionStore {
     return row && { ...row, message: JSON.parse(row.message), target: row.target ? JSON.parse(row.target) : null };
   }
 
-  acceptControl(execution: string, message: IncomingMessage): ControlRecord {
+  acceptControl(execution: string, message: IncomingMessage, target?: NativeControlTarget): ControlRecord {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already has another purpose');
       const previous = this.control(message);
       if (previous) return previous;
       if (!this.db.prepare('SELECT 1 FROM guards WHERE execution=?').get(execution)) throw new Error('No current execution for control');
-      this.db.prepare("INSERT INTO controls VALUES (?,?,?,NULL,'received',NULL)").run(origin, execution, JSON.stringify(message));
+      this.db.prepare("INSERT INTO controls VALUES (?,?,?,?,'received',NULL)").run(origin, execution, JSON.stringify(message), target ? JSON.stringify(target) : null);
       return this.control(message)!;
     });
   }

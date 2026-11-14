@@ -1,5 +1,5 @@
 export interface Mention { id: string; name: string }
-export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string }
+export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation }
 
 export interface IncomingMessage {
   tenant: string;

@@ -292,7 +292,7 @@ test('only configured administrators can decide colleague approvals in the route
   h.bridge.receive(message('/project alpha', colleague)); h.bridge.receive(message('Colleague task', colleague));
   await until(() => h.turns().length === 1);
   h.codex.ask('team-approval', 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo bounded' });
-  const preview = h.state.pending(Number.MAX_SAFE_INTEGER).find(reply => reply.body.includes('动作：'))!;
+  const preview = h.state.pending(Number.MAX_SAFE_INTEGER).find(reply => reply.body.includes('**本次动作**'))!;
   assert.equal(preview.chat, 'oc_admin');
   const token = preview.body.match(/请求 ([a-f0-9]{8})/)![1]!;
   h.bridge.receive(message(`/approve ${token}`, { user: 'ou_colleague', chat: 'oc_admin' }));

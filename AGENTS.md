@@ -53,3 +53,5 @@ Transport formatting, context bounds, authorization, session ownership, and deli
 ## Public repository hygiene
 
 Never commit real credentials, access tokens, personal user IDs, project paths, Codex auth files, SQLite state, logs, or transcripts. Example configuration must contain placeholders only. Do not activate a bot or send messages during tests without the user's authorization for that live test.
+
+Read openspec/changes/enable-feishu-approval-cards for same-private-chat approval buttons. Preserve confirmed card message identity, exact native target and lookup-only uncertain control handling. Card updates are transport projections, not native decisions; retain optional journal compatibility and drain outstanding updates before conversion.

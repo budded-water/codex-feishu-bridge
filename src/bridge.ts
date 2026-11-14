@@ -1,3 +1,4 @@
+import { approvalPresentation, approvalText, approvalActorAllowed, type ApprovalClick, type CardResult } from './approval.js';
 import { MAX_NOTIFICATION_MEMBERS, naturalControl, duration, taskTitle, deadline, terminalText, statusNames, fencedPreview, notificationBody } from './ux.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { realpathSync, mkdirSync } from 'node:fs';
@@ -647,8 +648,19 @@ export class Bridge {
       const trigger=this.state.trigger(active.task.id);
       const identity=trigger && this.contextPort?.actor ? await this.contextPort.actor(active.session,trigger).catch(()=>({name:undefined,link:undefined})) : undefined;
       if (!this.prompts.has(token) || active.done || active.generation!==this.codex.generation || Date.now()>=expires) return;
-      const actor = prompt.replyChat === active.session.chat ? `[[notify:${active.session.user}]]` : identity?.name ?? '原请求提交者（姓名未能核实）';
-      this.state.send(prompt.replyChat,`需要你确认一项操作\n项目：${active.session.project === '$chat' ? '讨论' : active.session.project}\n提交者：${actor}\n需求：${taskTitle(active.task.input)}${identity?.link ? `\n[查看原提问](${identity.link})` : ''}\n用途：${string(rpc.params.reason) || '执行下方具体动作'}\n\n本次动作：\n${preview}\n\n仅批准本次动作；后续请求需要分别确认。\n请求 ${token}，截止 ${deadline(expires)}；过期后不会授权。\n/approve ${token} 或 /reject ${token}`,{replyTo:prompt.replyChat === active.session.chat ? this.state.trigger(active.task.id) : undefined,mentions:prompt.replyChat === active.session.chat ? [{id:active.session.user,name:identity?.name ?? '提交者（姓名未核实）'}] : undefined,taskId:active.task.id,promptId:token});
+      const sameChat = prompt.replyChat === active.session.chat;
+      const context = (this.config.projectRouting === 'workspace' ? '通用工作区' : active.session.project === '$chat' ? '讨论' : '项目：' + active.session.project) +
+        (!sameChat ? ' · 来自：' + (identity?.name ?? '提交者未核实') : '');
+      const presentation = approvalPresentation({ prompt: token, task: active.task.id, tenant: active.session.tenant, chat: prompt.replyChat,
+        target: { generation: active.generation, thread: active.thread!, turn: active.turn! }, expires, context,
+        reason: string(rpc.params.reason) || '执行下面的单次操作', action: description, ...(identity?.link && { sourceLink: identity.link }) });
+      const groupMention = sameChat && active.task.source?.chatType === 'group';
+      this.state.send(prompt.replyChat, (groupMention ? `[[notify:${active.session.user}]]\n` : '') + approvalText(presentation), {
+        replyTo: sameChat ? this.state.trigger(active.task.id) : undefined,
+        mentions: groupMention ? [{ id: active.session.user, name: identity?.name ?? '提交者（姓名未核实）' }] : undefined,
+        taskId: active.task.id, promptId: token,
+        approval: sameChat && active.task.source?.chatType === 'p2p' && this.config.approvalUsers.includes(active.session.user) ? presentation : undefined,
+      });
       if (prompt.replyChat !== active.session.chat) this.state.sendStatus(active.task.id,active.session.chat,'正在等待管理员确认这一步操作，你暂时不需要重复发送。',token);
     } else {
       const item = questions[0]!;
@@ -678,6 +690,17 @@ export class Bridge {
       this.codex.reply(prompt.rpc.id, result);
       this.state.approvalStatus(prompt.token, answer ? 'answer_sent' : 'decline_sent', actor);
     }
+  }
+
+  cardAction(click: ApprovalClick): CardResult {
+    if (this.closed || !approvalActorAllowed(this.config, click)) return 'rejected';
+    const selected = this.state.approvalClick(click);
+    if (!selected) return 'rejected';
+    const active = [...this.active.values()].find(item => !item.done && item.task.id === selected.task &&
+      item.thread === selected.target.thread && item.turn === selected.target.turn && item.generation === selected.target.generation && item.generation === this.codex.generation);
+    if (!active || this.prompts.get(selected.prompt)?.active !== active) return 'rejected';
+    if (!this.state.remember(selected.message)) return 'duplicate';
+    return this.replyPrompt(selected.message, '/' + click.decision, selected.prompt) ? 'accepted' : 'rejected';
   }
 
   private replyPrompt(message: IncomingMessage, command: string, argument: string): boolean {

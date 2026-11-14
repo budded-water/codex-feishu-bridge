@@ -74,3 +74,7 @@ The read-only diagnostic slice has completed source review, deployment and bound
 ## English chat command contract
 
 [standardize-english-chat-commands](changes/standardize-english-chat-commands/proposal.md) supersedes the slash spellings in earlier changes. Current examples use English; dated acceptance retains the syntax actually observed. It includes gateway-local help, retired-token rejection and coordinated drained activation. Existing owner/approval policy, stored message identity and the outstanding queue live-acceptance gap remain unchanged.
+
+## Approval cards
+
+[enable-feishu-approval-cards](changes/enable-feishu-approval-cards/proposal.md) covers authenticated same-private-chat buttons, exact native target binding and durable card updates. Manual English commands remain available. Its tasks distinguish code verification, review and actual app/owner acceptance; older approval-command evidence remains historical.

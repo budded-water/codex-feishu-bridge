@@ -57,7 +57,7 @@ Follow docs/feishu-setup.md and record observed results before marking these com
 
 ## Limitations and follow-up scope
 
-Card callbacks, non-image attachments, arbitrary paths, task replay, cloud hosting, external tenant access, secret questions, multi-question RPCs, and interactive permission grants are outside the initial scope.
+Non-image attachments, arbitrary paths, task replay, cloud hosting, external tenant access, secret questions, multi-question RPCs, and interactive permission grants are outside the initial scope.
 
 Automatic data retention and exported metrics are not implemented. Delivery is at least once across external deduplication-window expiry. Existing desktop chats and UI-only integrations are not automatically attached.
 
@@ -102,3 +102,7 @@ The corrected complete candidate passed fresh independent review and CI/prefligh
 The owner-requested syntax change uses `/steer`, `/approve`, `/reject`, `/answer`, `/notify`, `/recover`, `/queue`, `/withdraw` and `/status details` consistently across core, P1 and native/probe allowlists. Core and P1 help advertise only their supported operations; retired Chinese slash commands cannot execute or decide requests. Natural Chinese conversation/control intent and body spacing remain supported. Full local type/behavior/build checks passed with 251 tests. No database/configuration/protocol schema or subscription identity changed. See the [bounded change](../openspec/changes/standardize-english-chat-commands/tasks.md) for integration/review/deployment gates. Queue live acceptance remains pending independently.
 
 The English amendment passed fresh independent review of the complete current PR, exact-head CI/preflight and locked artifact build/doctor. M6 now runs that artifact after drained gateway/Worker replacement with closed-state backups and managed Feishu readiness. English owner round trips remain unobserved; the earlier queue acceptance remains pending. Syntax implementation/review/managed deployment is complete, without claiming those separate live families.
+
+## Same-private-chat approval cards
+
+The [bounded change](../openspec/changes/enable-feishu-approval-cards/proposal.md) adds clear complete-action presentation, authenticated buttons through the existing SDK connection and durable exact-message updates. Routed/group/oversized approvals retain structured English command previews. Full local type/behavior/build checks passed with 260 tests, including real SDK dispatch, SQLite/IPC restart decisions, sealed legacy reads and rollback archival/deduplication. Eight strict specs and the pinned P0/Hub/Worker scripted regressions passed. Review, published app callback activation, deployment and real owner-button acceptance remain separate gates. Earlier command approval acceptance does not establish card acceptance.

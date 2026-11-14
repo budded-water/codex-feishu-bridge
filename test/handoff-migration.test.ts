@@ -105,10 +105,11 @@ test('post-traffic rollback imports deduplication, native continuation and deliv
   admission.store.maintenance.resume();
   const codex = new ManagedFake(); const native = new NativeExecutions(admission, h.plan.config, () => codex);
   const sent: string[] = [];
+  let card: import('../src/approval.js').ApprovalPresentation | undefined, cardMessage: string | undefined;
   const interactions = new PilotInteractions(admission, h.plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) }, native,
-    { send: async (_chat, _text, id) => { sent.push(id); return 'pilot-answer-' + id; } },
+    { send: async (_chat, _text, id, options) => { sent.push(id); if (options?.approval) { card = options.approval; cardMessage = 'pilot-answer-' + id; } return 'pilot-answer-' + id; }, updateApproval: async () => {} },
     { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
-  const message = { ...h.message, id: 'pilot-source', text: 'Continue native work' };
+  const message = { ...h.message, id: 'pilot-source', text: 'Continue native work', chatType: 'p2p' as const };
   const accepted = interactions.receive(message); assert.ok('request' in accepted);
   admission.store.rememberEvent(accepted.request.id, 1); admission.store.routed(accepted.request.id, true);
   const grant = admission.store.reserve(accepted.request.id, 1); assert.equal(grant.kind, 'start');
@@ -116,6 +117,13 @@ test('post-traffic rollback imports deduplication, native continuation and deliv
   const running = native.run(grant.permit);
   await until(() => codex.calls.some(call => call.method === 'turn/start'));
   assert.equal(codex.calls.find(call => call.method === 'thread/resume')!.params.threadId, 'retained-native-thread');
+  codex.ask('card-native', 'item/commandExecution/requestApproval', { threadId: 'retained-native-thread', turnId: 'turn-1', command: 'echo card-fixture' });
+  for (let i = 0; i < 8; i++) await interactions.flush();
+  assert.ok(card && cardMessage);
+  const callback = { event: randomUUID(), tenant: message.tenant, user: message.user, chat: message.chat, message: cardMessage, id: card.id, decision: 'reject' as const };
+  assert.equal(interactions.cardAction(callback), 'accepted');
+  for (let i = 0; i < 8; i++) await interactions.flush();
+  assert.deepEqual(codex.replies, [{ id: 'card-native', result: { decision: 'decline' } }]);
   const controlMessage = { ...message, id: 'pilot-control', text: '/steer Keep this constraint' };
   interactions.receive(controlMessage); await interactions.flush();
   codex.complete('retained-native-thread', 'turn-1'); await running;
@@ -128,11 +136,14 @@ test('post-traffic rollback imports deduplication, native continuation and deliv
   const controller = await openRuntimeControl(lease, () => ({})); await controller.close(true); await lease.release();
   assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');
   const operation = JSON.parse(readFileSync(join(h.plan.bundleDirectory, 'handoff-operation.json'), 'utf8'));
+  const archived = read(join(h.plan.bundleDirectory, operation.archive, 'transport.db'), db => db.prepare('SELECT id,message,rendered FROM approval_cards').get());
+  assert.deepEqual({ ...archived }, { id: card.id, message: cardMessage, rendered: 'rejected' });
   assert.deepEqual(readFileSync(join(h.plan.bundleDirectory, operation.archive, accepted.request.execution, 'native-processes.json')), processMetadata);
   assert.equal(operation.nativeFiles[accepted.request.execution + '/native-processes.json'], createHash('sha256').update(processMetadata).digest('hex'));
   const restored = new State(h.plan.legacyDirectory);
   assert.equal(restored.remember(message), false);
   assert.equal(restored.remember(controlMessage), false);
+  assert.equal(restored.remember({ ...message, id: 'card/' + callback.event }), false);
   assert.equal(restored.selected(message)!.thread, 'retained-native-thread');
   assert.equal(restored.referencedTask('pilot-answer-' + sent.at(-1), h.session.owner), accepted.request.execution);
   assert.equal(restored.referencedTask('legacy-answer', h.session.owner), h.task.id);
