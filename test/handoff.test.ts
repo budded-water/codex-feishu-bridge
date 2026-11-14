@@ -183,3 +183,24 @@ test('group source publication and assignment wait for a retained reference snap
   assert.equal((await outbox.claim(h.job(admitted.request.id))).kind, 'start');
   assert.equal(published, 1);
 });
+
+test('source diagnostics are GET-only and preserve route state on missing, mismatched and unavailable observations', async t => {
+  const h = setup(t); const request = h.accept('diagnostic', 'private diagnostic task'); const methods: string[] = [];
+  let reply: unknown = { event: 3, routed: ['pilot'], paused: [], runs: [{ run: 5, rule: 'pilot', state: 'done' }] };
+  const server = createServer((incoming, response) => { methods.push(incoming.method + ' ' + incoming.url); response.end(JSON.stringify(reply)); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
+  const outbox = new SourceOutbox(h.gateway, new AutoloopSource('http://127.0.0.1:' + (server.address() as AddressInfo).port, 'fixture-key'));
+  assert.deepEqual(await outbox.diagnose(request.id), { status: 'missing' }); assert.equal(methods.length, 0);
+  h.gateway.store.rememberEvent(request.id, 3); h.gateway.store.routed(request.id, true); h.gateway.store.reserve(request.id, 5);
+  const before = JSON.stringify(h.gateway.store.submission(request.id));
+  assert.deepEqual(await outbox.diagnose(request.id), { status: 'verified', state: 'done' });
+  for (const bad of [
+    { event: 4, routed: ['pilot'], paused: [], runs: [{ run: 5, rule: 'pilot', state: 'done' }] },
+    { event: 3, routed: ['another'], paused: [], runs: [{ run: 5, rule: 'pilot', state: 'done' }] },
+    { event: 3, routed: ['pilot'], paused: [], runs: [{ run: 6, rule: 'pilot', state: 'done' }] },
+    { event: 3, routed: ['pilot'], paused: [], runs: [{ run: 5, rule: 'pilot', state: 'private-secret-state' }] },
+  ]) { reply = bad; assert.notEqual((await outbox.diagnose(request.id)).status, 'verified'); }
+  assert.ok(methods.every(value => value === 'GET /v1/events/3')); assert.equal(JSON.stringify(h.gateway.store.submission(request.id)), before);
+  assert.equal(h.gateway.store.unsettled()[0]!.status, 'active');
+});

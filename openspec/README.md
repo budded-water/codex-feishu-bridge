@@ -57,3 +57,7 @@ Future CLI upgrades must inspect supported commands and generated-file changes i
 
 
 The P2 inspected-recovery change has completed its bounded implementation, source review, deployment and real M6 owner-private acceptance. Gateway restart retained the single recovery decision and notice, and a fresh no-tool turn continued the original native conversation. It remains under the open dependent implementation PR pending merge/spec synchronization. Human effects inspection, separate Hub maintenance and broader operation remain outside the completed slice.
+
+## Read-only incident diagnostics change
+
+[add-readonly-incident-diagnostics](changes/add-readonly-incident-diagnostics/proposal.md) adds bounded process observations and an owner-private report through `/恢复`, without new recovery authority or model inference. Its [tasks](changes/add-readonly-incident-diagnostics/tasks.md) separate implementation, source review and live deployment acceptance. Compatible archival retains the optional metadata; absent or incomplete facts remain explicit.

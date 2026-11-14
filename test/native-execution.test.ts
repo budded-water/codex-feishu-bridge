@@ -1,5 +1,6 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -224,4 +225,33 @@ test('assigned workspace execution preserves general instructions, scoped contro
   assert.equal(h.gateway.store.unsettled()[0]!.id, grant.permit.execution);
   assert.equal((await runtime.run(grant.permit)).outcome.status, 'unknown');
   assert.equal(client.starts, 1);
+});
+
+test('sealed native diagnostics retain a live orphan observation and expose it without relaxing recovery', async t => {
+  const { spawn } = await import('node:child_process');
+  const { incidentReport } = await import('../src/handoff/diagnostics.js');
+  const h = setup(t); const grant = h.accept(); let tree: ReturnType<typeof spawn>, leaf = 0;
+  class ProcessBackedFake extends ManagedFake {
+    get pid() { return tree?.pid; }
+    async start() {
+      await super.start(); tree = spawn(process.execPath, ['test/fixtures/process-tree.mjs', 'root'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      const [chunk] = await once(tree.stdout!, 'data'); leaf = JSON.parse(String(chunk)).child;
+    }
+    async close() {
+      if (tree && tree.exitCode === null && tree.signalCode === null) { const done = once(tree, 'exit'); tree.kill('SIGKILL'); await done; }
+      await super.close();
+    }
+  }
+  t.after(() => { if (tree?.pid) { try { process.kill(-tree.pid, 'SIGKILL'); } catch {} } });
+  const client = new ProcessBackedFake(), runtime = new NativeExecutions(h.gateway, h.config, () => client);
+  const running = runtime.run(grant.permit); await active(client); client.exit(); const report = await running;
+  assert.equal(report.outcome.status, 'unknown');
+  const diagnostics = await runtime.diagnostics(grant.permit.execution);
+  assert.equal(diagnostics.sealed, true); assert.equal(diagnostics.processes!.native, 'exited');
+  assert.ok(diagnostics.processes!.descendants.some(row => row.pid === leaf && row.state === 'running'));
+  const state = new State(join(h.root, 'diagnostic-transport'));
+  const output = await incidentReport(h.gateway, runtime, { diagnose: async () => ({ status: 'verified', state: 'done' }) }, state,
+    h.gateway.store.execution(grant.permit.execution)!); state.close();
+  assert.ok(output.includes(String(leaf))); assert.match(output, /登记进程仍存在/); assert.match(output, /任务结果：未确认/);
+  assert.equal(h.gateway.store.unsettled().length, 1); assert.equal(h.gateway.store.recoveries().length, 0);
 });

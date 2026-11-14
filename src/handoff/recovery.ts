@@ -4,6 +4,8 @@ import { ownerKey, type IncomingMessage } from '../types.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
 import type { RecoveryRecord } from './store.js';
+import type { SourceOutbox } from './source.js';
+import { incidentReport } from './diagnostics.js';
 
 const usage = '请先核对原命令及其后代进程均已停止，并检查文件和外部副作用。确认后发送 /恢复 编号 检查依据。无法核实时请使用本机维护检查。';
 
@@ -20,7 +22,7 @@ export function recoveryNoticeTarget(admission: PilotAdmission, recovery: Recove
 export class FeishuRecovery {
   private work: Promise<void> = Promise.resolve();
 
-  constructor(private admission: PilotAdmission, private config: Config, private native: NativeExecutions, private state: State) {}
+  constructor(private admission: PilotAdmission, private config: Config, private native: NativeExecutions, private source: Pick<SourceOutbox, 'diagnose'>, private state: State) {}
 
   receive(message: IncomingMessage) {
     const scope = this.admission.scope;
@@ -50,9 +52,7 @@ export class FeishuRecovery {
       const incidents = this.admission.store.unsettled().filter(row => this.held(message, row.id));
       const lines: string[] = [];
       for (const incident of incidents) {
-        let ready = false;
-        try { await this.native.recoveryCheckpoint(incident.id); ready = true; } catch { /* Missing evidence cannot authorize release. */ }
-        lines.push(`恢复编号：${incident.id}\n${ready ? '原生子进程已封存退出；仍需本人核对后代进程与副作用。' : '封存证据或执行器状态无法核实，需要本机维护检查。'}`);
+        lines.push(await incidentReport(this.admission, this.native, this.source, this.state, incident));
       }
       const backlog = Number(this.admission.store.drainStatus().queued);
       this.state.send(message.chat, incidents.length ? lines.join('\n\n') + '\n\n' +

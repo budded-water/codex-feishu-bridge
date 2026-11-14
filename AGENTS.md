@@ -23,6 +23,8 @@ Read openspec/changes/integrate-feishu-autoloop-handoff before P1 runtime work. 
 
 Read openspec/changes/enable-feishu-inspected-recovery for the P2 owner-private maintenance control. Native-child settlement and human descendant/effect inspection are distinct evidence. Preserve exact guarded identity, pause, old unknown outcomes and lookup-only notice repair; never turn a recovery command into task execution.
 
+Read openspec/changes/add-readonly-incident-diagnostics for process observations and read-only incident reporting. Keep diagnostic IPC free of native snapshot/outbox cleanup and source reads free of publication/retry. PID/start-time observations are bounded facts, not cleanup authority. Preserve legacy unknown coverage and optional evidence archival.
+
 ## Implementation boundaries
 
 Assigned group references are prepared by the gateway using the existing ContextPort scope and image budgets. Keep their original execution/message identity, separate image inputs and stop independence. Preserve live/journal conversation references through owner loss, and use the supported evidence-backed maintenance recovery path before releasing uncertain guards. Reverse conversion must preserve the selected conversation across legacy project and alias lookup.

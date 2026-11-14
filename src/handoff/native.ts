@@ -11,8 +11,10 @@ import { PilotAdmission } from './gateway.js';
 import type { Permit, RequestRecord } from './store.js';
 import { openOwnerChannel, probeOwner, requestOwner } from './owner-channel.js';
 import { journalControl, journalProjection } from './journal.js';
+import { ProcessObserver, parseProcessObservation, readProcessTable, processState, type ProcessObservation, type ProcessTable } from './processes.js';
 
 export interface ManagedCodex extends CodexPort {
+  readonly pid?: number;
   start(): Promise<void>;
   close(): Promise<void>;
 }
@@ -236,6 +238,28 @@ export class NativeExecutions {
     return snapshot;
   }
 
+  async diagnostics(execution: string) {
+    const checkedAt = Date.now();
+    let owner: Owner;
+    try { owner = this.owner(execution); } catch {
+      return { checkedAt, connection: 'unverified' as const, sealed: false, sealedOutcome: null, recoveryEligible: false, processes: null };
+    }
+    let connection: 'reachable' | 'unverified' = 'unverified';
+    try {
+      const snapshot = await requestOwner(owner.socket, owner.permit.token, execution, { op: 'diagnostic' });
+      if (snapshot.pid === owner.pid && snapshot.execution === execution) connection = 'reachable';
+    } catch { /* An unavailable socket does not prove process settlement. */ }
+    let sealed = false, sealedOutcome: 'completed' | 'interrupted' | 'unknown' | null = null;
+    try { const report = this.evidence(execution); sealed = report.childSettled && Boolean(report.databaseHash); if (sealed) sealedOutcome = report.outcome.status as Exclude<typeof sealedOutcome, null>; } catch { /* Missing or changed evidence remains unverified. */ }
+    let observation: ProcessObservation | null = null, table: ProcessTable | null = null;
+    try { observation = parseProcessObservation(readRecord(join(this.folder(execution), 'native-processes.json')), owner.binding); } catch { /* Legacy or invalid process metadata has no authority. */ }
+    if (observation) { try { table = await readProcessTable(); } catch { /* OS observation is unavailable. */ } }
+    const processes = observation && { currentAvailable: Boolean(table), observedAt: observation.observedAt, available: observation.available, truncated: observation.truncated,
+      owner: processState(observation.owner, table), native: processState(observation.native, table),
+      descendants: observation.descendants.map(value => ({ pid: value.pid, state: processState(value, table) })) };
+    return { checkedAt, connection, sealed, sealedOutcome, recoveryEligible: sealed && sealedOutcome === 'unknown' && connection !== 'reachable', processes };
+  }
+
   async recoveryCheckpoint(execution: string): Promise<string> {
     let reachable = false;
     try { await this.inspect(execution); reachable = true; } catch { /* A sealed report is still required below. */ }
@@ -268,6 +292,7 @@ class NativeOwner {
   private stopping = false;
   private closing?: Promise<void>;
   private outcome: Outcome;
+  private processes?: ProcessObserver;
 
   constructor(private gateway: PilotAdmission, private config: Config, private request: RequestRecord,
     private permit: Permit, private folder: string, private codex: ManagedCodex) {
@@ -284,6 +309,7 @@ class NativeOwner {
 
   async run(): Promise<void> {
     const channel = await openOwnerChannel(this.permit.token, this.permit.execution, async incoming => {
+      if (incoming.op === 'diagnostic') return { execution: this.permit.execution, pid: process.pid };
       if (incoming.op === 'control-result') {
         if (typeof incoming.tenant !== 'string' || typeof incoming.id !== 'string' || !this.state) throw new Error('Invalid control lookup');
         return { status: journalControl(join(this.folder, 'bridge.db'), { tenant: incoming.tenant, id: incoming.id }) };
@@ -339,12 +365,16 @@ class NativeOwner {
           if (!['queued', 'running'].includes(this.outcome.status)) resolve();
         }, 10);
       });
+      if (this.codex.pid) {
+        this.processes = new ProcessObserver(join(this.folder, 'native-processes.json'), marker.binding, process.pid, this.codex.pid);
+        await this.processes.start();
+      }
       this.bridge.kick();
       await settled;
     } finally {
       try {
         clearInterval(this.timer);
-        await this.close();
+        try { await this.close(); } finally { await this.processes?.stop(); }
         await channel.close();
         this.snapshot();
         const hasJournal = Boolean(this.state);

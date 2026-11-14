@@ -20,10 +20,10 @@ export class PilotInteractions {
   private publication?: Promise<void>;
   private controlWork?: Promise<void>;
 
-  constructor(readonly admission: PilotAdmission, private config: Config, private source: Pick<SourceOutbox, 'flush'>,
+  constructor(readonly admission: PilotAdmission, private config: Config, private source: Pick<SourceOutbox, 'flush' | 'diagnose'>,
     private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = [], private contextPort?: ContextPort) {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
-    this.recovery = new FeishuRecovery(admission, config, native, this.transport.state);
+    this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
   }
 
   receive(message: IncomingMessage) {

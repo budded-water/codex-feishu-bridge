@@ -44,6 +44,8 @@ export class CodexClient implements CodexPort {
     this.reasoningEffort = reasoningEffort;
   }
 
+  get pid(): number | undefined { return this.child?.pid; }
+
   async start(): Promise<void> {
     if (this.child && !this.closed) throw new Error('Codex process is already running');
     const lifecycle = ++this.lifecycle;

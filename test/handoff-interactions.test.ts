@@ -37,7 +37,7 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options) };
   const port = { addReaction: async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; },
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
-  let interactions = new PilotInteractions(admission, config, { flush: publish }, native, sender, port, ['fixture-private-secret'], context);
+  let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
   const actor = (text: string, overrides = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, chatType: 'p2p' as const, ...overrides });
   const launch = async () => {
     const message = actor('Inspect this assigned task');
@@ -52,7 +52,7 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
     const thread = String(call.params.threadId), turn = 'turn-2';
     return { message, request: admitted.request, running, thread, turn };
   };
-  const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config, { flush: publish }, native, sender, port, ['fixture-private-secret'], context); await interactions.recover(); return interactions; };
+  const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context); await interactions.recover(); return interactions; };
   t.after(async () => { await native.stop(); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
   return { config, admission, native, codex, sent, reactions, actor, launch, restart, get interactions() { return interactions; },
     setSend: (value: typeof send) => { send = value; }, setRemove: (value: typeof remove) => { remove = value; } };
@@ -559,4 +559,54 @@ test('closing materializes a committed recovery notice before the restarted gate
   assert.ok(h.interactions.transport.state.pending().some(row => row.replyTo === confirm.id && row.body.includes('解除该任务')));
   await drain(h);
   assert.equal(h.sent.filter(row => row.options?.replyTo === confirm.id).length, 1);
+});
+
+test('incident preview reports native and scheduler facts without changing admission or a sealed journal', async t => {
+  const { createServer } = await import('node:http'); const { SourceOutbox, AutoloopSource } = await import('../src/handoff/source.js');
+  const { FeishuRecovery } = await import('../src/handoff/recovery.js');
+  const { h, task } = await unknownForRecovery(t); h.admission.store.rememberEvent(task.request.id, 3); h.admission.store.routed(task.request.id, true);
+  const methods: string[] = [];
+  const server = createServer((request, response) => { methods.push(request.method + ' ' + request.url); response.end(JSON.stringify({ event: 3, routed: ['pilot'], paused: [], runs: [{ run: 1, rule: 'pilot', state: 'done' }] })); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
+  const port = (server.address() as import('node:net').AddressInfo).port;
+  const source = new SourceOutbox(h.admission, new AutoloopSource('http://127.0.0.1:' + port, 'fixture-key'));
+  const recovery = new FeishuRecovery(h.admission, h.config, h.native, source, h.interactions.transport.state);
+  const admissionPath = join(h.admission.stateDirectory, 'handoff.db'), journalPath = join(h.admission.stateDirectory, 'executions', task.request.execution, 'bridge.db');
+  const beforeAdmission = readFileSync(admissionPath), beforeJournal = readFileSync(journalPath), nativeCalls = h.codex.calls.length;
+  const snapshot = h.admission.store.nativeSnapshot; h.admission.store.nativeSnapshot = () => { throw new Error('Diagnostic attempted a reference write'); };
+  const query = h.actor('/恢复'); assert.equal(recovery.receive(query).status, 'recovery'); await recovery.idle(); h.admission.store.nativeSnapshot = snapshot;
+  const report = h.interactions.transport.state.pending().find(row => row.replyTo === query.id)!.body;
+  assert.match(report, /核查快照/); assert.match(report, /任务结果：未确认/); assert.match(report, /封存日志：已核实完整/);
+  assert.match(report, /Hub 调度轮次：已核实，已结束/); assert.match(report, /任务进程登记：无法核实/); assert.match(report, /业务副作用：无法自动核实/);
+  assert.doesNotMatch(report, /Inspect this assigned task|fixture-private-secret/); assert.ok(!report.includes(h.admission.directory));
+  assert.deepEqual(methods, ['GET /v1/events/3']); assert.deepEqual(readFileSync(admissionPath), beforeAdmission); assert.deepEqual(readFileSync(journalPath), beforeJournal);
+  assert.equal(h.codex.calls.length, nativeCalls); assert.equal(h.admission.store.unsettled().length, 1); assert.equal(h.admission.store.recoveries().length, 0);
+});
+
+test('unauthorized diagnostic views cannot trigger native or source probes', async t => {
+  const { h } = await unknownForRecovery(t); let probes = 0;
+  h.native.diagnostics = async () => { probes++; throw new Error('Must not probe'); };
+  for (const override of [{ user: 'ou_admin' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' }]) assert.equal(h.interactions.receive(h.actor('/恢复', override)).status, 'ignored');
+  await drain(h); assert.equal(probes, 0);
+});
+
+test('live native diagnostic IPC does not mutate its journal or preserve admission references', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const h = setup(t); const task = await h.launch(); h.admission.store.ownerUnconfirmed(task.request.execution);
+  const path = join(h.admission.stateDirectory, 'executions', task.request.execution, 'bridge.db');
+  const before = readFileSync(path); const admission = readFileSync(join(h.admission.stateDirectory, 'handoff.db')); const count = h.codex.calls.length;
+  const report = await h.native.diagnostics(task.request.execution);
+  assert.equal(report.connection, 'reachable'); assert.equal(report.sealed, false); assert.equal(report.recoveryEligible, false);
+  assert.deepEqual(readFileSync(path), before); assert.deepEqual(readFileSync(join(h.admission.stateDirectory, 'handoff.db')), admission); assert.equal(h.codex.calls.length, count);
+  h.codex.complete(task.thread, task.turn); t.mock.timers.tick(10); await task.running;
+});
+
+test('invalid or cross-bound process metadata stays unverified without hiding valid sealed evidence', async t => {
+  const { h, task } = await unknownForRecovery(t); const path = join(h.admission.stateDirectory, 'executions', task.request.execution, 'native-processes.json');
+  for (const body of ['invalid json', JSON.stringify({ version: 1, binding: 'other-request', owner: null, native: null, descendants: [] })]) {
+    writeFileSync(path, body); const report = await h.native.diagnostics(task.request.execution);
+    assert.equal(report.sealed, true); assert.equal(report.sealedOutcome, 'unknown'); assert.equal(report.processes, null);
+    assert.equal(h.admission.store.unsettled().length, 1); assert.equal(h.admission.store.recoveries().length, 0);
+  }
 });

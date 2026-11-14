@@ -2,6 +2,7 @@ import { record } from '../types.js';
 import { PilotAdmission, REQUEST_EVENT } from './gateway.js';
 import type { Reservation, Submission } from './store.js';
 
+export type HubDiagnostic = { status: 'verified'; state: 'queued' | 'claimed' | 'done' | 'nothing' | 'cancelled' | 'failed' } | { status: 'missing' | 'unavailable' | 'mismatch' };
 type SourceReceipt = { event: number; routed: string[]; paused: string[] };
 type SourceOutcome = SourceReceipt & { runs: { run: number; rule: string; state: string }[] };
 
@@ -54,6 +55,21 @@ export class SourceOutbox {
     if (this.work) return this.work;
     this.work = this.deliver().finally(() => { this.work = undefined; });
     return this.work;
+  }
+
+  async diagnose(requestId: string): Promise<HubDiagnostic> {
+    const request = this.gateway.store.request(requestId);
+    const submission = this.gateway.store.submission(requestId);
+    const assignments = this.gateway.store.assignmentRuns(requestId);
+    if (!request || request.project !== this.gateway.project || submission?.event == null || assignments.length !== 1) return { status: 'missing' };
+    try {
+      const result = await this.source.inspect(submission.event);
+      const run = result.runs[0];
+      if (result.routed.length !== 1 || result.routed[0] !== this.gateway.scope.rule || result.paused.length || result.runs.length !== 1 ||
+        run?.rule !== this.gateway.scope.rule || run.run !== assignments[0] ||
+        !['queued', 'claimed', 'done', 'nothing', 'cancelled', 'failed'].includes(run.state)) return { status: 'mismatch' };
+      return { status: 'verified', state: run.state as Extract<HubDiagnostic, { status: 'verified' }>['state'] };
+    } catch { return { status: 'unavailable' }; }
   }
 
   private async confirm(submission: Submission): Promise<SourceOutcome> {

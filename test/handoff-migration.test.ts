@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { State } from '../src/state.js';
 import { Bridge } from '../src/bridge.js';
@@ -105,7 +105,7 @@ test('post-traffic rollback imports deduplication, native continuation and deliv
   admission.store.maintenance.resume();
   const codex = new ManagedFake(); const native = new NativeExecutions(admission, h.plan.config, () => codex);
   const sent: string[] = [];
-  const interactions = new PilotInteractions(admission, h.plan.config, { flush: async () => {} }, native,
+  const interactions = new PilotInteractions(admission, h.plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) }, native,
     { send: async (_chat, _text, id) => { sent.push(id); return 'pilot-answer-' + id; } },
     { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
   const message = { ...h.message, id: 'pilot-source', text: 'Continue native work' };
@@ -119,12 +119,17 @@ test('post-traffic rollback imports deduplication, native continuation and deliv
   const controlMessage = { ...message, id: 'pilot-control', text: '/补充 Keep this constraint' };
   interactions.receive(controlMessage); await interactions.flush();
   codex.complete('retained-native-thread', 'turn-1'); await running;
+  const processMetadata = Buffer.from(JSON.stringify({ version: 1, observation: 'fixture-private-process-evidence' }));
+  writeFileSync(join(h.plan.pilotDirectory, 'executions', accepted.request.execution, 'native-processes.json'), processMetadata, { mode: 0o600 });
   for (let i = 0; i < 6; i++) await interactions.flush();
   admission.store.maintenance.quiesce();
   await interactions.close(); admission.close();
   const lease = await acquireRoot(h.plan.legacyDirectory, 'pilot', h.plan.pilotDirectory);
   const controller = await openRuntimeControl(lease, () => ({})); await controller.close(true); await lease.release();
   assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');
+  const operation = JSON.parse(readFileSync(join(h.plan.bundleDirectory, 'handoff-operation.json'), 'utf8'));
+  assert.deepEqual(readFileSync(join(h.plan.bundleDirectory, operation.archive, accepted.request.execution, 'native-processes.json')), processMetadata);
+  assert.equal(operation.nativeFiles[accepted.request.execution + '/native-processes.json'], createHash('sha256').update(processMetadata).digest('hex'));
   const restored = new State(h.plan.legacyDirectory);
   assert.equal(restored.remember(message), false);
   assert.equal(restored.remember(controlMessage), false);
@@ -253,7 +258,7 @@ test('an explicitly fresh pilot conversation returns as a new legacy session', a
   const plan = loadMigrationPlan(h.planPath); await stageHandoff(plan);
   const admission = new PilotAdmission(plan.pilotDirectory, plan.scope); admission.store.maintenance.resume();
   const codex = new ManagedFake(); const native = new NativeExecutions(admission, plan.config, () => codex);
-  const interactions = new PilotInteractions(admission, plan.config, { flush: async () => {} }, native,
+  const interactions = new PilotInteractions(admission, plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) }, native,
     { send: async (_chat, _text, id) => 'fresh-answer-' + id },
     { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
   const message = { ...h.message, id: 'fresh-conversation-source', text: 'Use the new conversation' };
@@ -317,7 +322,7 @@ test('managed pilot recovers first-turn conversation after owner death and suppo
   assert.equal(admission.store.conversationThread(accepted.request.conversation), null);
   const exited = new Promise(resolve => owner.once('exit', resolve)); owner.kill('SIGKILL'); await exited;
   const native = new NativeExecutions(admission, plan.config);
-  const interactions = new PilotInteractions(admission, plan.config, { flush: async () => {} }, native,
+  const interactions = new PilotInteractions(admission, plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) }, native,
     { send: async (_chat, _text, id) => id }, { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
   await interactions.recover(); for (let i = 0; i < 3; i++) await interactions.flush();
   const thread = admission.store.conversationThread(accepted.request.conversation);
@@ -352,7 +357,7 @@ test('rollback refuses unprojected and undelivered recovery decisions before ret
   const h = await fixture(t); await stageHandoff(h.plan);
   const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope); admission.store.maintenance.resume();
   const codex = new ManagedFake(), native = new NativeExecutions(admission, h.plan.config, () => codex);
-  const interactions = new PilotInteractions(admission, h.plan.config, { flush: async () => {} }, native,
+  const interactions = new PilotInteractions(admission, h.plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) }, native,
     { send: async (_chat, _text, id) => 'fixture-ack-' + id },
     { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
   const message = { ...h.message, chatType: 'p2p' as const, id: 'unknown-before-rollback', text: 'Controlled uncertain task' };

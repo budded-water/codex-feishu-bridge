@@ -204,6 +204,13 @@ try {
         await interactions.close(); interactions = openInteractions(recoveryConfig); await interactions.recover();
         interactions.receive(normalizeMessage(raw('inspect-' + mode, ' \t/恢复'), 'ou_fixture_bot')); await interactions.flush();
         await until('recovery inspection delivery', async () => { await interactions.flush(); return deliveries.some(item => item.text.includes('恢复编号：' + request.execution)); });
+        const diagnostic = deliveries.find(item => item.text.includes('恢复编号：' + request.execution)).text;
+        assert.ok(diagnostic.includes('Hub 调度轮次：已核实，已结束'));
+        assert.ok(diagnostic.includes('原生进程：已核实退出'));
+        assert.ok(diagnostic.includes('业务副作用：无法自动核实'));
+        assert.ok(!diagnostic.includes(project) && !diagnostic.includes(sourceKey));
+        const processEvidence = JSON.parse(readFileSync(join(state, 'executions', request.execution, 'native-processes.json'), 'utf8'));
+        assert.ok(processEvidence.native && processEvidence.owner && processEvidence.observedAt > 0);
         const confirm = normalizeMessage(raw('recovery-' + mode, '/恢复 ' + request.execution + ' Inspected scripted fixture process exit and absence of external effects'), 'ou_fixture_bot');
         assert.equal(interactions.receive(confirm).status, 'recovery'); await interactions.flush();
         assert.equal(admission.store.unsettled().length, 0); assert.equal(admission.store.execution(request.execution).status, 'unknown');

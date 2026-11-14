@@ -150,3 +150,11 @@ A committed recovery is projected periodically and before gateway closure throug
 
 
 The bounded M6 owner-private P2 flow is now observed live: exact incident preview, owner-message inspection confirmation, unknown-preserving guard release, gateway restart and fresh same-thread continuation. Recovery controls did not add a model turn. Source-bound inspection, ledger, checkpoint, notice and external API delivery evidence remain in the private inventory; the dated acceptance record states the manual process/effect and Hub-maintenance limits.
+
+## Read-only incident diagnostics
+
+The [incident-diagnostics change](../openspec/changes/add-readonly-incident-diagnostics/design.md) expands the existing owner-private recovery view. NativeOwner records a bounded private process graph before task execution, samples it while running, and awaits its final observation before sealing. It stores PID/start-time identity and observed parent edges, without command lines or environment. The metadata is bound to the same execution/request as its native owner and is optional for older executions.
+
+Diagnostic IPC returns only authenticated owner presence and does not run the ordinary snapshot's pending-message cleanup. Native diagnostics read sealed evidence and process observations without applying snapshots or preserving conversation references. Current process checks distinguish matching live identities, proven absence/zombies and unverified identity/visibility. Missing PS data, legacy/corrupt metadata and incomplete sampling stay explicit. These observations are not process-control authority or proof of complete descendant coverage.
+
+SourceOutbox diagnostics use only GET of the retained event, checking expected route, enumerated state and assigned run before rendering. No source publication, retry, routing update or Hub management key is involved. Reports retain the exact incident, generation time, queue/delivery counts and explicit human business-effect checks. Recovery confirmation still revalidates its established conditions independently. Compatible migration tools archive the optional process metadata with the closed execution. Live deployment status belongs in the acceptance record.

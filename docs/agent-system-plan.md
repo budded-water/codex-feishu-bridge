@@ -132,3 +132,5 @@ The first bounded P2 slice is [owner-private inspected recovery](../openspec/cha
 
 
 The first P2 inspected-recovery slice has completed real M6 owner-private acceptance, including a fresh continuation after gateway restart. It removes the local reconcile-command requirement for eligible sealed incidents. Actual command descendants and external effects still require human inspection; missing evidence, queued backlog, Hub maintenance and broader operation remain distinct work. P3 project/UI evidence and P4 discovery are not delivered by this slice.
+
+The next bounded P2 slice is [read-only incident diagnostics](../openspec/changes/add-readonly-incident-diagnostics/proposal.md). It records task-bound observed process identities and explains native, queue and source-scoped Hub facts through the existing recovery view. Sampling and human effect inspection remain distinct. Process cleanup, backlog modification and automatic discovery are not introduced by this diagnostic slice.
