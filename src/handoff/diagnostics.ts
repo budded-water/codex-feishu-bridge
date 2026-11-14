@@ -3,7 +3,7 @@ import { ownerKey } from '../types.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
 import type { SourceOutbox, HubDiagnostic } from './source.js';
-import type { ExecutionRecord } from './store.js';
+import { OWNER_WITHDRAWN, type ExecutionRecord } from './store.js';
 
 const label = { running: '仍在运行', exited: '已核实退出', unverified: '无法核实' };
 const hubLabel = { queued: '等待派活', claimed: '执行中', done: '已结束', nothing: '无后续动作', cancelled: '已取消', failed: '失败' };
@@ -15,7 +15,7 @@ export async function incidentReport(admission: PilotAdmission, native: NativeEx
     source.diagnose(request.id).catch((): HubDiagnostic => ({ status: 'unavailable' }))]);
   const queued = admission.store.requests().filter(row => row.project === execution.project && ownerKey(row.message) === ownerKey(request.message));
   const pending = queued.filter(row => !row.blocked && !admission.store.execution(row.execution) && admission.store.submission(row.id)?.status !== 'blocked').length;
-  const blocked = queued.filter(row => row.blocked || admission.store.submission(row.id)?.status === 'blocked').length;
+  const blocked = queued.filter(row => row.blocked !== OWNER_WITHDRAWN && (row.blocked || admission.store.submission(row.id)?.status === 'blocked')).length;
   const delivery = state.drainStatus();
   const current = admission.store.execution(execution.id)!;
   const held = admission.store.unsettled().some(row => row.id === execution.id);

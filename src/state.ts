@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { Maintenance } from './maintenance.js';
 import { openPrivateDatabase } from './private-database.js';
-import type { RequestRecord, ControlRecord } from './handoff/store.js';
+import { OWNER_WITHDRAWN, type RequestRecord, type ControlRecord } from './handoff/store.js';
 import type { JournalProjection } from './handoff/journal.js';
 import { splitReply } from './reply.js';
 import { ownerKey, type IncomingMessage, type Session, type Task, type DeliveryOptions, type NativeControlTarget, type ControlDisposition } from './types.js';
@@ -132,7 +132,7 @@ export class State {
         .run(request.execution, request.conversation, request.input, status, request.message.id, Date.now());
       this.taskStatus(request.execution, status);
       if (!['queued', 'running'].includes(status)) this.db.prepare("UPDATE approvals SET status='invalidated' WHERE task=? AND status='pending'").run(request.execution);
-      if (fresh) {
+      if (fresh && request.blocked !== OWNER_WITHDRAWN) {
         if (request.blocked) this.send(request.message.chat, '前一个任务的结果尚未确认，当前请求没有开始。请先核对实际结果。', { replyTo: request.message.id });
         else this.db.prepare('INSERT INTO feedback(task,message) VALUES (?,?)').run(request.execution, request.message.id);
       }
@@ -174,6 +174,20 @@ export class State {
 
   recoveryNoticeProjected(origin: string): boolean {
     return Boolean(this.db.prepare("SELECT 1 FROM projected_control_notices WHERE origin=? AND status='recovered'").get(origin));
+  }
+
+  withdrawalNoticeProjected(origin: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM projected_control_notices WHERE origin=? AND status='withdrawn'").get(origin));
+  }
+
+  projectWithdrawalNotice(origin: string, message: Pick<IncomingMessage, 'chat' | 'id'>, execution: string): void {
+    this.transaction(() => {
+      if (this.withdrawalNoticeProjected(origin)) return;
+      const id = randomUUID();
+      this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(origin, 'withdrawn', id);
+      this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to) VALUES (?,?,?,?)').run(id, message.chat,
+        `已撤回尚未开始的请求：${execution}。不会再启动；如仍需处理，请发送新消息。运行中的任务、未确认保护和维护暂停不会因此改变。`, message.id);
+    });
   }
 
   projectRecoveryNotice(origin: string, message: Pick<IncomingMessage, 'chat' | 'id'>): void {

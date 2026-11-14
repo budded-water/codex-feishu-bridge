@@ -9,10 +9,12 @@ import type { SourceOutbox } from './source.js';
 import { HandoffTransport } from './transport.js';
 import type { ControlRecord, RequestRecord } from './store.js';
 import { FeishuRecovery } from './recovery.js';
+import { OwnerQueue } from './queue.js';
 
 export class PilotInteractions {
   readonly transport: HandoffTransport;
   private recovery: FeishuRecovery;
+  private queue: OwnerQueue;
   private work?: Promise<void>;
   private timer?: NodeJS.Timeout;
   private closing?: Promise<void>;
@@ -24,12 +26,14 @@ export class PilotInteractions {
     private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = [], private contextPort?: ContextPort) {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
+    this.queue = new OwnerQueue(admission, config, this.transport.state);
   }
 
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
     if (/^\/恢复(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
+    if (/^\/(?:队列|撤回)(?:\s|$)/.test(message.text.trim())) return this.queue.receive(message);
     const operator = message.tenant === this.admission.scope.tenant && message.user === this.admission.scope.operator && message.chat === this.admission.scope.chat;
     const approval = /^\/(?:批准|拒绝|回答)(?:\s|$)/.test(message.text.trim());
     const admin = approval && message.tenant === this.admission.scope.tenant && this.config.approvalUsers.includes(message.user) &&
@@ -169,6 +173,7 @@ export class PilotInteractions {
   private async synchronize(): Promise<void> {
     await this.recovery.idle();
     this.recovery.sync();
+    this.queue.sync();
     if (!this.publication) this.publication = this.publish()
       .catch(() => console.error('Source publication unavailable; retained intent will be retried'))
       .finally(() => { this.publication = undefined; });
@@ -203,6 +208,7 @@ export class PilotInteractions {
       await this.controlWork;
       await this.recovery.idle();
       this.recovery.sync();
+      this.queue.sync();
       await this.transport.close();
     })();
   }

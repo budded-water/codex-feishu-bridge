@@ -64,3 +64,8 @@ The P2 inspected-recovery change has completed its bounded implementation, sourc
 
 
 The read-only diagnostic slice has completed source review, deployment and bounded real owner-private acceptance. A registered running wait appeared in the actual report while logical admission, native evidence and Hub run stayed unchanged across viewing. Separate operator inspection/cleanup, an actual owner recovery confirmation and fresh same-thread continuation completed the test. The dependent PR remains open pending owner merge authorization; complete descendant/effect proof and automatic cleanup are outside this slice.
+
+
+## Owner-private queue withdrawal change
+
+[enable-owner-queue-withdrawal](changes/enable-owner-queue-withdrawal/proposal.md) adds a bounded queue view and exact unstarted-request withdrawal. It preserves launch-race arbitration, deciding actor/message, prior block reasons, durable notice delivery and rollback deduplication. Its [tasks](changes/enable-owner-queue-withdrawal/tasks.md) track candidate verification and live acceptance separately. Sampled process diagnostics remain outside process-termination authority.
