@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This independent TypeScript project bridges Feishu private chat and group @mentions to Codex installed on the user's computer. Read README.md and docs/architecture.md before implementation. Public onboarding is in docs/installation.md, docs/configuration.md, docs/usage.md, docs/integrations.md and docs/troubleshooting.md; keep these and both example configurations synchronized with live contracts. Keep instance-specific evidence in docs/live-acceptance.md, not general installation promises. Runtime and simulated behavior coverage are implemented. Application setup, SDK connection, owner enrollment, a bounded owner repository task, active steering and native stop are verified. Approval/rejection and process-loss acceptance remain pending. Read docs/live-acceptance.md for observed evidence.
+This independent TypeScript project bridges Feishu private chat and group @mentions to Codex installed on the user's computer. Read README.md and docs/architecture.md before implementation. Public onboarding is in docs/installation.md, docs/configuration.md, docs/usage.md, docs/integrations.md and docs/troubleshooting.md; keep these and both example configurations synchronized with live contracts. Keep instance-specific evidence in docs/live-acceptance.md, not general installation promises. Runtime and simulated behavior coverage are implemented. Application setup, SDK connection, owner enrollment, a bounded owner repository task, active steering, native stop and owner manual refusal are verified. Native approval and process-loss acceptance remain pending. Read docs/live-acceptance.md for observed evidence.
 
 ## Delivery
 
