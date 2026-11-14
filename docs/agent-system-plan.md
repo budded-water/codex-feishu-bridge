@@ -50,7 +50,7 @@ Arrows show the proposed logical integration, not installed services or a mandat
 | Publication outcome | The release tool's journal plus platform reconciliation |
 | Accepted backlog item, if the existing follow-up flow is used | Its existing task store; not a duplicate orchestration backlog |
 
-The gateway's current task queue remains the production implementation until an explicit handoff is delivered. The target has one authority for each execution assignment. Message inbox/outbox records are transport state, not a competing business scheduler.
+The default entry retains its legacy queue; the authorized M6 pilot uses the delivered single-assignment handoff. The target has one authority for each execution assignment. Message inbox/outbox records are transport state, not a competing business scheduler.
 
 ## Execution and interaction rules
 
@@ -87,7 +87,7 @@ Research, document and data tasks can use the same native executor with appropri
 
 P0-P2 form the first daily-use target. Later milestones extend the same boundaries. Create a separate OpenSpec change when a milestone becomes actionable; do not create a single permanently open checklist for every future capability.
 
-The first change is [verify-codex-autoloop-execution-boundary](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md). Its isolated implementation is verified; subsequent deployed owner-chat tests complete bounded native interaction/recovery acceptance. The [P1 handoff change](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) now implements durable admission/source/guards and a single-assignment native executor through the pinned Hub/Worker. Authenticated owner/checkpoint recovery and bounded native continuation are verified. The isolated pilot gateway now also persists correlated controls and projects native prompts/results into the existing human outbox and reaction cleanup. Closed-state migration and both rollback windows now have fixture-tested tools. The authorized fresh M6 activation and bounded owner-private acceptance are complete. Inspected unknown recovery currently uses local maintenance; P2 operation, P3 project/UI evidence and P4 discovery remain separate milestones. Check the installed CLI against [the compatibility authority](../src/codex/generated/version.ts) when work starts, rather than copying a version into this roadmap.
+The first change is [verify-codex-autoloop-execution-boundary](../openspec/changes/verify-codex-autoloop-execution-boundary/proposal.md). Its isolated implementation is verified; subsequent deployed owner-chat tests complete bounded native interaction/recovery acceptance. The [P1 handoff change](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) now implements durable admission/source/guards and a single-assignment native executor through the pinned Hub/Worker. Authenticated owner/checkpoint recovery and bounded native continuation are verified. The isolated pilot gateway now also persists correlated controls and projects native prompts/results into the existing human outbox and reaction cleanup. Closed-state migration and both rollback windows now have fixture-tested tools. The authorized fresh M6 activation and bounded owner-private acceptance are complete. The bounded P2 slice adds owner-private Feishu release for eligible inspected unknowns; broader operation, P3 project/UI evidence and P4 discovery remain separate milestones. Check the installed CLI against [the compatibility authority](../src/codex/generated/version.ts) when work starts, rather than copying a version into this roadmap.
 
 ## Alternatives and deferred work
 
@@ -126,3 +126,9 @@ OpenSpec format validation does not establish implementation, protocol compatibi
 - [DSH native Codex provider](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subagent/subagent-codex/README.md).
 - [Dim Pursuit design](https://github.com/arcships/dim/blob/4789808fe844e4b006d085df4d3d879d3616c1d3/docs/design/plugins/Pursuit.md).
 - [UI-eval integration contract](https://github.com/budded-water/ui-eval/blob/main/docs/integration-runner.md), [release-kit](https://github.com/budded-water/release-kit) and [agent-followups](https://github.com/budded-water/agent-followups). These are integration references, not bundled dependencies or acceptance claims.
+
+
+The first bounded P2 slice is [owner-private inspected recovery](../openspec/changes/enable-feishu-inspected-recovery/proposal.md), addressing the local-command dependency observed during P1 acceptance. Its change tracks candidate checks, independent review and live rollout separately. It reuses the existing ledger and transport; broader operation, process cleanup and project evidence remain later work.
+
+
+The first P2 inspected-recovery slice has completed real M6 owner-private acceptance, including a fresh continuation after gateway restart. It removes the local reconcile-command requirement for eligible sealed incidents. Actual command descendants and external effects still require human inspection; missing evidence, queued backlog, Hub maintenance and broader operation remain distinct work. P3 project/UI evidence and P4 discovery are not delivered by this slice.

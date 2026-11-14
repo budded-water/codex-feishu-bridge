@@ -236,6 +236,18 @@ export class NativeExecutions {
     return snapshot;
   }
 
+  async recoveryCheckpoint(execution: string): Promise<string> {
+    let reachable = false;
+    try { await this.inspect(execution); reachable = true; } catch { /* A sealed report is still required below. */ }
+    if (reachable) throw new Error('Native owner is still reachable');
+    const report = this.evidence(execution);
+    if (report.outcome.status !== 'unknown' || !report.databaseHash) throw new Error('Missing sealed uncertain native evidence');
+    if (report.outcome.thread) this.gateway.store.nativeSnapshot(report.permit, {
+      thread: report.outcome.thread, turn: report.outcome.turn, generation: report.outcome.generation,
+    });
+    return report.checkpoint;
+  }
+
   recoverReferences(execution: string): void {
     try {
       const owner = this.owner(execution);

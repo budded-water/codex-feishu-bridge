@@ -72,3 +72,13 @@ The local `npm run handoff` commands inspect session IDs, quiesce admission, rep
 ## Routing-mode updates
 
 Drain current work and retain a compatible artifact/configuration pair before changing routing mode. A retained migration plan hashes the parsed bridge configuration. Preserve an equivalent frozen configuration snapshot for that plan, verify it against the original backup identity, and point the plan at that snapshot before changing the active configuration. The runtime handoff configuration continues to reference the active bridge configuration. Record the effective artifact, mode and recovery pair in the private deployment manifest.
+
+## Inspected recovery through the pilot gateway
+
+The P2 pilot command `/恢复` exposes only the enrolled owner's unknown guarded execution, and only in the enrolled private approval chat when that owner is also a configured approval administrator. `/恢复 <execution-id> <inspection-reference>` requires the exact current guard, a request-bound sealed checkpoint with native-child settlement, an unreachable authenticated owner and the human's process/effects inspection reference. Missing or mutated evidence and unstarted admitted backlog require local maintenance. No new configuration fields, keys or model calls are involved.
+
+The human attestation covers command descendants and file/external effects; native-child settlement alone does not establish those facts. Recovery records the deciding message/owner and checkpoint reference in the existing ledger, releases exactly one guard and retains the unknown outcome. Maintenance pause and blocked requests remain unchanged. The original permit cannot launch again. Hub reconciliation cards remain separate and may be closed through supported owner maintenance after inspection; this gateway has no Hub owner capability.
+
+Committed recovery notices are projected idempotently into the durable transport outbox across restart and before gateway closure. Rollback rejects unprojected or undelivered remote recovery notices. A receipt before an uncommitted decision prevents automatic replay; the owner must send a fresh command. This is an optional remote maintenance route, with the existing local CLI retained for incomplete evidence, backlog or broader inspection. See [usage](usage.md) and the [bounded change](../openspec/changes/enable-feishu-inspected-recovery/design.md). Live rollout status belongs in [acceptance](live-acceptance.md).
+
+The recovery-notice rollback check requires the reviewed P2-or-later tools. A code-only downgrade to P1 must first finish all committed P2 recovery notice projection/delivery with the compatible gateway; see the [migration compatibility boundary](handoff-migration.md#owner-private-recovery-control).

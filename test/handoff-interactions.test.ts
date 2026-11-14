@@ -1,6 +1,6 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -13,7 +13,7 @@ import { FakeCodex, until } from './helpers.js';
 import { readJournal } from '../src/handoff/journal.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
-  async start() { this.generation = randomUUID(); }
+  async start() { this.ready = true; this.generation = randomUUID(); }
   async close() { this.exit(); }
 }
 
@@ -38,7 +38,7 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const port = { addReaction: async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; },
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
   let interactions = new PilotInteractions(admission, config, { flush: publish }, native, sender, port, ['fixture-private-secret'], context);
-  const actor = (text: string, overrides = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, ...overrides });
+  const actor = (text: string, overrides = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, chatType: 'p2p' as const, ...overrides });
   const launch = async () => {
     const message = actor('Inspect this assigned task');
     const admitted = interactions.receive(message); assert.ok('request' in admitted);
@@ -401,4 +401,162 @@ test('workspace gateway identifies its idle mode and explains task-based target 
   assert.ok(h.sent.some(row => row.text.includes('直接说明任务')));
   assert.equal(h.admission.store.requests().length, 0);
   assert.equal(h.codex.calls.length, 0);
+});
+
+async function unknownForRecovery(t: TestContext) {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const task = await h.launch(); h.codex.exit();
+  const report = await task.running; assert.equal(report.outcome.status, 'unknown'); await drain(h);
+  return { h, task, report };
+}
+
+test('owner-private inspected recovery retains unknown, pause and blocked work without native replay', async t => {
+  const { h, task, report } = await unknownForRecovery(t);
+  const calls = h.codex.calls.length;
+  h.interactions.receive(h.actor(' /status')); await drain(h);
+  assert.ok(h.sent.some(row => row.text.includes('/恢复 查看检查条件')));
+  const inspect = h.actor(' \t/恢复'); assert.equal(h.interactions.receive(inspect).status, 'recovery'); await drain(h);
+  const prompt = h.sent.find(row => row.options?.replyTo === inspect.id)!;
+  assert.ok(prompt.text.includes(task.request.execution)); assert.ok(prompt.text.includes('后代进程'));
+  assert.ok(!prompt.text.includes(task.request.input));
+  const blocked = h.interactions.receive(h.actor('Do not replay this blocked request')); assert.ok('request' in blocked); assert.equal(blocked.status, 'blocked');
+  h.admission.store.maintenance.quiesce();
+  const confirm = h.actor('/恢复 ' + task.request.execution + ' fixture processes stopped; inspected file and external effects');
+  assert.equal(h.interactions.receive(confirm).status, 'recovery'); await drain(h);
+  assert.equal(h.admission.store.unsettled().length, 0); assert.equal(h.admission.store.execution(task.request.execution)!.status, 'unknown');
+  assert.equal(h.admission.store.maintenance.paused, true);
+  const receipt = h.admission.store.recoveries()[0]!;
+  assert.equal(receipt.actor, JSON.stringify(['tenant', 'ou_owner', 'chat']));
+  assert.equal(receipt.origin, JSON.stringify(['tenant', confirm.id])); assert.ok(receipt.evidence.includes(report.checkpoint));
+  assert.equal(h.admission.store.reserve(blocked.request.id, 2).kind, 'blocked');
+  assert.equal(h.codex.calls.length, calls); assert.equal(h.codex.replies.length, 0);
+  assert.ok(h.sent.some(row => row.options?.replyTo === confirm.id && row.text.includes('原任务仍为结果未确认')));
+  h.admission.store.maintenance.resume();
+  const fresh = h.interactions.receive(h.actor('Fresh authorized remaining work')); assert.ok('request' in fresh);
+  assert.equal(h.admission.store.reserve(fresh.request.id, 3).kind, 'start');
+  assert.equal(h.admission.store.conversationThread(fresh.request.conversation), task.thread);
+  assert.equal(h.interactions.receive(confirm).status, 'duplicate');
+  assert.equal(h.interactions.receive({ ...confirm, text: '/恢复 ' + fresh.request.execution + ' changed input' }).status, 'duplicate');
+  h.interactions.receive(h.actor(confirm.text)); await drain(h);
+  assert.equal(h.admission.store.unsettled()[0]!.id, fresh.request.execution);
+  assert.equal(h.admission.store.recoveries().length, 1);
+});
+
+test('recovery excludes other users, tenants, chats, groups and non-administrator owners', async t => {
+  const { h, task } = await unknownForRecovery(t); const count = h.sent.length;
+  const text = '/恢复 ' + task.request.execution + ' fixture inspection';
+  for (const fields of [{ user: 'ou_admin' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' as const }]) {
+    assert.equal(h.interactions.receive(h.actor(text, fields)).status, 'ignored');
+  }
+  h.config.approvalUsers = ['ou_admin']; assert.equal(h.interactions.receive(h.actor(text)).status, 'ignored');
+  h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'other'; assert.equal(h.interactions.receive(h.actor(text)).status, 'ignored');
+  h.config.approvalChat = 'chat'; h.config.allowedUsers = []; assert.equal(h.interactions.receive(h.actor(text)).status, 'ignored');
+  h.config.allowedUsers = ['ou_owner'];
+  assert.equal(h.interactions.receive(h.actor(text, { unsupported: true })).status, 'rejected');
+  assert.equal(h.interactions.receive(h.actor('/恢复 ' + 'x'.repeat(30_000))).status, 'rejected');
+  await drain(h); assert.equal(h.sent.length, count); assert.equal(h.admission.store.recoveries().length, 0);
+  assert.equal(h.admission.store.unsettled().length, 1);
+});
+
+test('missing or mutated sealed evidence and empty inspection references leave the guard held', async t => {
+  const { h, task } = await unknownForRecovery(t);
+  const folder = join(h.admission.stateDirectory, 'executions', task.request.execution);
+  for (const name of ['native-result.json', 'bridge.db']) {
+    const path = join(folder, name), original = readFileSync(path);
+    if (name === 'native-result.json') unlinkSync(path); else writeFileSync(path, Buffer.concat([original, Buffer.from('changed')]));
+    h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' fixture inspection')); await drain(h);
+    assert.equal(h.admission.store.unsettled().length, 1); assert.equal(h.admission.store.recoveries().length, 0);
+    writeFileSync(path, original);
+  }
+  for (const suffix of ['', '   ', 'x'.repeat(1801)]) {
+    h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' ' + suffix)); await drain(h);
+    assert.equal(h.admission.store.recoveries().length, 0);
+  }
+  assert.ok(h.sent.some(row => row.text.includes('恢复条件尚未满足')));
+});
+
+test('an authenticated reachable native owner prevents remote recovery', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const task = await h.launch(); h.admission.store.ownerUnconfirmed(task.request.execution);
+  h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' fixture inspection')); await drain(h);
+  assert.equal(h.admission.store.unsettled().length, 1); assert.equal(h.admission.store.recoveries().length, 0);
+  h.codex.complete(task.thread, task.turn); await task.running; await drain(h);
+});
+
+test('unstarted admitted backlog prevents remote guard release', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const task = await h.launch(); const queued = h.interactions.receive(h.actor('Already admitted next work')); assert.ok('request' in queued);
+  h.codex.exit(); await task.running; await drain(h);
+  h.interactions.receive(h.actor('/恢复')); await drain(h);
+  assert.ok(h.sent.some(row => row.text.includes('核对队列')));
+  h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' fixture inspection')); await drain(h);
+  assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.unsettled().length, 1);
+  assert.equal(h.admission.store.execution(queued.request.execution), undefined);
+});
+
+test('gateway restart repairs committed recovery notice once without repeating its decision', async t => {
+  const { h, task } = await unknownForRecovery(t);
+  const confirm = h.actor('/恢复 ' + task.request.execution + ' inspected fixture effects');
+  h.interactions.receive(confirm); await until(() => h.admission.store.recoveries().length === 1);
+  const original = h.interactions.transport.state.projectRecoveryNotice.bind(h.interactions.transport.state);
+  let lost = true;
+  h.interactions.transport.state.projectRecoveryNotice = (...args) => { if (lost) { lost = false; throw new Error('Gateway lost before notice projection'); } original(...args); };
+  await assert.rejects(h.interactions.flush());
+  assert.equal(h.admission.store.unsettled().length, 0);
+  await h.restart(); await drain(h);
+  const notices = h.sent.filter(row => row.options?.replyTo === confirm.id && row.text.includes('解除该任务'));
+  assert.equal(notices.length, 1); assert.equal(h.admission.store.recoveries().length, 1);
+  await h.restart(); await drain(h); assert.equal(h.sent.filter(row => row.options?.replyTo === confirm.id).length, 1);
+  assert.equal(h.interactions.receive(confirm).status, 'duplicate');
+});
+
+test('uncommitted maintenance messages are not replayed on restart and task identities cannot become decisions', async t => {
+  const { h, task } = await unknownForRecovery(t);
+  const pending = h.actor('/恢复 ' + task.request.execution + ' inspected fixture effects');
+  h.interactions.transport.state.remember(pending); // Crash after receipt, before any decision.
+  await h.restart(); await drain(h);
+  assert.equal(h.interactions.receive(pending).status, 'duplicate');
+  assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.unsettled().length, 1);
+  h.interactions.receive({ ...task.message, text: pending.text }); await drain(h);
+  assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.unsettled().length, 1);
+});
+
+test('a concurrent inspected local recovery cannot let a remote decision release a newer guard', async t => {
+  const { h, task } = await unknownForRecovery(t);
+  const checkpoint = await h.native.recoveryCheckpoint(task.request.execution);
+  let release!: () => void, checking = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  h.native.recoveryCheckpoint = async () => { checking = true; await gate; return checkpoint; };
+  h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' inspected fixture effects'));
+  await until(() => checking);
+  h.admission.store.reconcileLocal('fixture-maintenance', task.request.execution, 'independent inspected recovery');
+  const fresh = h.interactions.receive(h.actor('Fresh next work')); assert.ok('request' in fresh);
+  assert.equal(h.admission.store.reserve(fresh.request.id, 2).kind, 'start');
+  release(); await drain(h);
+  assert.equal(h.admission.store.unsettled()[0]!.id, fresh.request.execution);
+  assert.equal(h.admission.store.recoveries().length, 1);
+  assert.equal(h.admission.store.recoveries()[0]!.actor, 'local-runtime-operator');
+});
+
+test('sealed recovery retains a native conversation when no earlier snapshot reached admission', async t => {
+  const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const snapshot = h.admission.store.nativeSnapshot.bind(h.admission.store);
+  h.admission.store.nativeSnapshot = () => {}; // Simulate the owner checkpoint landing before any admission reference update.
+  const task = await h.launch(); h.codex.exit(); await task.running; await drain(h);
+  h.admission.store.nativeSnapshot = snapshot;
+  assert.equal(h.admission.store.conversationThread(task.request.conversation), null);
+  h.interactions.receive(h.actor('/恢复 ' + task.request.execution + ' inspected fixture processes and effects')); await drain(h);
+  assert.equal(h.admission.store.unsettled().length, 0);
+  assert.equal(h.admission.store.conversationThread(task.request.conversation), task.thread);
+});
+
+test('closing materializes a committed recovery notice before the restarted gateway polls', async t => {
+  const { h, task } = await unknownForRecovery(t);
+  const confirm = h.actor('/恢复 ' + task.request.execution + ' inspected fixture processes and effects');
+  h.interactions.receive(confirm); await until(() => h.admission.store.recoveries().length === 1);
+  assert.equal(h.interactions.transport.state.pending().some(row => row.replyTo === confirm.id), false);
+  await h.restart();
+  assert.ok(h.interactions.transport.state.pending().some(row => row.replyTo === confirm.id && row.body.includes('解除该任务')));
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === confirm.id).length, 1);
 });

@@ -95,3 +95,11 @@ The legacy entry can then start under the restored role and continue the latest 
 The imported conversation becomes the preferred legacy mapping for that owner and canonical directory, including automatic routing and aliases for the same directory. This also supports a deliberately selected older source session. A later explicit `/new` creates and selects a fresh conversation.
 
 SDK messages sent during the consumer transition may require resubmission after the maintenance window. The bot's receipt and deduplication guarantees apply to durably admitted messages. The [acceptance record](live-acceptance.md) lists the executed fixture rehearsals and the observed owner-private activation/recovery and remaining live-family limits.
+
+## Owner-private recovery control
+
+The [P2 recovery change](../openspec/changes/enable-feishu-inspected-recovery/design.md) provides a narrower Feishu alternative to local reconciliation when a valid sealed native checkpoint is available and no unstarted admitted backlog remains. The original task owner must also be a designated approver in the enrolled private chat and attest inspected command descendants and effects. Recovery preserves maintenance pause, unknown history and blocked requests. It adds no schema tables; its receipt identities use the existing recovery ledger and transport notice tombstones, which the rollback converter already retains. Missing evidence or broader process inspection continues through the local maintenance route above.
+
+Before pilot rollback, committed remote recovery notices must be projected and the outbox must be drained. Graceful gateway closure materializes pending recovery notices; missing projection or undelivered notices prevent conversion. Reopen the pilot to finish delivery before retrying rollback.
+
+Use the reviewed P2-or-later artifact to validate recovery-notice readiness and perform rollback after P2 has accepted a remote recovery. A P1 artifact cannot reconstruct an unprojected P2 recovery notice. Before a code-only downgrade to P1, use the compatible current gateway to project every committed remote decision and drain its delivery; preserve post-upgrade receipts and verify closure. Do not restore an old database over new recovery facts.

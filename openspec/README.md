@@ -50,3 +50,10 @@ Future CLI upgrades must inspect supported commands and generated-file changes i
 ## General workspace change
 
 [enable-general-workspace-mode](changes/enable-general-workspace-mode/proposal.md) adds explicit neutral-workspace execution, direct task targeting through native Codex and workspace status. It preserves one canonical resource and existing native authorization. Implementation and independent review passed. The authorized M6 workspace deployment is running, with owner-confirmed workspace status and no-fixed-project reply. Read-only evidence verified continuation in the original native conversation and drained execution/delivery state; its bounded tasks are complete. The bounded native interaction/recovery campaign is recorded under P0/P1; broader live interaction families remain separately scoped.
+
+## P2 inspected recovery change
+
+[enable-feishu-inspected-recovery](changes/enable-feishu-inspected-recovery/proposal.md) adds a bounded owner-private maintenance path through Feishu, reusing sealed native evidence, the recovery ledger and durable transport. It is a separate slice above P1; its [tasks](changes/enable-feishu-inspected-recovery/tasks.md) distinguish implementation, review and actual live rollout. A human still owns descendant-process and external-effect inspection.
+
+
+The P2 inspected-recovery change has completed its bounded implementation, source review, deployment and real M6 owner-private acceptance. Gateway restart retained the single recovery decision and notice, and a fresh no-tool turn continued the original native conversation. It remains under the open dependent implementation PR pending merge/spec synchronization. Human effects inspection, separate Hub maintenance and broader operation remain outside the completed slice.

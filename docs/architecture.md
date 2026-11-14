@@ -141,3 +141,12 @@ Native notifications preserve the user message body after removing only leading 
 Status defaults to current work, queue and required action; `/status 详情` exposes process/event diagnostics. Failures and interruptions have one truthful explanation, with uncertain prior effects explicit. Recovery notices are grouped by owner/chat without replay. SQLite additionally records receive/routing/handoff/execution/feedback/result-delivery timestamps. Local metrics load `.env` and honor `BRIDGE_CONFIG` like the runtime, exclude legacy tasks without timestamps and summarize at most the latest 1000 records. First-result latency describes the first delivered chunk, not proof that all chunks or a human read have completed; no telemetry leaves the host.
 
 同一项目的执行结果未确认时，此前已进入分类流程的请求也会在交接时停止；先核对本机结果，再发起新请求，不自动重跑。简化问题回答只移除编号后的一个分隔符，保留内容的换行和缩进。
+
+## Pilot inspected recovery
+
+The [P2 recovery change](../openspec/changes/enable-feishu-inspected-recovery/design.md) adds FeishuRecovery before ordinary pilot task admission. It owns the enrolled private owner's approval-role check, explicit incident selection and human inspection reference. NativeExecutions validates the sealed unknown checkpoint and rejects a reachable owner. AdmissionStore commits the actor/message/checkpoint-bound inspection and guard release together, requiring the guard still be held. Other unstarted admitted work prevents remote release. Original unknown status, maintenance pause, blocked requests and revoked native authority are preserved.
+
+A committed recovery is projected periodically and before gateway closure through stable transport notice tombstones and Outbox. Rollback requires both the remote notice projection and drained delivery before converting ownership. An uncommitted received command is not replayed after restart. No inference, process termination, new Hub capability or automatic effects verification occurs. Actual live evidence remains in the dated acceptance record.
+
+
+The bounded M6 owner-private P2 flow is now observed live: exact incident preview, owner-message inspection confirmation, unknown-preserving guard release, gateway restart and fresh same-thread continuation. Recovery controls did not add a model turn. Source-bound inspection, ledger, checkpoint, notice and external API delivery evidence remain in the private inventory; the dated acceptance record states the manual process/effect and Hub-maintenance limits.
