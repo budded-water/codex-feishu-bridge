@@ -2,7 +2,7 @@
 
 Status: durable admission/source/guards and single-assignment native execution are implemented. The pinned Hub/Worker, authenticated owner/checkpoint recovery and bounded native conversation continuation are verified. Durable control relay and prompt/result/reaction transport projections are implemented in the isolated gateway. Quiesce, migration and both rollback windows have fixture-tested tools. One authorized fresh M6 deployment has completed bounded owner-private task/control, command approval/refusal and app-server-loss acceptance with inspected local recovery and fresh same-thread continuation. This does not establish live colleague/group interaction acceptance or automatic recovery of unknown effects.
 
-Read [proposal](proposal.md), [design](design.md), [requirements](specs/remote-task-handoff/spec.md) and [tasks](tasks.md). The design owns the complete proposed handoff contract; [current architecture](../../../docs/architecture.md) distinguishes implemented isolated entry points from the production runtime. All bounded tasks are complete; retain this change under the open implementation PR pending merge and subsequent spec synchronization.
+Read [proposal](proposal.md), [design](design.md), [requirements](specs/remote-task-handoff/spec.md) and [tasks](tasks.md). The design owns the complete proposed handoff contract; [current architecture](../../../docs/architecture.md) distinguishes implemented isolated entry points from the production runtime. All bounded tasks are complete; the implementation is merged through cumulative PR #12; retain this change pending subsequent spec synchronization.
 
 ## Responsibilities and implementation
 
