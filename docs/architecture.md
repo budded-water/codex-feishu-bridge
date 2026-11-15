@@ -1,6 +1,6 @@
 # Architecture
 
-This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. Owner-private command approval/refusal and inspected app-server-loss recovery are verified on M6. New image-grounded group replies and colleague interaction acceptance remain pending; see docs/live-acceptance.md for evidence boundaries.
+This MVP is implemented and covered by simulated behavior tests. Application setup, SDK connection, and owner enrollment are verified. A bounded owner read-only turn completed. Owner-private command approval/refusal and inspected app-server-loss recovery are verified on M6. Owner-private English queue view and exact-ID withdrawal, no native launch after Worker restoration, restart-retained decision/notice and fresh same-thread continuation are also verified. Quoted withdrawal and withdrawal of queued work while another native task runs retain automated coverage only. New image-grounded group replies, other typed-English commands and colleague interaction acceptance remain separate; see docs/live-acceptance.md for evidence boundaries.
 
 User-facing onboarding: [installation](installation.md), [configuration](configuration.md), [usage](usage.md), [tools and identities](integrations.md), and [troubleshooting](troubleshooting.md).
 
