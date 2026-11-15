@@ -68,12 +68,12 @@ The read-only diagnostic slice has completed source review, deployment and bound
 
 ## Owner-private queue withdrawal change
 
-[enable-owner-queue-withdrawal](changes/enable-owner-queue-withdrawal/proposal.md) adds a bounded queue view and exact unstarted-request withdrawal. It preserves launch-race arbitration, deciding actor/message, prior block reasons, durable notice delivery and rollback deduplication. Its [tasks](changes/enable-owner-queue-withdrawal/tasks.md) track candidate verification and live acceptance separately. Sampled process diagnostics remain outside process-termination authority.
+[enable-owner-queue-withdrawal](changes/enable-owner-queue-withdrawal/proposal.md) adds a bounded queue view and exact unstarted-request withdrawal. It preserves launch-race arbitration, deciding actor/message, prior block reasons, durable notice delivery and rollback deduplication. Its [tasks](changes/enable-owner-queue-withdrawal/tasks.md) are complete for the bounded M6 owner-private exact-ID campaign: actual English commands, one decision/notice, no native launch after Worker restoration, a nothing Hub outcome, gateway restart and fresh same-thread continuation. Quoted withdrawal and withdrawal of queued work while another native task runs retain automated coverage only. The completed change remains available pending baseline/spec synchronization. Sampled process diagnostics remain outside process-termination authority.
 
 
 ## English chat command contract
 
-[standardize-english-chat-commands](changes/standardize-english-chat-commands/proposal.md) supersedes the slash spellings in earlier changes. Current examples use English; dated acceptance retains the syntax actually observed. It includes gateway-local help, retired-token rejection and coordinated drained activation. Existing owner/approval policy, stored message identity and the outstanding queue live-acceptance gap remain unchanged.
+[standardize-english-chat-commands](changes/standardize-english-chat-commands/proposal.md) supersedes the slash spellings in earlier changes. Current examples use English; dated acceptance retains the syntax actually observed. It includes gateway-local help, retired-token rejection and coordinated drained activation. Owner/approval policy and stored message identity are unchanged. Actual typed /queue and exact-ID /withdraw round trips are now observed; other English command families retain separate live gaps.
 
 ## Approval cards
 
@@ -81,6 +81,6 @@ The read-only diagnostic slice has completed source review, deployment and bound
 
 ## Consolidated delivery and proposed P3
 
-The cumulative harness implementation is merged through [PR #12](https://github.com/budded-water/codex-feishu-bridge/pull/12); dated earlier open-PR records remain historical. Runtime approval-card support is deployed with managed readiness. The owner-authorized application callback version is published, and bounded real owner-private refusal/approval, card updates, file effects and readable layout are verified. The completed card change remains available pending baseline/spec synchronization. Separate queue/typed-English acceptance gaps remain.
+The cumulative harness implementation is merged through [PR #12](https://github.com/budded-water/codex-feishu-bridge/pull/12); dated earlier open-PR records remain historical. Runtime approval-card support is deployed with managed readiness. The owner-authorized application callback version is published, and bounded real owner-private refusal/approval, card updates, file effects and readable layout are verified. The completed card change remains available pending baseline/spec synchronization. The bounded owner-private queue change is also live-accepted; other typed-English and colleague/group interaction families remain separately scoped.
 
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) is the next proposed slice. It selects a trusted project adapter and pinned UI-eval CLI, preserves separate native/verification/review/release outcomes and defines implementation/real acceptance tasks. It does not add runtime verification or authorize release.
