@@ -10,7 +10,7 @@ Add an opt-in task-bound handoff to a trusted project verification adapter. Star
 
 Native execution, verification, human review, answer delivery and release remain separate facts. No required evidence means unverified, rather than acceptance inferred from prose or exit zero. General discussion and tasks without a declared verification contract retain their existing execution behavior. Selecting a verification profile for one task does not bind the whole workspace to one product.
 
-This is a proposed P3 slice, not implemented runtime behavior. It must not imply that P2's outstanding real owner queue/card acceptance has passed. Automatic discovery/repair scheduling, arbitrary command execution from Feishu, publication and changes to the scheduler/model runtime are outside this change.
+This is a proposed P3 slice, not implemented runtime behavior. P2 owner-private card and exact-ID queue acceptance are recorded separately in the dated live evidence; those results do not establish this P3 runtime or broader P2 interaction coverage. Automatic discovery/repair scheduling, arbitrary command execution from Feishu, publication and changes to the scheduler/model runtime are outside this change.
 
 ## Owners and references
 
