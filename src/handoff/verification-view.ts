@@ -1,6 +1,6 @@
 import { relative } from 'node:path';
 import type { VerificationRecord } from './store.js';
-import { boundedFile, fingerprint, gitRead, profileDigest, type VerificationProfiles } from './verification-profile.js';
+import { boundedFile, fingerprint, gitRead, profileDigest, verifyPolicy, type VerificationProfiles } from './verification-profile.js';
 
 export function verificationText(value: VerificationRecord): string {
   const observation = value.observation;
@@ -24,6 +24,7 @@ export async function verificationApplicability(value: VerificationRecord, profi
   if (!p || profileDigest(p) !== value.digest) return '当前适用性：stale（受信任 profile 已变化或不可用）。';
   if (!o?.integration) return '当前适用性：unverified（没有完整验证观测）。';
   try {
+    try { verifyPolicy(p); } catch { return '当前适用性：stale（受信任验证规则已变化或不可用）。'; }
     if (fingerprint(boundedFile(p.projectRoot, o.integration.summaryPath)) !== o.integration.jsonHash ||
       fingerprint(boundedFile(p.projectRoot, o.integration.htmlPath)) !== o.integration.htmlHash ||
       await gitRead(p.projectRoot, ['rev-parse', 'HEAD']) !== o.gitHead) return '当前适用性：stale（源码或报告已变化）。';

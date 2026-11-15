@@ -69,7 +69,7 @@ Both canonical machine output and its required human handoff SHALL be retained a
 
 - **WHEN** candidate source or verification policy changes after an observed passing result
 - **THEN** the observation SHALL NOT substantiate current acceptance and release readiness SHALL require fresh validation through its owning contract
-- **AND** changed profiles, Git HEAD or report bytes SHALL be stale, while dirty source SHALL retain unverified applicability
+- **AND** changed profiles, registered policy bytes (including ignored files), Git HEAD or report bytes SHALL be stale, while dirty source SHALL retain unverified applicability
 
 #### Scenario: Bounded durable handoff
 

@@ -68,7 +68,7 @@ A known prelaunch failure is unverified without starting a child. After possible
 
 Initial verification uncertainty requires local CLI/descendant/effect inspection and authenticated local maintenance reconciliation. Feishu's native-only recovery contract is not expanded. The existing process sidecar follows Codex descendants and does not establish complete verification-process coverage. Sampled identities grant no termination authority.
 
-`/verification` reads history. Profile drift, changed Git HEAD or modified report hashes are stale; dirty source has unverified applicability. Unchanged source/reports do not revalidate environment, fixtures or release eligibility. Release Kit retains separately authorized publication and its own revalidation.
+`/verification` reads history. Profile drift, changed registered policy bytes (including Git-ignored files), changed Git HEAD or modified report hashes are stale; dirty source has unverified applicability. Unchanged source/reports do not revalidate environment, fixtures or release eligibility. Release Kit retains separately authorized publication and its own revalidation.
 
 ## Upgrade and isolated probe
 

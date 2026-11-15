@@ -207,6 +207,30 @@ test('historical applicability detects profile/report/HEAD drift without launchi
   await h.interactions.flush(); assert.equal(readFileSync(join(h.project, '.spawns'), 'utf8'), '1');
 });
 
+test('ignored registered policy drift becomes stale without changing history or launching work', async t => {
+  const h = handoff(t), policy = 'ignored-policy.json';
+  writeFileSync(join(h.project, '.gitignore'), readFileSync(join(h.project, '.gitignore'), 'utf8') + policy + '\n');
+  h.git(h.project, ['add', '.gitignore']);
+  h.git(h.project, ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', 'ignore policy fixture']);
+  writeFileSync(join(h.project, policy), '{"required":true}');
+  h.profile.policyFiles[policy] = fingerprint(readFileSync(join(h.project, policy)));
+  const task = await h.launch(); await task.running; await drain(h);
+  const execution = task.admitted.request.execution, value = h.admission.store.verification(execution)!;
+  const journal = join(h.config.stateDirectory, 'executions', execution, 'bridge.db');
+  const bytes = readFileSync(journal), head = h.git(h.project, ['rev-parse', 'HEAD']);
+  assert.match(await verificationApplicability(value, h.profiles), /历史观测/);
+  writeFileSync(join(h.project, policy), '{"required":false}');
+  assert.equal(h.git(h.project, ['status', '--porcelain', '--untracked-files=all']), '');
+  assert.equal(h.git(h.project, ['rev-parse', 'HEAD']), head);
+  await h.restart();
+  h.interactions.receive(message('/verification ' + execution, { chatType: 'p2p' })); await drain(h);
+  assert.ok(h.sent.some(text => text.includes('stale') && text.includes('验证规则')));
+  assert.deepEqual(h.admission.store.verification(execution), value);
+  assert.deepEqual(readFileSync(journal), bytes);
+  assert.equal(readFileSync(join(h.project, '.spawns'), 'utf8'), '1');
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, 1);
+});
+
 test('verification selection requires exact private owner/approval authority and immutable task admission', async t => {
   const h = handoff(t);
   const text = '/verify smoke Task';
