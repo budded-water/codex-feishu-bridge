@@ -79,8 +79,10 @@ The read-only diagnostic slice has completed source review, deployment and bound
 
 [enable-feishu-approval-cards](changes/enable-feishu-approval-cards/proposal.md) covers authenticated same-private-chat buttons, exact native target binding and durable card updates. Manual English commands remain available. Its tasks distinguish code verification, review and actual app/owner acceptance; older approval-command evidence remains historical.
 
-## Consolidated delivery and proposed P3
+## Consolidated delivery and P3 verification
 
 The cumulative harness implementation is merged through [PR #12](https://github.com/budded-water/codex-feishu-bridge/pull/12); dated earlier open-PR records remain historical. Runtime approval-card support is deployed with managed readiness. The owner-authorized application callback version is published, and bounded real owner-private refusal/approval, card updates, file effects and readable layout are verified. The completed card change remains available pending baseline/spec synchronization. The bounded owner-private queue change is also live-accepted; other typed-English and colleague/group interaction families remain separately scoped.
 
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) implements the optional first P3 runtime through a trusted profile, pinned UI-eval CLI and task-bound observation. Native execution, validation, review and release remain separate. Its tasks distinguish source/fixture verification from real project, deployment and owner acceptance. No publication or automatic repair is authorized by this feature.
+
+The bounded P3 implementation is merged through [PR #17](https://github.com/budded-water/codex-feishu-bridge/pull/17) with local/CI checks and independent code/test-quality review. Its coordinated managed M6 deployment is verified; real owner command and business-project acceptance remain separately pending. The change stays open for those remaining delivery gates.
