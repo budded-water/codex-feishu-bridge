@@ -1,0 +1,84 @@
+# Task-bound project verification
+
+The P1 handoff entry implements optional project verification. Deployment and real owner acceptance are separate facts in [live acceptance](live-acceptance.md). Ordinary tasks retain their existing native execution behavior.
+
+## Private owner workflow
+
+An enrolled owner who also satisfies the approval-role/private-chat boundary can submit:
+
+```text
+/verify example Implement the requested change in this profile's project
+/verification COMPLETE_EXECUTION_ID
+```
+
+This creates a new native task, not a verification of an arbitrary historical report. The original message is retained and the trusted project's target accompanies the task. Selection does not switch the workspace globally. Codex retains its local model subscription, tools and native approvals. After a completed turn, its execution-ID owner invokes verification before sealing its checkpoint. The existing Worker assignment and workspace guard stay occupied, preventing subsequent harness tasks from changing source during capture. External host writers are not isolated; engine source checks still apply.
+
+During verification `/status` describes its phase and `/stop` requests supported signal cleanup. An incomplete native turn skips verification. Duplicate input, gateway restart, status lookup and delivery retries cannot authorize another invocation. No automatic repair loop is installed.
+
+## Trusted configuration
+
+Add `verificationProfiles` to private `HANDOFF_CONFIG`, alongside `scope`, `stateDirectory`, `bridgeConfig` and `hubUrl`. This is not a bridge.config.json field; both ordinary bridge templates retain their defaults. Gateway and Worker must use the same reviewed artifact/configuration.
+
+```json
+{
+  "verificationProfiles": {
+    "example": {
+      "projectRoot": "/absolute/path/to/candidate",
+      "projectId": "example-web",
+      "suite": "smoke",
+      "engineRoot": "/absolute/path/to/reviewed-ui-eval",
+      "engineRevision": "0000000000000000000000000000000000000000",
+      "cliHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "libraryHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "timeoutMs": 120000,
+      "policyFiles": {
+        "ui-eval/project.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "ui-eval/engine.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "ui-eval/integrations/smoke.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "ui-eval/verification.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "ui-eval/scenarios/home.json": "0000000000000000000000000000000000000000000000000000000000000000",
+        "check.mjs": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  }
+}
+```
+
+Replace every placeholder. Revision means the full reviewed engine commit; hashes are SHA-256 of its built dist/cli.js and dist/index.js. Engine source must be clean and match that revision before/after execution. These hashes cover selected built files, not installed dependency contents. The harness does not clone, install or upgrade dependencies.
+
+The first slice supports Web suites. `policyFiles` pins reviewed project-relative file bytes before and after invocation. The project descriptor, engine pin and selected suite are mandatory; a referenced verification plan must also be pinned. Register scenario/policy and required-check script files defining the mandatory floor. The harness does not discover the project's complete executable dependency graph; completeness of this trusted list is an operator responsibility, and unlisted candidate code still requires independent review. Policy changes require a reviewed profile update. Native work cannot silently replace the registered suite/plan or listed assertions and then report green against the altered floor.
+
+The candidate owns ui-eval/engine.json, suite, verification plan, fixtures, mandatory checks and browser channel. The engine compares its expected pin with the executing checkout. The harness fixes argv to `node ENGINE/dist/cli.js integrate SUITE --project-root ROOT --format json`; chat cannot choose executable code or weaken scope. Profiles/project commands are trusted executable policy running as the host account outside Codex's command-approval sandbox. Selecting a profile explicitly authorizes its registered validation, including prepare/check commands. Register only policies whose effects you accept.
+
+## Persistence and evidence
+
+An additive private verifications table retains execution, profile definition/digest and planned/running/observed/skipped/unknown disposition. Running intent commits before launch. The sealed native report binds the terminal record, separately from native completion. Profile drift cannot substitute another verifier after admission.
+
+The pinned engine's exported validator interprets output. The harness requires observed exit/code agreement, a fresh generated integration directory, canonical JSON equal to stdout and present bounded HTML. It retains both hashes and task/source/suite/engine identity. Output and each report are bounded to 8 MiB. The reviewed Worker outer budget must cover native work, verification and cleanup; its external stop/timeout policy may force termination before the CLI grace, which remains uncertain. A deadline requests SIGTERM; the engine gets up to 95 seconds for its documented cleanup, then forced termination remains unconfirmed. The trusted CLI owns report generation/reconciliation. This is not arbitrary-report import or a sandbox against other host processes of the same account.
+
+Project/engine reports own verification observations; admission/native checkpoints own task association and dispatch; transport owns rendering and acknowledgement. Execution/profile/result hashes associate these ledgers. A separate bounded verification handoff is persisted atomically with the final native checkpoint projection. Native chunks and sealed journals stay unchanged; retry reuses saved transport identities. Retain project JSON/HTML together with source and private association records. A reply is not evidence revalidation.
+
+Pass, candidate failure, needs-review, inconclusive and interrupted outcomes remain distinct. A plan-free pass establishes that suite only. Engine-declared code/UI/release conclusions cover its declared plan. Independent code review, required human visual review and publication authority remain separate. Reports are private local references in this slice, without automatic upload or hosting.
+
+## Uncertainty and freshness
+
+A known prelaunch failure is unverified without starting a child. After possible launch, missing/invalid/mismatched output or incomplete cleanup retains an unknown execution guard. A completed native turn remains separately recorded in the sealed report. Startup queries the owner/checkpoint; missing acknowledgement never relaunches a planned/running intent. Executor loss without a checkpoint also retains protection.
+
+Initial verification uncertainty requires local CLI/descendant/effect inspection and authenticated local maintenance reconciliation. Feishu's native-only recovery contract is not expanded. The existing process sidecar follows Codex descendants and does not establish complete verification-process coverage. Sampled identities grant no termination authority.
+
+`/verification` reads history. Profile drift, changed Git HEAD or modified report hashes are stale; dirty source has unverified applicability. Unchanged source/reports do not revalidate environment, fixtures or release eligibility. Release Kit retains separately authorized publication and its own revalidation.
+
+## Upgrade and isolated probe
+
+Drain tasks, controls, prompts and delivery before coordinated gateway/Worker replacement. Do not activate a mixed-version pair for selected tasks. The compatible rollback converter requires terminal selections, inspected guarded unknowns and drained final projections; it archives the additive ledger and original native reports. Retain project report files separately. Never restore an old database over new receipts.
+
+After required checks/build, this explicit probe consumes one real Codex turn:
+
+```sh
+node scripts/verify-project-handoff.mjs --native \
+  --engine /absolute/path/to/reviewed-ui-eval --revision FULL_REVIEWED_COMMIT \
+  --output /absolute/path/to/empty/private-evidence \
+  --browser-channel chrome --codex /absolute/path/to/codex
+```
+
+It uses the engine's prepared-web fixture and actual CLI, retaining native/checkpoint and JSON/HTML evidence. Transport/scheduling are synthetic; it does not connect Feishu, validate a business feature or authorize publication. Keep candidate source unchanged during capture. Real owner transport and an explicitly authorized business task retain separate gates.

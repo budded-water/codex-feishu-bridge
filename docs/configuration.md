@@ -105,6 +105,8 @@ workspace 模式保留任务原文，已配置的别名前缀也按普通文字�
 
 The experimental prepared pilot entry uses a private handoff configuration and migration plan. Its fields and managed startup are documented in [the migration guide](handoff-migration.md). Existing bridge configuration fields and both installation templates retain their current defaults.
 
+The optional handoff-only `verificationProfiles` registry is defined in [project verification](project-verification.md). It is private trusted executable policy shared by gateway and Worker, not a bridge configuration field or an arbitrary chat command facility.
+
 P2 的 P1 网关检查恢复命令沿用 `approvalUsers`、`approvalChat` 和现有访问配置，无新增字段。仅任务本人同时具备审批权限、且处于已登记私聊时可用；管理员身份不允许替另一个任务主人恢复。详见 [检查后恢复](usage.md#p2检查后恢复p1-网关)。实际部署状态见 [验收记录](live-acceptance.md)。
 
 ## 审批卡片

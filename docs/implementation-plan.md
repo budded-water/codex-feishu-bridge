@@ -1,5 +1,9 @@
 # Implementation and acceptance status
 
+## Optional P3 task verification
+
+The [project-verification runtime](project-verification.md) is implemented behind private handoff profiles. Exact owner selection is persisted with a new native task. The execution-ID owner holds the existing Worker assignment/guard through the pinned UI-eval child, binds its observation to the sealed native report and keeps verification separate from native completion. Read-only history, stop, transport-only final rendering and additive rollback retention are implemented. Missing post-launch evidence/cleanup retains protection without replay; initial verification uncertainty requires local inspected recovery. Source checks, isolated actual-engine/native evidence, independent review/CI, deployment and owner/business acceptance are recorded separately in the [P3 tasks](../openspec/changes/add-project-verification-handoff/tasks.md) and dated live record. No automatic repair or publication is introduced.
+
 The team text-chat bridge is implemented. Automated checks and a real local Codex handshake pass. The owner application is published, message scopes/subscription and SDK connection are verified, and owner challenge enrollment has succeeded. Tenant access, verified group mentions, isolated user sessions, default discussion mode, optional bounded text/image context, direct discussion replies, native rich-post formatting, and administrator approval routing are implemented and behavior-tested. Owner group transport and a bounded read-only turn are observed; owner-private command approval/refusal and inspected process-loss recovery are now verified on M6; new image-grounded group replies and colleague-account access remain pending; see [live acceptance](live-acceptance.md).
 
 | Milestone | Code and automated evidence | Remaining acceptance |

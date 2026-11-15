@@ -11,6 +11,9 @@ import type { ControlRecord, RequestRecord } from './store.js';
 import { FeishuRecovery } from './recovery.js';
 import { OwnerQueue } from './queue.js';
 import { approvalActorAllowed, type ApprovalClick, type CardResult } from '../approval.js';
+import { isMaintenanceOwner } from './owner-access.js';
+import { type VerificationProfiles } from './verification-profile.js';
+import { verificationApplicability, verificationText } from './verification-view.js';
 
 export class PilotInteractions {
   readonly transport: HandoffTransport;
@@ -22,9 +25,11 @@ export class PilotInteractions {
   private startup?: Promise<void>;
   private publication?: Promise<void>;
   private controlWork?: Promise<void>;
+  private viewWork: Promise<void> = Promise.resolve();
 
   constructor(readonly admission: PilotAdmission, private config: Config, private source: Pick<SourceOutbox, 'flush' | 'diagnose'>,
-    private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = [], private contextPort?: ContextPort) {
+    private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = [], private contextPort?: ContextPort,
+    private profiles: VerificationProfiles = {}) {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
     this.queue = new OwnerQueue(admission, config, this.transport.state);
@@ -33,6 +38,7 @@ export class PilotInteractions {
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
+    if (/^\/(?:verify|verification)(?:\s|$)/.test(message.text.trim())) return this.verificationCommand(message);
     if (/^\/recover(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
     if (/^\/(?:queue|withdraw)(?:\s|$)/.test(message.text.trim())) return this.queue.receive(message);
     const operator = message.tenant === this.admission.scope.tenant && message.user === this.admission.scope.operator && message.chat === this.admission.scope.chat;
@@ -65,13 +71,22 @@ export class PilotInteractions {
       this.transport.state.send(message.chat,
         '命令：/help、/status、/status details、/steer 内容、/stop、/approve 编号、/reject 编号、/answer 编号 内容。\n' +
         '本人私聊维护命令：/recover [编号 检查依据]、/queue、/withdraw [完整请求编号]；维护操作还须具备审批角色。\n' +
-        '普通消息交办任务；撤回仅处理尚未取得执行授权的请求。', { replyTo: message.id });
+        '普通消息交办任务；撤回仅处理尚未取得执行授权的请求。' +
+        (Object.keys(this.profiles).length ? '\n验证：/verify profile 任务内容；查看 /verification 任务编号。' : ''), { replyTo: message.id });
       return { status: 'help' as const };
     }
     const previous = this.admission.store.control(message);
     if (previous) return { status: 'duplicate' as const, control: previous };
     const held = this.admission.store.unsettled();
     const execution = held.length === 1 ? held[0] : undefined;
+    if (execution && /^\/status(?:\s|$)/.test(message.text.trim())) {
+      const verification = this.admission.store.verification(execution.id);
+      if (verification?.phase === 'running') {
+        if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
+          'Codex 本轮已完成，项目验证正在运行；执行保护保留，/stop 可请求中止验证。\n' + verificationText(verification), { replyTo: message.id });
+        return { status: 'verification-status' as const };
+      }
+    }
     const reference = message.parentId ? this.transport.state.referencedTask(message.parentId, ownerKey(message)) : undefined;
     const quotedSupplement = /^\/steer\s/.test(message.text.trim()) && !reference;
     if (!execution || (!approval && message.parentId && reference !== execution.id && !quotedSupplement)) {
@@ -87,9 +102,11 @@ export class PilotInteractions {
       return { status: 'rejected' as const };
     }
     if (execution.status === 'unknown' && /^\/status(?:\s|$)/.test(message.text.trim())) {
+      const verification = this.admission.store.verification(execution.id);
       this.transport.state.transaction(() => {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
-          '原任务结果未确认，执行保护仍保留。本人可在登记私聊发送 /recover 查看检查条件；不会自动重跑。', { replyTo: message.id });
+          verification ? verificationText(verification) + '\n原生/验证执行保护仍保留；阶段记录不证明进程在线。请本机检查进程与副作用后登记恢复，不会重跑。'
+            : '原任务结果未确认，执行保护仍保留。本人可在登记私聊发送 /recover 查看检查条件；不会自动重跑。', { replyTo: message.id });
       });
       return { status: 'rejected' as const };
     }
@@ -97,6 +114,44 @@ export class PilotInteractions {
     if (message.text.trim() === '/stop' || natural === 'stop') void this.relay(control).catch(() => console.error('Stop relay unavailable; retained dispatch will be inspected'));
     void this.flushControls().catch(() => console.error('Control relay unavailable; retained dispatch will be inspected'));
     return { status: 'control' as const, control };
+  }
+
+  private verificationCommand(message: IncomingMessage) {
+    if (!isMaintenanceOwner(this.admission.scope, this.config, message) || message.unsupported || message.text.length > 30_000) return { status: 'rejected' as const };
+    const text = message.text.trim();
+    const selected = /^\/verify\s+([a-zA-Z0-9_-]{1,64})\s+([\s\S]+)$/.exec(message.text.trimStart());
+    if (selected && selected[2]!.trim() && Object.hasOwn(this.profiles, selected[1]!)) {
+      const definition = this.profiles[selected[1]!]!;
+      const result = this.admission.receiveVerification(message,
+        `本任务选择的项目验证目标为 ${definition.projectRoot}。仅在该项目处理以下需求；完成后系统会运行已登记验证，无需自行重复调用验证器。\n\n${selected[2]!}`,
+        { profile: selected[1]!, definition });
+      if ('request' in result) {
+        this.transport.admit(result.request);
+        if (result.status !== 'duplicate' && this.transport.state.remember(message)) this.transport.state.send(message.chat,
+          `已保存验证任务 · ${selected[1]}\n任务编号：${result.request.execution}\n` +
+          (result.status === 'blocked' ? '前序结果未确认，本次未开始且不会自动执行；请先核对。' : 'Codex 完成本轮后执行已登记验证。') +
+          `查看 /verification ${result.request.execution}。`, { replyTo: message.id });
+        return result;
+      }
+      if (result.reason === 'maintenance' && this.transport.state.remember(message)) this.transport.state.send(message.chat,
+        '系统正在维护，这条验证任务没有开始。恢复后请发送新消息。', { replyTo: message.id });
+      return result;
+    }
+    if (!this.transport.state.remember(message)) return { status: 'duplicate' as const };
+    const query = /^\/verification\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(text);
+    const request = query && this.admission.store.requests().find(row => row.execution === query[1]!.toLowerCase() && ownerKey(row.message) === ownerKey(message));
+    const value = request && this.admission.store.verification(request.execution);
+    if (value) {
+      this.viewWork = this.viewWork.then(async () => {
+        const applicability = await verificationApplicability(value, this.profiles);
+        const unknown = this.admission.store.execution(value.execution)?.status === 'unknown' && ['planned', 'running'].includes(value.phase);
+        const guarded = this.admission.store.unsettled().some(row => row.id === value.execution);
+        this.transport.state.send(message.chat, verificationText(value) + (unknown ? '\n执行器已无法确认；上述阶段是保留记录，不代表进程仍在线。' : '') +
+          (guarded ? '\n当前执行保护仍保留。' : '\n当前该任务无执行保护；历史结果保持原记录。') + '\n' + applicability, { replyTo: message.id });
+      }).catch(() => { this.transport.state.send(message.chat, '验证观测暂时无法核实，不会重新执行。', { replyTo: message.id }); });
+    } else this.transport.state.send(message.chat,
+      '未启动验证。请用 /verify profile 任务内容，或 /verification 完整任务编号查看自己的观测。可用 profile：' + (Object.keys(this.profiles).join('、') || '未配置'), { replyTo: message.id });
+    return { status: 'verification-view' as const };
   }
 
   private dispatchMessage(control: ControlRecord): IncomingMessage {
@@ -194,6 +249,7 @@ export class PilotInteractions {
   }
 
   private async synchronize(): Promise<void> {
+    await this.viewWork;
     await this.recovery.idle();
     this.recovery.sync();
     this.queue.sync();
@@ -229,6 +285,7 @@ export class PilotInteractions {
       await this.work;
       await this.publication;
       await this.controlWork;
+      await this.viewWork;
       await this.recovery.idle();
       this.recovery.sync();
       this.queue.sync();

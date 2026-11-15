@@ -9,6 +9,7 @@ import { NativeExecutions, type NativeReport } from './native.js';
 import { validateNativeRegistry } from './registry.js';
 import { readFence, verifyImportedState } from './ownership.js';
 import { executionReceipt } from './receipt.js';
+import { verificationProfiles } from './verification-profile.js';
 
 async function main(): Promise<void> {
   process.umask(0o077);
@@ -41,7 +42,7 @@ async function main(): Promise<void> {
   try {
     validateNativeRegistry(gateway, JSON.parse(readFileSync(join(home, 'rules.json'), 'utf8')));
     const outbox = new SourceOutbox(gateway, new AutoloopSource(value.hubUrl, sourceKey));
-    runtime = new NativeExecutions(gateway, config, () => new CodexClient(config.codexExecutable, prefix as string[], 30_000, config.codexReasoningEffort));
+    runtime = new NativeExecutions(gateway, config, () => new CodexClient(config.codexExecutable, prefix as string[], 30_000, config.codexReasoningEffort), verificationProfiles(value.verificationProfiles));
     await runtime.recover();
     const grant = await outbox.claimContext(run, turn.cwd, JSON.parse(readFileSync(contextFile, 'utf8')));
     let report: NativeReport | undefined;
@@ -64,8 +65,12 @@ async function main(): Promise<void> {
       try { report = runtime.apply(grant.execution.id); } catch { /* Retain an unresolved existing execution. */ }
     }
     clearInterval(progress);
+    let status = grant.kind === 'withdrawn' ? 'withdrawn' : report?.outcome.status ?? 'unknown';
+    if (report && gateway.store.verification(report.permit.execution)?.phase === 'unknown') {
+      status = report.outcome.status === 'completed' ? 'verification_unknown' : 'unknown';
+    }
     console.log(JSON.stringify({ nativeExecution: 1, started: true, session: report?.outcome.thread ?? undefined,
-      text: executionReceipt(grant.kind === 'withdrawn' ? 'withdrawn' : report?.outcome.status ?? 'unknown') }));
+      text: executionReceipt(status) }));
   } finally {
     clearInterval(progress);
     await runtime?.stop();

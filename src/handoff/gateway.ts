@@ -4,6 +4,7 @@ import { isAbsolute } from 'node:path';
 import type { Config } from '../config.js';
 import { record, type IncomingMessage } from '../types.js';
 import { AdmissionStore, type Permit } from './store.js';
+import type { VerificationSelection } from './store.js';
 
 export const REQUEST_EVENT = 'bridge.request';
 export interface PilotScope {
@@ -79,6 +80,13 @@ export class PilotAdmission {
     return this.assignmentContext(Number(job.run), rule.cwd, job.context);
   }
 
+  receiveVerification(message: IncomingMessage, input: string, selection: VerificationSelection): Admission {
+    if (!this.operator(message) || message.chatType !== 'p2p' || message.unsupported || message.text.length > 30_000 || !input.trim()) return { status: 'rejected' };
+    const accepted = this.store.accept(message, input, this.project, selection);
+    if ('paused' in accepted) return { status: 'rejected', reason: 'maintenance' };
+    return { status: accepted.duplicate ? 'duplicate' : accepted.request.blocked ? 'blocked' : 'accepted', request: accepted.request };
+  }
+
   assignmentContext(run: number, cwd: unknown, value: unknown) {
     const context = record(value);
     if (!Number.isSafeInteger(run) || run < 1 || cwd !== this.directory || !Array.isArray(context.events) || context.events.length !== 1 ||
@@ -96,7 +104,7 @@ export class PilotAdmission {
     return { request, run };
   }
 
-  uncertain(permit: Permit, reason: 'owner_unreachable' | 'start_unconfirmed' | 'completion_unconfirmed' | 'cancellation_unconfirmed') {
+  uncertain(permit: Permit, reason: 'owner_unreachable' | 'start_unconfirmed' | 'completion_unconfirmed' | 'cancellation_unconfirmed' | 'verification_unconfirmed') {
     return this.store.uncertain(permit, reason);
   }
 

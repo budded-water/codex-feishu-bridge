@@ -145,7 +145,7 @@ export class State {
     });
   }
 
-  projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }): void {
+  projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }, verification?: string): void {
     this.transaction(() => {
       for (const prompt of projection.prompts) {
         this.db.prepare(`INSERT INTO approvals(id,task,method,status,created,expires,actor) VALUES (?,?,'native-projection',?,?,?,?)
@@ -167,8 +167,18 @@ export class State {
             .run(p.id, request.execution + ':' + p.prompt, row.id, JSON.stringify(p));
         }
       }
-      if (projection.sealed) this.db.prepare('UPDATE projected_tasks SET checkpoint=? WHERE execution=?').run(projection.checkpoint, request.execution);
+      if (projection.sealed) {
+        if (verification && !this.verificationNoticeProjected(request.execution)) {
+          this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run('verification/' + request.execution, 'observed', randomUUID());
+          this.send(request.message.chat, verification, { taskId: request.execution, replyTo: request.message.id, final: true });
+        }
+        this.db.prepare('UPDATE projected_tasks SET checkpoint=? WHERE execution=?').run(projection.checkpoint, request.execution);
+      }
     });
+  }
+
+  verificationNoticeProjected(execution: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM projected_control_notices WHERE origin=? AND status='observed'").get('verification/' + execution));
   }
 
   projectControlNotice(control: ControlRecord): void {

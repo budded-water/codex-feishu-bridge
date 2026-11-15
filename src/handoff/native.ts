@@ -12,6 +12,8 @@ import type { Permit, RequestRecord } from './store.js';
 import { openOwnerChannel, probeOwner, requestOwner } from './owner-channel.js';
 import { journalControl, journalProjection } from './journal.js';
 import { ProcessObserver, parseProcessObservation, readProcessTable, processState, type ProcessObservation, type ProcessTable } from './processes.js';
+import { profileDigest, type VerificationProfiles } from './verification-profile.js';
+import { runVerification } from './verification-runner.js';
 
 export interface ManagedCodex extends CodexPort {
   readonly pid?: number;
@@ -22,6 +24,7 @@ type Outcome = { task: string | null; thread: string | null; turn: string | null
 export type NativeReport = {
   version: 1; binding: string; permit: Permit; outcome: Outcome;
   childSettled: true; databaseHash: string | null; checkpoint: string;
+  verification?: string;
 };
 type Owner = { version: 1; binding: string; permit: Permit; socket: string; pid: number };
 const hash = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
@@ -56,7 +59,8 @@ export class NativeExecutions {
   private active?: NativeOwner;
   private stopping = false;
 
-  constructor(private gateway: PilotAdmission, private config: Config, private createCodex?: () => ManagedCodex) {
+  constructor(private gateway: PilotAdmission, private config: Config, private createCodex?: () => ManagedCodex,
+    private profiles: VerificationProfiles = {}) {
     if ((config.allowedTenant && config.allowedTenant !== gateway.scope.tenant) ||
       (config.accessMode === 'allowlist' && !config.allowedUsers.includes(gateway.scope.operator)) ||
       config.projects[gateway.scope.pilot] !== gateway.directory) throw new Error('Native configuration does not admit the pilot');
@@ -95,6 +99,10 @@ export class NativeExecutions {
     if (value.databaseHash !== null) {
       if (typeof value.databaseHash !== 'string' || lstatSync(database).isSymbolicLink() || hash(readFileSync(database)) !== value.databaseHash) throw new Error('Native journal evidence changed');
     } else if (outcome.task !== null || outcome.status !== 'interrupted') throw new Error('Missing native journal evidence');
+    const verification = this.gateway.store.verification(execution);
+    if (verification && (['planned', 'running'].includes(verification.phase) ||
+      value.verification !== this.gateway.store.verificationBinding(execution))) throw new Error('Missing or changed verification handoff');
+    if (!verification && value.verification !== undefined) throw new Error('Unselected verification handoff');
     return value as unknown as NativeReport;
   }
 
@@ -104,7 +112,9 @@ export class NativeExecutions {
     if (report.outcome.thread) this.gateway.store.nativeSnapshot(report.permit, {
       thread: report.outcome.thread, turn: report.outcome.turn, generation: report.outcome.generation,
     });
-    if (report.outcome.status === 'completed' || report.outcome.status === 'interrupted') {
+    if (this.gateway.store.verification(execution)?.phase === 'unknown') {
+      this.gateway.uncertain(report.permit, 'verification_unconfirmed');
+    } else if (report.outcome.status === 'completed' || report.outcome.status === 'interrupted') {
       this.gateway.terminal(report.permit, { status: report.outcome.status, processSettled: true, reference });
     } else this.gateway.uncertain(report.permit, 'completion_unconfirmed');
     return report;
@@ -114,8 +124,8 @@ export class NativeExecutions {
     const recovered: { execution: string; status: 'settled' | 'live' | 'unknown' }[] = [];
     for (const execution of this.gateway.store.unsettled()) {
       try {
-        const report = this.apply(execution.id);
-        recovered.push({ execution: execution.id, status: report.outcome.status === 'unknown' ? 'unknown' : 'settled' });
+        this.apply(execution.id);
+        recovered.push({ execution: execution.id, status: this.gateway.store.execution(execution.id)?.status === 'unknown' ? 'unknown' : 'settled' });
         continue;
       } catch { /* A live owner may still be producing its checkpoint. */ }
       try {
@@ -159,7 +169,7 @@ export class NativeExecutions {
         if (request.message.chatType === 'group' && !this.config.enableGroups) throw new Error('Native configuration does not admit the pilot chat');
         if (request.message.chatType === 'group' && !this.gateway.store.reference(request.execution, request.message)?.context) throw new Error('Missing retained group references');
         const codex = this.createCodex?.() ?? new CodexClient(this.config.codexExecutable, [], 30_000, this.config.codexReasoningEffort);
-        this.active = new NativeOwner(this.gateway, this.config, request, permit, folder, codex);
+        this.active = new NativeOwner(this.gateway, this.config, request, permit, folder, codex, this.profiles);
         if (this.stopping) await this.active.stop();
         try { await this.active.run(); }
         catch (failure) {
@@ -299,9 +309,11 @@ class NativeOwner {
   private closing?: Promise<void>;
   private outcome: Outcome;
   private processes?: ProcessObserver;
+  private verifying = false;
+  private verificationAbort = new AbortController();
 
   constructor(private gateway: PilotAdmission, private config: Config, private request: RequestRecord,
-    private permit: Permit, private folder: string, private codex: ManagedCodex) {
+    private permit: Permit, private folder: string, private codex: ManagedCodex, private profiles: VerificationProfiles) {
     this.outcome = { task: null, thread: null, turn: null, status: 'interrupted', generation: '' };
   }
 
@@ -332,6 +344,15 @@ class NativeOwner {
         const nativeTarget = target as unknown as NativeControlTarget;
         const saved = this.state.beginRelayedControl(control, nativeTarget);
         if (!saved.fresh) return { status: saved.status };
+        const waitingVerification = this.gateway.store.verification(this.permit.execution)?.phase === 'planned' && this.snapshot().status === 'completed';
+        if (this.verifying || waitingVerification) {
+          const allowed = ownerKey(control) === ownerKey(this.request.message) &&
+            nativeTarget.thread === this.outcome.thread && nativeTarget.turn === this.outcome.turn && nativeTarget.generation === this.codex.generation;
+          const status = allowed && control.text.trim() === '/stop' ? 'stopping' : 'rejected';
+          this.state.relayedControlResult(control, status);
+          if (status === 'stopping') this.verificationAbort.abort();
+          return { status };
+        }
         const status = await this.bridge.relayControl(control, nativeTarget);
         this.state.relayedControlResult(control, status);
         return { status };
@@ -377,18 +398,37 @@ class NativeOwner {
       }
       this.bridge.kick();
       await settled;
+      const selection = this.gateway.store.verification(this.permit.execution);
+      if (selection) {
+        if (this.outcome.status !== 'completed' || this.stopping) this.gateway.store.finishVerification(this.permit);
+        else {
+          this.gateway.store.beginVerification(this.permit);
+          this.verifying = true;
+          const profile = Object.hasOwn(this.profiles, selection.profile) ? this.profiles[selection.profile] : undefined;
+          const observation = profile && profileDigest(profile) === selection.digest
+            ? await runVerification(profile, this.verificationAbort.signal)
+            : { status: 'unverified' as const, cleanupSettled: true, code: null, signal: null,
+              reason: 'Selected trusted profile is unavailable or changed', observedAt: Date.now() };
+          this.gateway.store.finishVerification(this.permit, observation);
+          this.verifying = false;
+        }
+      }
     } finally {
       try {
         clearInterval(this.timer);
         try { await this.close(); } finally { await this.processes?.stop(); }
         await channel.close();
         this.snapshot();
+        if (this.gateway.store.verification(this.permit.execution)?.phase === 'planned' && this.outcome.status !== 'completed') {
+          this.gateway.store.finishVerification(this.permit);
+        }
         const hasJournal = Boolean(this.state);
         this.state?.close(); this.state = undefined;
         const outcome = { ...this.outcome, generation: this.codex.generation };
         if (!['completed', 'interrupted'].includes(outcome.status)) outcome.status = 'unknown';
         const report: NativeReport = { version: 1, binding: marker.binding, permit: this.permit, outcome, childSettled: true,
-          databaseHash: hasJournal ? hash(readFileSync(join(this.folder, 'bridge.db'))) : null, checkpoint: randomUUID() };
+          databaseHash: hasJournal ? hash(readFileSync(join(this.folder, 'bridge.db'))) : null, checkpoint: randomUUID(),
+          ...(this.gateway.store.verification(this.permit.execution) ? { verification: this.gateway.store.verificationBinding(this.permit.execution) } : {}) };
         publish(join(this.folder, resultFile), report);
       } finally { await channel.close(); }
     }
@@ -398,5 +438,5 @@ class NativeOwner {
     return this.closing ??= (async () => { await this.bridge?.close(); await this.codex.close(); })();
   }
 
-  stop(): Promise<void> { this.stopping = true; return this.close(); }
+  stop(): Promise<void> { this.stopping = true; this.verificationAbort.abort(); return this.close(); }
 }

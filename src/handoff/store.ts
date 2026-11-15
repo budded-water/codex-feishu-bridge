@@ -3,6 +3,14 @@ import type { DatabaseSync } from 'node:sqlite';
 import { Maintenance } from '../maintenance.js';
 import { openPrivateDatabase } from '../private-database.js';
 import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition, type ChatContext } from '../types.js';
+import { fingerprint, profileDigest, type VerificationProfile } from './verification-profile.js';
+import type { VerificationObservation } from './verification-runner.js';
+
+export interface VerificationRecord {
+  execution: string; profile: string; digest: string; definition: VerificationProfile;
+  phase: 'planned' | 'running' | 'observed' | 'skipped' | 'unknown'; observation: VerificationObservation | null;
+}
+export type VerificationSelection = { profile: string; definition: VerificationProfile };
 
 export type RequestRecord = {
   id: string; execution: string; conversation: string; project: string;
@@ -71,6 +79,10 @@ export class AdmissionStore {
         CREATE TABLE IF NOT EXISTS reference_context (
           origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES requests(execution), body TEXT
         );
+        CREATE TABLE IF NOT EXISTS verifications (
+          execution TEXT PRIMARY KEY REFERENCES requests(execution), profile TEXT NOT NULL, digest TEXT NOT NULL,
+          definition TEXT NOT NULL, phase TEXT NOT NULL, observation TEXT
+        );
       `);
       this.transaction(() => {
         for (const [table, columns] of Object.entries({ conversations: ['thread', 'last_execution'], executions: ['native_thread', 'native_turn', 'native_generation'] })) {
@@ -113,7 +125,7 @@ export class AdmissionStore {
     return row && { ...row, message: JSON.parse(row.message) as IncomingMessage };
   }
 
-  accept(message: IncomingMessage, input: string, project: string): { duplicate: boolean; request: RequestRecord } | { paused: true } {
+  accept(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection): { duplicate: boolean; request: RequestRecord } | { paused: true } {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already belongs to a control');
@@ -131,6 +143,8 @@ export class AdmissionStore {
         message, input, blocked: uncertain ? 'project_outcome_unknown' : null };
       this.db.prepare('INSERT INTO requests VALUES (?,?,?,?,?,?,?,?)').run(request.id, request.execution, request.conversation,
         project, origin, JSON.stringify(message), input, request.blocked);
+      if (verification) this.db.prepare('INSERT INTO verifications VALUES (?,?,?,?,?,NULL)')
+        .run(request.execution, verification.profile, profileDigest(verification.definition), JSON.stringify(verification.definition), request.blocked ? 'skipped' : 'planned');
       if (!request.blocked) this.db.prepare("INSERT INTO submissions(request,status) VALUES (?,'pending')").run(request.id);
       return { duplicate: false, request };
     });
@@ -163,6 +177,37 @@ export class AdmissionStore {
 
   requests(): RequestRecord[] {
     return (this.db.prepare('SELECT id FROM requests ORDER BY rowid').all() as { id: string }[]).map(row => this.request(row.id)!);
+  }
+
+  verification(execution: string): VerificationRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM verifications WHERE execution=?').get(execution) as
+      (Omit<VerificationRecord, 'definition' | 'observation'> & { definition: string; observation: string | null }) | undefined;
+    return row && { ...row, definition: JSON.parse(row.definition), observation: row.observation ? JSON.parse(row.observation) : null };
+  }
+
+  verificationBinding(execution: string): string | undefined {
+    const value = this.verification(execution);
+    return value && fingerprint(JSON.stringify(value));
+  }
+
+  beginVerification(permit: Permit): void {
+    this.transaction(() => {
+      this.startableRequest(permit);
+      if (!this.db.prepare("UPDATE verifications SET phase='running' WHERE execution=? AND phase='planned'").run(permit.execution).changes) {
+        throw new Error('Verification is not launchable');
+      }
+    });
+  }
+
+  finishVerification(permit: Permit, observation?: VerificationObservation): void {
+    this.transaction(() => {
+      this.validatePermit(permit);
+      const phase = observation ? observation.cleanupSettled ? 'observed' : 'unknown' : 'skipped';
+      if (!this.db.prepare("UPDATE verifications SET phase=?,observation=? WHERE execution=? AND phase=?")
+        .run(phase, observation ? JSON.stringify(observation) : null, permit.execution, observation ? 'running' : 'planned').changes) {
+        throw new Error('Verification already dispatched or settled');
+      }
+    });
   }
 
   control(message: Pick<IncomingMessage, 'tenant' | 'id'>): ControlRecord | undefined {
@@ -378,6 +423,7 @@ export class AdmissionStore {
         previous_problem: this.submission(request.id)?.problem ?? null, created: Date.now() };
       this.db.prepare('INSERT INTO withdrawals VALUES (?,?,?,?,?,?)').run(origin, request.id, receipt.actor, receipt.previous_blocked, receipt.previous_problem, receipt.created);
       this.db.prepare('UPDATE requests SET blocked=? WHERE id=?').run(OWNER_WITHDRAWN, request.id);
+      this.db.prepare("UPDATE verifications SET phase='skipped' WHERE execution=? AND phase='planned'").run(request.execution);
       this.db.prepare("UPDATE submissions SET status='blocked',problem=? WHERE request=?").run(OWNER_WITHDRAWN, request.id);
       this.db.prepare('INSERT INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, 'withdrawal');
       return { fresh: true, receipt };
@@ -403,6 +449,9 @@ export class AdmissionStore {
       if (this.execution(execution)?.status !== 'unknown' || !this.db.prepare('SELECT 1 FROM guards WHERE execution=?').get(execution)) throw new Error('Only guarded uncertain execution can be reconciled');
       this.db.prepare('INSERT INTO recoveries VALUES (?,?,?,?,?)').run(origin, execution, actor, evidence, Date.now());
       this.db.prepare('DELETE FROM guards WHERE execution=?').run(execution);
+      this.db.prepare("UPDATE verifications SET phase='unknown',observation=? WHERE execution=? AND phase IN ('planned','running')")
+        .run(JSON.stringify({ status: 'unverified', cleanupSettled: true, code: null, signal: null,
+          reason: 'Original verification outcome remains unconfirmed after operator process/effect inspection', observedAt: Date.now() }), execution);
       // Keep the original uncertain outcome. A new request carries any remaining-work authorization.
     });
   }
