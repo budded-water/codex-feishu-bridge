@@ -8,6 +8,10 @@ const root = args[args.indexOf('--project-root') + 1];
 const mode = JSON.parse(readFileSync(join(root, 'mode.json'), 'utf8')).mode;
 writeFileSync(join(root, '.spawns'), String(Number(existsSync(join(root, '.spawns')) ? readFileSync(join(root, '.spawns'), 'utf8') : 0) + 1));
 writeFileSync(join(root, '.ready'), String(process.pid));
+if (mode === 'environment') writeFileSync(join(root, '.environment.json'), JSON.stringify({
+  runtimeVariables: Object.keys(process.env).filter(name => /^(?:HANDOFF_|AGENT_AUTOLOOP_|FEISHU_|BRIDGE_)/i.test(name)),
+  projectSetting: process.env.VERIFY_FIXTURE_SETTING,
+}));
 const finish = (status = mode, code) => {
   const id = mode === 'old' ? '11111111-1111-4111-8111-111111111111' : randomUUID();
   const directory = join(root, '.ui-eval/integration', id); mkdirSync(directory, { recursive: true });
@@ -27,4 +31,4 @@ const finish = (status = mode, code) => {
 if (mode === 'hold' || mode === 'stubborn') {
   process.on('SIGTERM', () => { if (mode === 'hold') finish('interrupted', 143); });
   setInterval(() => {}, 1000);
-} else finish(['missing-html', 'mismatch', 'foreign', 'linked', 'old', 'cleanup', 'wrong-exit'].includes(mode) ? 'pass' : undefined);
+} else finish(['missing-html', 'mismatch', 'foreign', 'linked', 'old', 'cleanup', 'wrong-exit', 'environment'].includes(mode) ? 'pass' : undefined);

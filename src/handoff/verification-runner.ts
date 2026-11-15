@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { record } from '../types.js';
-import { boundedFile, fingerprint, verifyEngine, verifyPolicy, type VerificationProfile } from './verification-profile.js';
+import { boundedFile, fingerprint, verifyEngine, verifyPolicy, verificationEnvironment, type VerificationProfile } from './verification-profile.js';
 
 export interface VerificationObservation {
   status: 'pass' | 'fail' | 'needs-review' | 'inconclusive' | 'interrupted' | 'unverified';
@@ -17,7 +17,7 @@ export interface VerificationObservation {
 async function child(profile: VerificationProfile, signal: AbortSignal, graceMs: number) {
   return new Promise<{ stdout: string; code: number | null; signal: string | null; forced: boolean }>((resolve, reject) => {
     const process = spawn(globalThis.process.execPath, [join(profile.engineRoot, 'dist/cli.js'), 'integrate', profile.suite,
-      '--project-root', profile.projectRoot, '--format', 'json'], { cwd: profile.engineRoot, stdio: ['ignore', 'pipe', 'pipe'] });
+      '--project-root', profile.projectRoot, '--format', 'json'], { cwd: profile.engineRoot, stdio: ['ignore', 'pipe', 'pipe'], env: verificationEnvironment() });
     let output = '', bytes = 0, forced = false, killing: NodeJS.Timeout | undefined;
     const abort = () => {
       if (killing || process.exitCode !== null || process.signalCode !== null) return;

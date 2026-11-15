@@ -32,7 +32,7 @@ function fixture(t: TestContext, mode = 'pass', cleanup = true) {
   writeFileSync(join(project, 'ui-eval/project.json'), '{"projectId":"fixture"}');
   writeFileSync(join(project, 'ui-eval/engine.json'), '{"fixture":true}');
   writeFileSync(join(project, 'ui-eval/integrations/smoke.json'), '{"id":"smoke","projectId":"fixture","adapter":"web"}');
-  writeFileSync(join(project, '.gitignore'), '.ui-eval/\n.ready\n.spawns\n');
+  writeFileSync(join(project, '.gitignore'), '.ui-eval/\n.ready\n.spawns\n.environment.json\n');
   const git = (cwd: string, args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   for (const directory of [engine, project]) {
     git(directory, ['init', '-q']); git(directory, ['add', '.']);
@@ -88,6 +88,19 @@ test('actual child stop retains the interrupted dual handoff; forced termination
     abort.abort(); const result = await running;
     assert.equal(result.status, mode === 'hold' ? 'interrupted' : 'unverified'); assert.equal(result.cleanupSettled, mode === 'hold');
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  }
+});
+
+test('verification child receives project settings without bridge, source or transport runtime variables', async t => {
+  const keys = ['HANDOFF_SOURCE_KEY', 'FEISHU_APP_SECRET', 'AGENT_AUTOLOOP_RUN_TOKEN', 'BRIDGE_CONFIG', 'VERIFY_FIXTURE_SETTING'];
+  const before = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  for (const key of keys) process.env[key] = key === 'VERIFY_FIXTURE_SETTING' ? 'project-owned' : 'synthetic-runtime-value';
+  try {
+    const f = fixture(t, 'environment'), result = await runVerification(f.profile, new AbortController().signal);
+    assert.equal(result.status, 'pass');
+    assert.deepEqual(JSON.parse(readFileSync(join(f.project, '.environment.json'), 'utf8')), { runtimeVariables: [], projectSetting: 'project-owned' });
+  } finally {
+    for (const key of keys) { if (before[key] === undefined) delete process.env[key]; else process.env[key] = before[key]; }
   }
 });
 

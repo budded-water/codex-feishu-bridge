@@ -66,8 +66,12 @@ export function boundedFile(root: string, path: string, limit = 8 * 1024 * 1024)
 }
 
 const exec = promisify(execFile);
+export function verificationEnvironment(): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(?:HANDOFF_|AGENT_AUTOLOOP_|FEISHU_|BRIDGE_)/i.test(name)));
+}
+
 export async function gitRead(root: string, args: string[]): Promise<string> {
-  return (await exec('git', ['--no-optional-locks', '-C', root, ...args], { timeout: 5000, maxBuffer: 1024 * 1024 })).stdout.trim();
+  return (await exec('git', ['--no-optional-locks', '-C', root, ...args], { timeout: 5000, maxBuffer: 1024 * 1024, env: verificationEnvironment() })).stdout.trim();
 }
 
 export async function verifyEngine(p: VerificationProfile): Promise<void> {

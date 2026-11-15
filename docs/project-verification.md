@@ -50,6 +50,8 @@ The first slice supports Web suites. `policyFiles` pins reviewed project-relativ
 
 The candidate owns ui-eval/engine.json, suite, verification plan, fixtures, mandatory checks and browser channel. The engine compares its expected pin with the executing checkout. The harness fixes argv to `node ENGINE/dist/cli.js integrate SUITE --project-root ROOT --format json`; chat cannot choose executable code or weaken scope. Profiles/project commands are trusted executable policy running as the host account outside Codex's command-approval sandbox. Selecting a profile explicitly authorizes its registered validation, including prepare/check commands. Register only policies whose effects you accept.
 
+Verification/Git child processes omit `HANDOFF_`, `AGENT_AUTOLOOP_`, `FEISHU_` and `BRIDGE_` runtime variables. Other project settings remain inherited; configure required project identities through project-owned policy rather than reusing bot runtime credentials. This reduces accidental credential propagation and does not isolate same-account filesystem access or change native Codex's environment.
+
 ## Persistence and evidence
 
 An additive private verifications table retains execution, profile definition/digest and planned/running/observed/skipped/unknown disposition. Running intent commits before launch. The sealed native report binds the terminal record, separately from native completion. Profile drift cannot substitute another verifier after admission.

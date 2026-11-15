@@ -15,6 +15,12 @@ Verification SHALL be opt-in for an exact task and trusted project profile. The 
 - **THEN** verification SHALL remain unverified without launching against the altered floor
 - **AND** the operator SHALL review and update the trusted profile before that policy may execute
 
+#### Scenario: Project validation receives host settings
+
+- **WHEN** verification or its Git checks launch a child process
+- **THEN** bridge, Hub and Feishu runtime variables SHALL be omitted from the child's inherited environment
+- **AND** other project settings SHALL remain available without claiming filesystem isolation
+
 ### Requirement: Separate native and acceptance outcomes
 
 Native turn completion, project verification, human review, reply delivery and release SHALL remain distinct facts. Missing, stale, mismatched, partial or unverified evidence SHALL NOT substantiate acceptance.
