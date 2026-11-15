@@ -9,6 +9,7 @@ import { NativeExecutions } from './native.js';
 import { AutoloopSource, SourceOutbox } from './source.js';
 import { PilotInteractions } from './interactions.js';
 import { pilotMaintenance } from './maintenance.js';
+import { verificationProfiles } from './verification-profile.js';
 
 export async function startPilot(config: Config, auth: { appId: string; appSecret: string }, configPath: string): Promise<void> {
   process.umask(0o077);
@@ -19,6 +20,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   const directory = realpathSync(value.stateDirectory);
   const hubUrl = value.hubUrl;
   const sourceKey = process.env.HANDOFF_SOURCE_KEY;
+  const profiles = verificationProfiles(value.verificationProfiles);
   let shutdown: (() => Promise<void>) | undefined;
   let compromised = false;
   const lease = await acquireRoot(config.stateDirectory, 'pilot', directory, () => { compromised = true; void shutdown?.(); });
@@ -51,9 +53,9 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       if (stopping) return;
       verifyImportedState(directory, readFence(lease.root)!.operation);
       admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope, config.projectRouting);
-      native = new NativeExecutions(admission, config);
+      native = new NativeExecutions(admission, config, undefined, profiles);
       const source = new SourceOutbox(admission, new AutoloopSource(hubUrl, sourceKey));
-      interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu);
+      interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu, profiles);
       admission.store.bindChannel('feishu', await feishu.botIdentity());
       await interactions.start();
     })();

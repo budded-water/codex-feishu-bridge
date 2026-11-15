@@ -228,6 +228,10 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
       if (withdrawalNoticeTarget(admission, withdrawal) && !transport.withdrawalNoticeProjected(withdrawal.origin)) throw new Error('Committed withdrawal notice has not been projected');
     }
     const native = new NativeExecutions(admission, plan.config);
+    for (const request of admission.store.requests()) {
+      const verification = admission.store.verification(request.execution);
+      if (verification && ['planned', 'running'].includes(verification.phase)) throw new Error('Selected verification is unsettled');
+    }
     const checkpoints = database(join(plan.pilotDirectory, 'transport/bridge.db'), false, db => new Map(rows(db, 'projected_tasks')
       .map(row => [column(row, 'execution'), column(row, 'checkpoint')])));
     for (const request of admission.store.requests()) if (!checkpoints.has(request.execution)) throw new Error('Accepted request has no transport projection');
@@ -237,6 +241,7 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
         if (execution.status === 'completed' || execution.status === 'interrupted') {
           const report = native.evidence(String(column(execution, 'id')));
           if (checkpoints.get(column(execution, 'id')) !== report.checkpoint) throw new Error('Native final delivery has not been projected');
+          if (admission.store.verification(String(column(execution, 'id'))) && !transport.verificationNoticeProjected(String(column(execution, 'id')))) throw new Error('Verification handoff has not been projected');
         }
         else {
           if (execution.status !== 'unknown' || !db.prepare('SELECT 1 FROM recoveries WHERE execution=?').get(column(execution, 'id'))) throw new Error('Native outcome is unresolved');

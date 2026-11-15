@@ -1,5 +1,7 @@
 # Pilot handoff and rollback
 
+The optional P3 registry adds task-bound verification state and a terminal native-report binding. See [project verification](project-verification.md) for coordinated gateway/Worker upgrade, additive-ledger archival, separate project report retention and uncertainty/recovery boundaries. Do not use an older converter to bypass unfinished verification.
+
 The migration tools prepare one-host pilot state and manage the runtime admission gate. Keep the private plan, compatible bridge artifacts and bundle together throughout the handoff. The [P1 tasks](../openspec/changes/integrate-feishu-autoloop-handoff/tasks.md) track native interactive acceptance, independent review, service inventory and owner-authorized live acceptance.
 
 ## Prepare the private plan

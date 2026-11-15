@@ -401,11 +401,15 @@ test('rollback refuses unprojected and undelivered recovery decisions before ret
   assert.equal(restored.drainStatus().queued, 0); restored.close();
 });
 
-test('rollback requires withdrawn-request notice projection and delivery, preserves its audit and never restores queued work', async t => {
+test('rollback requires withdrawn-request notice delivery and preserves skipped verification audit without restoring queued work', async t => {
   const h = await fixture(t); await stageHandoff(h.plan);
   const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope); admission.store.maintenance.resume();
   const message = { ...h.message, chatType: 'p2p' as const, id: 'queued-before-withdrawal', text: 'Unstarted fixture task' };
-  const accepted = admission.receive(message); assert.ok('request' in accepted);
+  const accepted = admission.receiveVerification(message, message.text, { profile: 'withdrawn-fixture', definition: {
+    projectRoot: h.plan.scope.projects.pilot!, engineRoot: h.plan.scope.projects.pilot!, projectId: 'fixture', suite: 'smoke',
+    engineRevision: '0'.repeat(40), cliHash: '0'.repeat(64), libraryHash: '0'.repeat(64), timeoutMs: 1000,
+    policyFiles: { 'ui-eval/project.json': '0'.repeat(64), 'ui-eval/engine.json': '0'.repeat(64), 'ui-eval/integrations/smoke.json': '0'.repeat(64) },
+  } }); assert.ok('request' in accepted);
   const command = { ...message, id: 'withdraw-before-rollback', text: '/withdraw ' + accepted.request.execution };
   const receipt = admission.store.withdraw(command, accepted.request.execution, admission.project).receipt;
   const transport = new State(join(h.plan.pilotDirectory, 'transport'));
@@ -428,4 +432,6 @@ test('rollback requires withdrawn-request notice projection and delivery, preser
   const operation = JSON.parse(readFileSync(join(h.plan.bundleDirectory, 'handoff-operation.json'), 'utf8'));
   const retained = read(join(h.plan.bundleDirectory, operation.archive, 'handoff.db'), db => db.prepare('SELECT * FROM withdrawals').all());
   assert.deepEqual(retained.map(row => ({ ...row })), [receipt]);
+  const verification = read(join(h.plan.bundleDirectory, operation.archive, 'handoff.db'), db => db.prepare('SELECT profile,phase,observation FROM verifications').get());
+  assert.deepEqual({ ...verification }, { profile: 'withdrawn-fixture', phase: 'skipped', observation: null });
 });
