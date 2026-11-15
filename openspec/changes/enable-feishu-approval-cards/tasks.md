@@ -14,4 +14,4 @@
 
 - [x] 3.1 Pass required checks, pinned integration and strict specs.
 - [x] 3.2 Publish dependent PR, pass CI/preflight and complete-diff independent review.
-- [ ] 3.3 Configure existing app callback, deploy reviewed artifact and verify bounded real owner buttons/layout.
+- [x] 3.3 Configure existing app callback, deploy reviewed artifact and verify bounded real owner buttons/layout.
