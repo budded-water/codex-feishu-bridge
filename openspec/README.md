@@ -81,6 +81,6 @@ The read-only diagnostic slice has completed source review, deployment and bound
 
 ## Consolidated delivery and proposed P3
 
-The cumulative harness implementation is merged through [PR #12](https://github.com/budded-water/codex-feishu-bridge/pull/12); dated earlier open-PR records remain historical. Runtime approval-card support is deployed with managed readiness. Application callback publication and real owner acceptance remain pending, so unfinished change tasks are retained.
+The cumulative harness implementation is merged through [PR #12](https://github.com/budded-water/codex-feishu-bridge/pull/12); dated earlier open-PR records remain historical. Runtime approval-card support is deployed with managed readiness. The owner-authorized application callback version is published. Real owner button acceptance remains pending, so unfinished change tasks are retained.
 
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) is the next proposed slice. It selects a trusted project adapter and pinned UI-eval CLI, preserves separate native/verification/review/release outcomes and defines implementation/real acceptance tasks. It does not add runtime verification or authorize release.
