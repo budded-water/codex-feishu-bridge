@@ -1,6 +1,6 @@
 # Local operation
 
-First-time setup: [installation](installation.md). Field semantics: [configuration](configuration.md). Fault lookup: [troubleshooting](troubleshooting.md).
+First-time setup: [installation](installation.md). Field semantics: [configuration](configuration.md). Fault lookup: [troubleshooting](troubleshooting.md). The [operational-readiness runbook](operational-readiness.md) separates autostart configuration, actual host exercises, closed backup coverage and isolated versus live restore.
 
 ## Foreground
 

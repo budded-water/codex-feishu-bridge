@@ -84,7 +84,7 @@ flowchart LR
 | [使用说明](docs/usage.md) | 同事：发任务、选项目、开发 / PR / Review 示例、命令、审批 |
 | [工具与身份](docs/integrations.md) | 部署者：Codex、GitHub、飞书 CLI、用户授权与应用身份 |
 | [常见问题](docs/troubleshooting.md) | 部署者 / 同事：不回复、读不到前文、图片、版本、授权、恢复 |
-| [运行维护](docs/operation.md) | 维护者：前台进程、macOS launchd、数据、重试、日志 |
+| [运行维护](docs/operation.md) / [运行验收与恢复演练](docs/operational-readiness.md) | 维护者：服务、闭合备份、隔离恢复、待执行的登录/唤醒/断网演练 |
 | [架构](docs/architecture.md) / [团队访问](docs/team-access.md) | 开发者：实现与访问控制细节 |
 | [Agent 系统方案](docs/agent-system-plan.md) / [P0 执行探针](docs/autoloop-p0.md) / [OpenSpec 工作流](openspec/README.md) | 维护者：阶段规划、隔离验证与一个 M6 实例的 owner 私聊验收及恢复边界 |
 | [P1 交接方案与组件](openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/README.md) | 维护者：持久化接单、原生执行、控制转发和结果投递组件；迁移与回滚工具已通过临时数据演练，已完成限定范围的 owner 私聊验收 |
