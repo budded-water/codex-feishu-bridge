@@ -4,7 +4,7 @@ OpenSpec records execution, orchestration, authorization, interaction, recovery 
 
 ## Current checkpoint — 2026-11-16
 
-Eight completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
+Nine completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
 
 | Delivered capability | Main specification | Archived change |
 | --- | --- | --- |
@@ -16,6 +16,7 @@ Eight completed bounded changes have been synchronized into delivered main speci
 | Unstarted queue withdrawal | [queue-withdrawal](specs/queue-withdrawal/spec.md) | [Queue](changes/archive/2026-11-16-enable-owner-queue-withdrawal/tasks.md) |
 | English command dispatch | [chat-commands](specs/chat-commands/spec.md) | [Commands](changes/archive/2026-11-16-standardize-english-chat-commands/tasks.md) |
 | Approval cards | [approval-cards](specs/approval-cards/spec.md) | [Cards](changes/archive/2026-11-16-enable-feishu-approval-cards/tasks.md) |
+| Bounded verification repair | [bounded-verification-repair](specs/bounded-verification-repair/spec.md) | [Repair](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) |
 
 These are implemented contracts with bounded evidence, not universal live acceptance. Owner-private operation is observed on one M6 deployment. Other typed-English, colleague/group, host-login/wake/network and additional fault families retain the limits in [live acceptance](../docs/live-acceptance.md) and [operation](../docs/operation.md).
 
@@ -23,11 +24,11 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) stays active. Its optional runtime is merged/deployed, and real owner-private fixture `/verify` plus historical `/verification` are accepted. Native execution, project validation, review and publication remain separate.
 
-[Task 3.2](changes/add-project-verification-handoff/tasks.md) still requires an authorized business task with its declared acceptance plan and retained reports. The owner currently has no such task. Fixture success, source checks and layout acceptance do not complete that business gate. This change is not archived or promoted to a main spec by the current synchronization. Automatic repair/discovery and Release Kit integration remain separate future work.
+[Task 3.2](changes/add-project-verification-handoff/tasks.md) still requires an authorized business task with its declared acceptance plan and retained reports. The owner currently has no such task. Fixture success, source checks and layout acceptance do not complete that business gate. This change is not archived or promoted to a main spec by the current synchronization. Broader repair/discovery and Release Kit integration remain separate future work.
 
 ## Where facts belong
 
-The separate [bounded repair change](changes/add-bounded-verification-repair/proposal.md) implements an explicit opt-in, one-repair extension with isolated evidence. Review, real inference, deployment and owner transport acceptance remain separately tracked in its [tasks](changes/add-bounded-verification-repair/tasks.md). It does not change `/verify` or complete P3 business acceptance; it remains active until its delivery gates have actual evidence.
+The separately delivered [bounded repair change](changes/archive/2026-11-16-add-bounded-verification-repair/proposal.md) implements an explicit opt-in, one-repair extension. Its [tasks](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) retain reviewed source, scripted evidence, M6 activation and bounded real owner task/command-approval-button/final/history acceptance. It does not change `/verify` or complete P3 business acceptance. Its normative requirements are now in the main specification; broader interaction/fault/host families retain their dated limits.
 
 | Location | Authority |
 | --- | --- |

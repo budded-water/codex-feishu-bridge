@@ -52,7 +52,7 @@ npm start
 | P1 检查后恢复 | 已登记本人兼审批人可在私聊用 `/recover` 查看并确认检查；诊断版本补充进程、队列和 Hub 事实，范围见 [恢复边界](docs/usage.md#p2检查后恢复p1-网关) |
 | P1 排队管理 | 已登记本人兼审批人可用 `/queue` 查看未开始的请求，并用 `/withdraw 完整请求编号` 或引用原任务发送 `/withdraw`；已取得执行授权的任务不能撤回 |
 | P1 可选项目验证 | 私有配置登记 profile 后，本人可用 `/verify profile 任务` 显式选择 UI-eval 验证；原生任务、验证、review、发布分开，部署和验收见 [项目验证](docs/project-verification.md) |
-| P1 有界修复 | repair-enabled profile 支持 `/verify-repair profile 任务`，明确功能断言失败后最多追加一轮修复；[使用与边界](docs/bounded-repair.md)，真实部署/飞书验收另行记录 |
+| P1 有界修复 | repair-enabled profile 支持 `/verify-repair profile 任务`，明确功能断言失败后最多追加一轮修复；M6 本人 fixture 的两轮闭环、审批按钮与历史查询已验收，[使用与边界](docs/bounded-repair.md) |
 | Codex 审批 / 提问 | 支持命令与文件请求审批、单个非敏感问题；同一审批人私聊可点击批准本次 / 拒绝，其他范围保留英文命令 |
 | 结果发送 | 统一飞书富文本排版；系统结果按结论、状态与可复制详情分区，持久化重试；重试结果不会重跑任务 |
 | 以本人身份主动发消息 | 可通过另行配置的飞书 CLI 用户授权实现；不是 bridge 的内置发送模式，见 [工具与身份](docs/integrations.md) |
