@@ -2,7 +2,7 @@
 
 ## Owner task progress candidate
 
-The [bounded task-progress change](../openspec/changes/add-owner-task-progress/tasks.md) implements owner-private list/detail and confirmed-message refresh cards across ordinary/verification/repair tasks. New activity reads avoid native snapshot cleanup; missing owners/evidence remain unverified and historical journals are not migrated. Required local checks passed with 310 tests/typecheck/build, including actual SDK dispatch, SQLite/IPC, repair compatibility, delivery uncertainty, persistent storage failure, stale quoted controls, legacy timing and closed-state rollback facts. CI, independent full-diff review, source merge, M6 activation and genuine owner acceptance remain separate gates. See [usage](task-progress.md); current runtime evidence remains in the dated record.
+The [bounded task-progress change](../openspec/changes/add-owner-task-progress/tasks.md) implements owner-private list/detail and confirmed-message refresh cards. Initial PR #29 passed 310 tests, strict specs, smoke, scripted integration and exact-head independent review/CI, then merged and deployed on M6. The real owner received the list but copied commands arrived as unsupported rich posts; no detail task was admitted. The correction accepts only pure private progress-query posts and makes `/tasks` a current-work overview with explicit complete pagination. Corrected checks passed 313 tests/typecheck/build and twelve strict items; corrected review/CI, activation and genuine detail/refresh acceptance remain pending. P3 business and host gates remain open. See [usage](task-progress.md) and the dated record.
 
 ## Verification findings slice
 
