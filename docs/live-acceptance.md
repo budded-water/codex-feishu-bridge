@@ -8,6 +8,12 @@ Required local type/behavior/build checks passed with 310 tests and twelve stric
 
 The same candidate also passed real local Codex protocol smoke without inference and the actual pinned Hub/Worker scripted regression for withdrawal/restart, duplicate controls, approval/stop, owner recovery/loss, final delivery and reaction cleanup. Human transport in that campaign was synthetic; it does not establish real task-card reception or refresh acceptance.
 
+## 2026-11-16 — Owner task progress delivery and managed activation
+
+The complete corrected [PR #29](https://github.com/budded-water/codex-feishu-bridge/pull/29) passed exact-head CI/preflight and independent correctness/test-quality review with no actionable findings. It is merged. The locked artifact passed build/doctor and replaced drained M6 gateway/Worker services after observed settlement and closed-state capture using the prior compatible CLI before the additive transport migration. Managed SDK/Hub readiness, open/drained admission, unchanged native/project/report payloads and unchanged project policies were verified. The existing application callback subscription was reused without new permissions or model/native settings.
+
+A private pre-query baseline now retains admission/Hub records, native/project/report hashes and transport task/approval facts. Genuine owner list/detail/refresh reception remains separate from source tests and service readiness. P3 business validation, broader native interaction/client/fault acceptance and owner-deferred host exercises remain open.
+
 ## 2026-11-16 — Verification findings candidate
 
 The owner-private P1 `/findings` candidate derives a bounded latest-profile view from retained verification/repair tasks. It distinguishes unfinished work, unknown cleanup, missing/changed native evidence and historical outcomes with applicability limits. It admits no task, invokes no model/verifier and retains no competing backlog. Existing `/verify`, repair limits and P3 business acceptance remain unchanged.
