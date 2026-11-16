@@ -1,5 +1,9 @@
 # Implementation and acceptance status
 
+## Verification findings slice
+
+The [bounded discovery view](../openspec/changes/add-verification-findings/tasks.md) implements owner-private `/findings` over recent verification and repair history. It uses existing admission/native evidence, latest-profile selection and shared rich-post presentation; no model call, scanner, candidate store or execution policy is added. Source checks, review/CI, delivery, managed M6 activation and real owner query acceptance are separate gates in that change. P3 business validation and deferred host exercises remain open.
+
 The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-verification-repair/proposal.md) delivers explicit opt-in, one additional native turn at most, narrow functional-failure eligibility and immutable attempt/control/recovery boundaries. Required checks passed with 293 tests, local protocol smoke, exact-head CI and independent complete-diff correctness/test-quality review. Scripted actual scheduler/browser evidence and deployed M6 owner-private two-turn repair, genuine command-approval card, final-only delivery and read-only history are verified. Current `/verify` and pending P3 business acceptance are unchanged. See [runtime contract](bounded-repair.md) and [dated acceptance](live-acceptance.md) for unexecuted interaction/fault/host families.
 
 ## Current checkpoint — 2026-11-16

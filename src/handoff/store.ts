@@ -183,6 +183,14 @@ export class AdmissionStore {
     return (this.db.prepare('SELECT id FROM requests ORDER BY rowid').all() as { id: string }[]).map(row => this.request(row.id)!);
   }
 
+  recentVerificationRequests(owner: string, project: string): RequestRecord[] {
+    const rows = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
+      WHERE c.owner=? AND r.project=? AND (EXISTS(SELECT 1 FROM verifications v WHERE v.execution=r.execution)
+        OR EXISTS(SELECT 1 FROM repair_goals g WHERE g.execution=r.execution))
+      ORDER BY r.rowid DESC LIMIT 100`).all(owner, project) as { id: string }[];
+    return rows.map(row => this.request(row.id)!);
+  }
+
   verification(execution: string): VerificationRecord | undefined {
     const row = this.db.prepare('SELECT * FROM verifications WHERE execution=?').get(execution) as
       (Omit<VerificationRecord, 'definition' | 'observation'> & { definition: string; observation: string | null }) | undefined;

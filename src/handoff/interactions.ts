@@ -16,6 +16,7 @@ import { isMaintenanceOwner } from './owner-access.js';
 import { repairText } from './repair-view.js';
 import { type VerificationProfiles } from './verification-profile.js';
 import { verificationApplicability, verificationText } from './verification-view.js';
+import { verificationFindings } from './findings.js';
 
 export class PilotInteractions {
   readonly transport: HandoffTransport;
@@ -40,6 +41,7 @@ export class PilotInteractions {
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
+    if (/^\/findings(?:\s|$)/.test(message.text.trim())) return this.findingsCommand(message);
     if (/^\/(?:verify|verify-repair|verification)(?:\s|$)/.test(message.text.trim())) return this.verificationCommand(message);
     if (/^\/recover(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
     if (/^\/(?:queue|withdraw)(?:\s|$)/.test(message.text.trim())) return this.queue.receive(message);
@@ -77,7 +79,7 @@ export class PilotInteractions {
           section('本人私聊维护', ['- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
           Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',
             ...(Object.values(this.profiles).some(p => p.repair) ? ['- `/verify-repair profile 任务内容` 显式允许一轮修复'] : []),
-            '- `/verification 任务编号` 查看历史观测']) : undefined,
+            '- `/verification 任务编号` 查看历史观测', '- `/findings` 汇总待核对验证线索（只读）']) : undefined,
           section('帮助', ['`/help` 查看本说明'])), { replyTo: message.id });
       return { status: 'help' as const };
     }
@@ -129,6 +131,25 @@ export class PilotInteractions {
     if (message.text.trim() === '/stop' || natural === 'stop') void this.relay(control).catch(() => console.error('Stop relay unavailable; retained dispatch will be inspected'));
     void this.flushControls().catch(() => console.error('Control relay unavailable; retained dispatch will be inspected'));
     return { status: 'control' as const, control };
+  }
+
+  private findingsCommand(message: IncomingMessage) {
+    if (!isMaintenanceOwner(this.admission.scope, this.config, message) || message.unsupported || message.text.length > 30_000) return { status: 'rejected' as const };
+    this.viewWork = this.viewWork.then(async () => {
+      const body = message.text.trim() === '/findings'
+        ? await verificationFindings(this.admission, this.native, message, this.profiles)
+        : '请发送 /findings 查看本人当前工作区的验证线索；查询不会执行任务。';
+      this.transport.state.transaction(() => {
+        if (this.transport.state.remember(message)) this.transport.state.send(message.chat, body, { replyTo: message.id });
+      });
+    }).catch(() => {
+      try {
+        this.transport.state.transaction(() => {
+          if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '验证线索暂时无法读取，没有启动任务。请稍后发送新的 /findings。', { replyTo: message.id });
+        });
+      } catch { console.error('Findings answer could not be retained; query receipt rolled back'); }
+    });
+    return { status: 'findings-view' as const };
   }
 
   private verificationCommand(message: IncomingMessage) {

@@ -1,5 +1,15 @@
 # Live acceptance evidence
 
+## 2026-11-16 — Verification findings candidate
+
+The owner-private P1 `/findings` candidate derives a bounded latest-profile view from retained verification/repair tasks. It distinguishes unfinished work, unknown cleanup, missing/changed native evidence and historical outcomes with applicability limits. It admits no task, invokes no model/verifier and retains no competing backlog. Existing `/verify`, repair limits and P3 business acceptance remain unchanged.
+
+The initial candidate passed 297 local tests/typecheck/build and eleven strict specification items. Independent full-diff review found a persistent answer-storage failure could leave the shared view chain rejected and stall synchronization/closure. The correction settles that chain after both transactions roll back; a new regression verifies storage recovery, restart, safe redelivery and no task execution. Corrected checks, fresh CI/review, source delivery, managed activation and actual owner-private query acceptance remain separate gates; the initial artifact was never activated.
+
+Coverage uses actual SQLite and sealed native fixture journals for owner scope, latest-profile selection, display/history bounds, duplicate/restart answer deduplication, report/journal drift and unchanged execution/report/guard facts. Existing bounded repair fixtures also exercise passing, ineligible and exhausted goals in the view.
+
+The corrected source passed the full required type/behavior/build check with 298 tests and all eleven strict specification items. Fresh exact-head CI/review and subsequent deployment/owner-query evidence remain separate.
+
 This record describes the owner installation. It does not imply that a new installation is already configured. Keep credentials, account identifiers, project paths, and chat transcripts in private local configuration/state only.
 
 Current bounded M6 status: P0/P1 owner-private acceptance and the P2 inspected-recovery slice are complete. The P2 records cover actual Feishu confirmation, restart-retained decisions, read-only incident reporting and fresh continuation; older pending statements below are dated campaign snapshots. Human process/effect inspection and separate deployment/family limits remain applicable.

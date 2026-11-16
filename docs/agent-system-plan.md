@@ -91,6 +91,8 @@ The first change is [verify-codex-autoloop-execution-boundary](../openspec/chang
 
 ## Alternatives and deferred work
 
+The first bounded P4 discovery slice is the [verification findings change](../openspec/changes/add-verification-findings/proposal.md): an owner-requested read-only view over retained verification records, with exact historical references and evidence/applicability limits. It does not add a mutable backlog or infer that an observation authorizes a task. Scheduled discovery, external monitoring and automatic candidate acceptance/execution policies remain deferred. Actual source delivery, M6 activation and owner transport acceptance are recorded separately.
+
 | Candidate | Decision for this plan | Reason |
 | --- | --- | --- |
 | Hatchet | Defer | Durable orchestration is useful, but native Codex integration is still ours and the service/database adds operating cost. Revisit for demonstrated cross-task orchestration needs. |

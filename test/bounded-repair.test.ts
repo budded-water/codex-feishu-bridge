@@ -139,6 +139,14 @@ test('repair is opt-in and already-pass, mixed failures and exhausted credit nev
     await task.running;
     assert.equal(h.codexes.length, variant === 'twice' ? 2 : 1, variant);
     assert.equal(h.admission.store.repairs.get(task.request.execution)?.status, variant === 'ordinary' ? undefined : variant === 'pass' ? 'pass' : variant === 'twice' ? 'fail' : 'ineligible');
+    const goalBefore = h.admission.store.repairs.get(task.request.execution), countBefore = h.admission.store.requests().length;
+    h.interactions.receive(message('/findings', { chatType: 'p2p' }));
+    for (let i = 0; i < 4; i++) await h.interactions.flush();
+    const view = h.sent.find(x => x.text.startsWith('### 验证线索'))!.text;
+    if (variant === 'pass') assert.match(view, /需核对 0 个/);
+    else { assert.match(view, /历史观测：验证未通过/); assert.ok(view.includes(task.request.execution)); }
+    assert.deepEqual(h.admission.store.repairs.get(task.request.execution), goalBefore);
+    assert.equal(h.admission.store.requests().length, countBefore); assert.equal(h.codexes.length, variant === 'twice' ? 2 : 1);
   }
 });
 
