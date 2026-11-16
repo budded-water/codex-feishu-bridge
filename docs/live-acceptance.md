@@ -1,5 +1,11 @@
 # Live acceptance evidence
 
+## 2026-11-16 — Verification findings candidate
+
+The owner-private P1 `/findings` candidate derives a bounded latest-profile view from retained verification/repair tasks. It distinguishes unfinished work, unknown cleanup, missing/changed native evidence and historical outcomes with applicability limits. It admits no task, invokes no model/verifier and retains no competing backlog. Existing `/verify`, repair limits and P3 business acceptance remain unchanged.
+
+Required local type/behavior/build checks passed with 297 tests. New coverage uses actual SQLite and sealed native fixture journals for owner scope, latest-profile selection, display/history bounds, duplicate/restart answer deduplication, report/journal drift and unchanged execution/report/guard facts. Existing bounded repair fixtures also exercise passing, ineligible and exhausted goals in the view. Eleven strict specification items passed. CI, independent full-diff correctness/test-quality review, source delivery, managed activation and actual owner-private query acceptance remain separate gates; this entry does not assert deployment or client acceptance.
+
 This record describes the owner installation. It does not imply that a new installation is already configured. Keep credentials, account identifiers, project paths, and chat transcripts in private local configuration/state only.
 
 Current bounded M6 status: P0/P1 owner-private acceptance and the P2 inspected-recovery slice are complete. The P2 records cover actual Feishu confirmation, restart-retained decisions, read-only incident reporting and fresh continuation; older pending statements below are dated campaign snapshots. Human process/effect inspection and separate deployment/family limits remain applicable.

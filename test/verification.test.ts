@@ -141,6 +141,75 @@ function handoff(t: TestContext, mode = 'pass') {
 
 async function drain(h: ReturnType<typeof handoff>) { for (let i = 0; i < 10; i++) await h.interactions.flush(); }
 
+test('findings reads sealed failure once across duplicate deliveries/restart without executing or altering evidence', async t => {
+  const h = handoff(t, 'fail'), task = await h.launch(); await task.running; await drain(h);
+  const execution = task.admitted.request.execution, observation = h.admission.store.verification(execution)!;
+  const journal = join(h.config.stateDirectory, 'executions', execution, 'bridge.db');
+  const before = { requests: h.admission.store.requests(), observation, guards: h.admission.store.unsettled(),
+    submission: h.admission.store.submission(task.admitted.request.id), calls: h.codex.calls.length, journal: readFileSync(journal),
+    json: readFileSync(observation.observation!.integration!.summaryPath), html: readFileSync(observation.observation!.integration!.htmlPath) };
+  const query = message('/findings', { chatType: 'p2p' });
+  h.interactions.receive(query); h.interactions.receive(query); await drain(h);
+  const answers = () => h.sent.filter(x => x.includes('验证线索') && x.includes('/verification ' + execution));
+  assert.equal(answers().length, 1); assert.match(answers()[0]!, /历史观测：验证未通过/); assert.match(answers()[0]!, /历史观测，Git/);
+  await h.restart(); h.interactions.receive(query); await drain(h); assert.equal(answers().length, 1);
+  assert.deepEqual(h.admission.store.requests(), before.requests); assert.deepEqual(h.admission.store.verification(execution), before.observation);
+  assert.deepEqual(h.admission.store.unsettled(), before.guards); assert.deepEqual(h.admission.store.submission(task.admitted.request.id), before.submission);
+  assert.equal(h.codex.calls.length, before.calls); assert.equal(readFileSync(join(h.project, '.spawns'), 'utf8'), '1');
+  assert.deepEqual(readFileSync(journal), before.journal); assert.deepEqual(readFileSync(observation.observation!.integration!.summaryPath), before.json);
+  assert.deepEqual(readFileSync(observation.observation!.integration!.htmlPath), before.html);
+  writeFileSync(observation.observation!.integration!.htmlPath, 'changed');
+  h.interactions.receive(message('/findings', { chatType: 'p2p' })); await drain(h); assert.match(answers().at(-1)!, /stale/);
+  writeFileSync(journal, 'changed native evidence');
+  h.interactions.receive(message('/findings', { chatType: 'p2p' })); await drain(h);
+  assert.match(answers().at(-1)!, /封存证据无法核实/); assert.doesNotMatch(answers().at(-1)!, /历史观测：验证未通过/);
+});
+
+test('findings enforces owner/chat/approval boundary and malformed commands never become tasks', async t => {
+  const h = handoff(t);
+  for (const overrides of [{ user: 'other' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' as const }, { unsupported: 'image' }]) {
+    h.interactions.receive(message('/findings', { chatType: 'p2p', ...overrides }));
+  }
+  h.config.approvalUsers = [];
+  h.interactions.receive(message('/findings', { chatType: 'p2p' })); await drain(h); assert.equal(h.sent.length, 0);
+  h.config.approvalUsers = ['ou_owner'];
+  h.interactions.receive(message('/findings extra', { chatType: 'p2p' })); await drain(h);
+  assert.match(h.sent.at(-1)!, /请发送 \/findings/); assert.equal(h.admission.store.requests().length, 0); assert.equal(h.codex.calls.length, 0);
+  h.interactions.receive(message('/findings', { chatType: 'p2p' })); await drain(h);
+  assert.match(h.sent.at(-1)!, /需核对 0 个/); assert.match(h.sent.at(-1)!, /空列表不代表项目没有问题/);
+});
+
+test('findings selects latest profile before filtering, scopes history in SQLite and bounds displayed leads', async t => {
+  const h = handoff(t, 'fail'), task = await h.launch(); await task.running; await drain(h);
+  const accept = (profile: string, overrides = {}) => {
+    const result = h.admission.store.accept(message('Synthetic verification', { chatType: 'p2p', ...overrides }), 'task', h.admission.project,
+      { profile, definition: h.profile }); assert.ok('request' in result); return result.request;
+  };
+  const latest = accept('smoke');
+  accept('foreign', { user: 'other' });
+  h.interactions.receive(message('/findings', { chatType: 'p2p' })); await drain(h);
+  assert.match(h.sent.at(-1)!, new RegExp(latest.execution)); assert.doesNotMatch(h.sent.at(-1)!, new RegExp(task.admitted.request.execution));
+  assert.doesNotMatch(h.sent.at(-1)!, /foreign/); assert.match(h.sent.at(-1)!, /尚无已收尾/);
+  const grant = h.admission.store.reserve(latest.id, 2); assert.equal(grant.kind, 'start'); if (grant.kind !== 'start') return;
+  h.admission.store.beginVerification(grant.permit);
+  h.admission.store.finishVerification(grant.permit, { ...h.admission.store.verification(task.admitted.request.execution)!.observation!, status: 'pass' });
+  h.admission.terminal(grant.permit, { status: 'completed', processSettled: true, reference: 'synthetic-pass' });
+  h.interactions.receive(message('/findings', { chatType: 'p2p' })); await drain(h); assert.match(h.sent.at(-1)!, /需核对 0 个/);
+  for (let i = 0; i < 101; i++) accept('profile' + i);
+  h.interactions.receive(message('/findings', { chatType: 'p2p' })); await drain(h);
+  const answer = h.sent.at(-1)!;
+  assert.match(answer, /需核对 100 个 profile（显示最新 10 个）/); assert.match(answer, /最近 100 条验证任务/);
+  assert.equal((answer.match(/\/verification [0-9a-f-]{36}/g) ?? []).length, 10); assert.match(answer, /profile100/); assert.doesNotMatch(answer, /profile90/);
+});
+
+test('findings keeps verification cleanup uncertainty protected and does not invoke recovery', async t => {
+  const h = handoff(t, 'missing-html'), task = await h.launch(); await task.running; await drain(h);
+  const before = h.admission.store.unsettled(); assert.equal(before.length, 1);
+  h.interactions.receive(message('/findings', { chatType: 'p2p' })); await drain(h);
+  assert.match(h.sent.at(-1)!, /结果未确认；请先检查进程与副作用/);
+  assert.deepEqual(h.admission.store.unsettled(), before); assert.equal(readFileSync(join(h.project, '.spawns'), 'utf8'), '1');
+});
+
 test('selected native owner holds the actual SQLite guard during verification and projects once across restart', async t => {
   const h = handoff(t, 'hold'), task = await h.launch();
   await until(() => existsSync(join(h.project, '.ready')));

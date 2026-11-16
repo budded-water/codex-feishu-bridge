@@ -28,6 +28,8 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 ## Where facts belong
 
+The active [verification findings slice](changes/add-verification-findings/proposal.md) adds a bounded owner-requested discovery view over retained observations. Its source, delivery and real transport acceptance gates are tracked separately. It does not close P3 business validation or introduce scheduled execution.
+
 The separately delivered [bounded repair change](changes/archive/2026-11-16-add-bounded-verification-repair/proposal.md) implements an explicit opt-in, one-repair extension. Its [tasks](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) retain reviewed source, scripted evidence, M6 activation and bounded real owner task/command-approval-button/final/history acceptance. It does not change `/verify` or complete P3 business acceptance. Its normative requirements are now in the main specification; broader interaction/fault/host families retain their dated limits.
 
 | Location | Authority |
