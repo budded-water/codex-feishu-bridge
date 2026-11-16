@@ -91,7 +91,7 @@ The first change is [verify-codex-autoloop-execution-boundary](../openspec/chang
 
 ## Alternatives and deferred work
 
-The first bounded P4 discovery slice is the [verification findings change](../openspec/changes/add-verification-findings/proposal.md): an owner-requested read-only view over retained verification records, with exact historical references and evidence/applicability limits. It does not add a mutable backlog or infer that an observation authorizes a task. Scheduled discovery, external monitoring and automatic candidate acceptance/execution policies remain deferred. Actual source delivery, M6 activation and owner transport acceptance are recorded separately.
+The first bounded P4 discovery slice is the delivered [verification findings change](../openspec/changes/archive/2026-11-16-add-verification-findings/proposal.md): an owner-requested read-only view over retained verification records, with exact historical references and evidence/applicability limits. M6 activation and the genuine owner-private latest-fixture query with unchanged execution/evidence records are verified in the dated acceptance record. It does not add a mutable backlog or infer that an observation authorizes a task. Scheduled discovery, external monitoring and automatic candidate acceptance/execution policies remain deferred.
 
 | Candidate | Decision for this plan | Reason |
 | --- | --- | --- |

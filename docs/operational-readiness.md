@@ -7,13 +7,15 @@ Use this with [operation](operation.md), [handoff/rollback](handoff-migration.md
 | Area | Observed or implemented | Still separate |
 | --- | --- | --- |
 | Service registration | Actual installed gateway/Hub-Worker definitions match inventory; RunAtLoad and KeepAlive configured | A subsequent host login/reboot exercise |
-| Coordinated service restart | Closed capture restored managed SDK/Hub readiness; the later reviewed bounded-repair cutover also verified a genuine owner task/approval/final/history roundtrip, as recorded in [dated acceptance](live-acceptance.md) | Other restart/fault families; restored-consumer activation remains separate |
+| Coordinated service restart | Closed capture restored managed SDK/Hub readiness; reviewed repair and findings cutovers also verified genuine owner task/approval/final/history and read-only-query roundtrips respectively, as recorded in [dated acceptance](live-acceptance.md) | Other restart/fault families; restored-consumer activation remains separate |
 | Closed backup | Private state, configuration, service definitions, inventory and the current verification fixture/report tree captured together | Scheduled retention, off-host storage and full-machine backup |
 | Isolated restore | Copied payload hashes, SQLite integrity/foreign keys, retained native-journal bindings and verification report hashes verified | Activating restored state as the live consumer, or restoring on another host/root |
 | Sleep/wake and network | Existing reconnection/guard behavior has source and automated coverage; actual power/service policy inspected | Deliberate real host sleep/wake and connectivity interruption |
 | Task recovery | Bounded owner inspection/recovery and scripted Worker/native faults have prior evidence | Automatic descendant/effect cleanup or unexecuted real fault variants |
 
 Configured autostart is not an observed login. SDK readiness is not an owner message roundtrip. An isolated restored database is not a live restoration. Keep these labels separate when recording progress.
+
+For read-only query acceptance, retain the original pre-query ledger/file baseline. Normalize SQLite row representations before comparing serialized snapshots; object prototypes are not stored business facts. Report bounded digest/count mismatches and keep detailed ledgers private instead of dumping transcripts through assertion output. Never refresh a baseline after the action merely to make a comparison pass.
 
 ## Private inventory and backup coverage
 

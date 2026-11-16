@@ -4,7 +4,7 @@ OpenSpec records execution, orchestration, authorization, interaction, recovery 
 
 ## Current checkpoint — 2026-11-16
 
-Nine completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
+Ten completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
 
 | Delivered capability | Main specification | Archived change |
 | --- | --- | --- |
@@ -17,6 +17,7 @@ Nine completed bounded changes have been synchronized into delivered main specif
 | English command dispatch | [chat-commands](specs/chat-commands/spec.md) | [Commands](changes/archive/2026-11-16-standardize-english-chat-commands/tasks.md) |
 | Approval cards | [approval-cards](specs/approval-cards/spec.md) | [Cards](changes/archive/2026-11-16-enable-feishu-approval-cards/tasks.md) |
 | Bounded verification repair | [bounded-verification-repair](specs/bounded-verification-repair/spec.md) | [Repair](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) |
+| Read-only verification findings | [verification-findings](specs/verification-findings/spec.md) | [Findings](changes/archive/2026-11-16-add-verification-findings/tasks.md) |
 
 These are implemented contracts with bounded evidence, not universal live acceptance. Owner-private operation is observed on one M6 deployment. Other typed-English, colleague/group, host-login/wake/network and additional fault families retain the limits in [live acceptance](../docs/live-acceptance.md) and [operation](../docs/operation.md).
 
@@ -28,7 +29,7 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 ## Where facts belong
 
-The active [verification findings slice](changes/add-verification-findings/proposal.md) adds a bounded owner-requested discovery view over retained observations. Its source, delivery and real transport acceptance gates are tracked separately. It does not close P3 business validation or introduce scheduled execution.
+The delivered [verification findings slice](changes/archive/2026-11-16-add-verification-findings/proposal.md) adds a bounded owner-requested discovery view over retained observations. Corrected source review/CI, PR delivery, managed M6 activation and the real owner-private empty view over latest passing fixture records are verified. Native/project/report hashes and admission/Hub history stayed unchanged across the query. Its normative requirements are in the main specification; non-pass/fault cases retain automated coverage. It does not close P3 business validation or introduce scheduled execution.
 
 The separately delivered [bounded repair change](changes/archive/2026-11-16-add-bounded-verification-repair/proposal.md) implements an explicit opt-in, one-repair extension. Its [tasks](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) retain reviewed source, scripted evidence, M6 activation and bounded real owner task/command-approval-button/final/history acceptance. It does not change `/verify` or complete P3 business acceptance. Its normative requirements are now in the main specification; broader interaction/fault/host families retain their dated limits.
 

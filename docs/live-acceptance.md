@@ -10,6 +10,16 @@ Coverage uses actual SQLite and sealed native fixture journals for owner scope, 
 
 The corrected source passed the full required type/behavior/build check with 298 tests and all eleven strict specification items. Fresh exact-head CI/review and subsequent deployment/owner-query evidence remain separate.
 
+## 2026-11-16 — Verification findings delivery and managed activation
+
+The corrected complete [PR #27](https://github.com/budded-water/codex-feishu-bridge/pull/27) passed fresh exact-head CI/preflight and independent correctness/test-quality review with no actionable findings. It is merged. The prior persistent-storage finding is resolved with regression coverage; the initial artifact was not activated.
+
+The locked corrected artifact passed build and doctor, then replaced the drained M6 gateway and Worker after observed process settlement and a closed-state backup including report/project assets. Managed Feishu and Hub readiness were observed, admission reopened without outstanding work, and pre-change native evidence/project/report hashes and project policies were unchanged. No native settings, dependency, profile or execution policy changed. The private inventory retains source, review, CI, backup and readiness evidence.
+
+The genuine enrolled owner sent `/findings` and received the sectioned empty view for the latest passing private fixture records. Official message reads confirm one matching reply. Comparison with the retained original pre-query baseline confirms unchanged full admission ledger, Hub runs and 307 native/project/report file hashes; the query created no execution or verifier report. The operator comparator normalized SQLite row-object representation before comparing the unchanged baseline. The owner also supplied the rendered reply. This is bounded actual owner-private read-only view acceptance; non-pass/fault cases retain automated coverage.
+
+The findings change's bounded tasks are complete and its requirements are synchronized to the delivered main specification. This documentation closeout changes no runtime, profile or permission. P3 business validation, scheduled discovery, automatic candidate execution and the owner-deferred host exercises remain separate.
+
 This record describes the owner installation. It does not imply that a new installation is already configured. Keep credentials, account identifiers, project paths, and chat transcripts in private local configuration/state only.
 
 Current bounded M6 status: P0/P1 owner-private acceptance and the P2 inspected-recovery slice are complete. The P2 records cover actual Feishu confirmation, restart-retained decisions, read-only incident reporting and fresh continuation; older pending statements below are dated campaign snapshots. Human process/effect inspection and separate deployment/family limits remain applicable.

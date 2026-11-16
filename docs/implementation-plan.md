@@ -2,7 +2,7 @@
 
 ## Verification findings slice
 
-The [bounded discovery view](../openspec/changes/add-verification-findings/tasks.md) implements owner-private `/findings` over recent verification and repair history. It uses existing admission/native evidence, latest-profile selection and shared rich-post presentation; no model call, scanner, candidate store or execution policy is added. Source checks, review/CI, delivery, managed M6 activation and real owner query acceptance are separate gates in that change. P3 business validation and deferred host exercises remain open.
+The [bounded discovery view](../openspec/changes/archive/2026-11-16-add-verification-findings/tasks.md) implements owner-private `/findings` over recent verification and repair history. It uses existing admission/native evidence, latest-profile selection and shared rich-post presentation; no model call, scanner, candidate store or execution policy is added. Corrected source passed 298 tests/typecheck/build, eleven strict specification items, exact-head CI/preflight and independent complete-diff correctness/test-quality review. [PR #27](https://github.com/budded-water/codex-feishu-bridge/pull/27) is merged and its reviewed artifact is active on M6 after drained coordinated replacement, retained closed-state backup, managed readiness and unchanged historical evidence/policies. The genuine owner received the empty latest-fixture view; official transport reads and the original baseline confirm unchanged admission/Hub history and native/project/report hashes with no new execution. Non-pass/fault cases retain automated coverage. The bounded change is complete and archived; P3 business validation and deferred host exercises remain open.
 
 The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-verification-repair/proposal.md) delivers explicit opt-in, one additional native turn at most, narrow functional-failure eligibility and immutable attempt/control/recovery boundaries. Required checks passed with 293 tests, local protocol smoke, exact-head CI and independent complete-diff correctness/test-quality review. Scripted actual scheduler/browser evidence and deployed M6 owner-private two-turn repair, genuine command-approval card, final-only delivery and read-only history are verified. Current `/verify` and pending P3 business acceptance are unchanged. See [runtime contract](bounded-repair.md) and [dated acceptance](live-acceptance.md) for unexecuted interaction/fault/host families.
 
@@ -10,12 +10,12 @@ The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-v
 
 | Layer | Current delivery | Remaining boundary |
 | --- | --- | --- |
-| Design and requirements | Selected Feishu/Autoloop/native Codex composition; eight delivered main specs and archived bounded changes | Active P3 business acceptance stays open; future changes need their own bounded contract |
+| Design and requirements | Selected Feishu/Autoloop/native Codex composition; ten delivered main specs and archived bounded changes | Active P3 business acceptance stays open; future changes need their own bounded contract |
 | Remote workflow | Managed M6 owner-private assignment, controls, approval buttons, withdrawal and native continuation accepted | Broader users/groups and other typed-English families retain separate live gaps |
 | Operation and recovery | Durable guards, inspected recovery, diagnostics and rollback fixtures; coordinated service readiness and closed-bundle isolated restore verified | Actual host login/wake/network exercises and live restored-consumer activation remain pending; effects inspection remains human |
-| Project verification | Optional pinned UI-eval runtime and real owner fixture/history accepted | No current business task/declared acceptance plan; no automatic repair or publication |
+| Project verification | Optional pinned UI-eval runtime, explicit one-repair goals and real owner fixture/history accepted | No current business task/declared acceptance plan; no publication authority |
 | Presentation | Shared templates, native rich posts, original-turn style guidance and bounded owner verification-view feedback accepted | Other message/client layouts retain source/automated coverage |
-| Autonomous follow-up | Direction defined | Automatic review/repair continuation, discovery and optional release adapters are not delivered |
+| Autonomous follow-up | Explicit bounded repair and owner-requested historical findings view delivered | Scheduled discovery, automatic candidate admission, general review loops and optional release adapters remain deferred |
 
 See [main specs and active work](../openspec/README.md), [operation](operation.md) and [dated acceptance](live-acceptance.md). Older dated delivery statements below are snapshots; this checkpoint and later acceptance entries describe current status. Specification synchronization does not change runtime code/configuration or broaden live acceptance.
 

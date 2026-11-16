@@ -54,6 +54,8 @@ Read docs/bounded-repair.md and the delivered bounded-verification-repair specif
 
 Transport formatting, context bounds, authorization, session ownership, and delivery deduplication belong in runtime code and behavioral tests. Conversation style is supplied through thread developer instructions. Use this file and the referenced docs for the repository maintenance workflow; extract a skill only when a repeated workflow must be reused beyond this repository. A skill must reference live contracts instead of duplicating config defaults or acceptance status, and it never grants platform access.
 
+The delivered [verification-findings specification](openspec/specs/verification-findings/spec.md) defines `/findings` as an owner-private, bounded read-only historical view. Preserve latest-profile selection, sealed evidence/applicability limits, atomic transport receipt/answer and synchronization after persistent storage failure. It must not create tasks, call models/verifiers or authorize follow-up. The M6 latest-passing-fixture empty view is live-accepted; non-pass/fault cases retain automated coverage. Scheduled discovery and candidate execution require a separate bounded policy.
+
 ## Public repository hygiene
 
 Never commit real credentials, access tokens, personal user IDs, project paths, Codex auth files, SQLite state, logs, or transcripts. Example configuration must contain placeholders only. Do not activate a bot or send messages during tests without the user's authorization for that live test.
