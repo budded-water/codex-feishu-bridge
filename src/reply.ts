@@ -12,8 +12,12 @@ export function markdownPost(text: string) {
     if (inside || fence) { lines.push(line); blanks = 0; continue; }
     if (!line.trim()) { if (++blanks <= 1) lines.push(line); continue; }
     blanks = 0;
-    // Small headings suit a chat bubble; never rewrite code or inline markup.
-    lines.push(line.replace(/^(#{1,6})\s+/, (_, hashes: string) => `${hashes.length === 1 ? '####' : '#####'} `));
+    // Separate headings even when the model omits blank lines. Never rewrite code.
+    if (/^#{1,6}\s+/.test(line)) {
+      if (lines.length && lines.at(-1)?.trim()) lines.push('');
+      lines.push(line.replace(/^(#{1,6})\s+/, (_, hashes: string) => `${hashes.length === 1 ? '####' : '#####'} `), '');
+      blanks = 1;
+    } else lines.push(line);
   }
   return { zh_cn: { content: [[{ tag: 'md', text: lines.join('\n') }]] } };
 }

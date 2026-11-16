@@ -1,22 +1,42 @@
-import { relative } from 'node:path';
+import { relative, dirname, basename } from 'node:path';
+import { message, section, copyBlock } from '../presentation.js';
 import type { VerificationRecord } from './store.js';
 import { boundedFile, fingerprint, gitRead, profileDigest, verifyPolicy, type VerificationProfiles } from './verification-profile.js';
 
-export function verificationText(value: VerificationRecord): string {
+const statusLabels: Record<string, string> = {
+  pass: '通过', fail: '未通过', 'needs-review': '待人工复核', inconclusive: '无法得出结论', interrupted: '已中断',
+  unverified: '未核实', blocked: '受阻', 'not-assessed': '未评估', planned: '等待执行', running: '正在验证', skipped: '已跳过', unknown: '结果未确认',
+};
+
+export function verificationText(value: VerificationRecord, context: { execution?: string[]; applicability?: string } = {}): string {
   const observation = value.observation;
-  const lines = [`验证 · ${value.profile}`, `任务编号：${value.execution}`,
-    `验证观测：${observation?.status ?? (value.phase === 'skipped' ? 'skipped' : value.phase)}。`];
-  if (observation?.status === 'unverified') lines.push('说明：' + observation.reason);
+  const status = observation?.status ?? value.phase;
   const integration = observation?.integration;
+  const scope: string[] = [];
   if (integration) {
     const conclusions = integration.conclusions as Record<string, string> | null;
-    lines.push(conclusions ? `声明范围内：code ${conclusions.code} · UI ${conclusions.ui} · release ${conclusions.release}。` : '仅有 suite 观测；没有声明功能验收计划。');
-    lines.push(`JSON：${relative(value.definition.projectRoot, integration.summaryPath)}`,
+    if (conclusions) for (const [key, label] of [['code', '代码'], ['ui', 'UI'], ['release', '发布']] as const) {
+      const outcome = conclusions[key];
+      scope.push(`- ${label}：${statusLabels[outcome ?? ''] ?? outcome}`);
+    }
+    else scope.push('仅有 suite 观测；没有声明功能验收计划。');
+  }
+  const details = [`任务编号：${value.execution}`, `验证观测：${status}`];
+  if (integration) {
+    if (dirname(integration.summaryPath) === dirname(integration.htmlPath)) {
+      details.push(`报告目录：${relative(value.definition.projectRoot, dirname(integration.summaryPath))}`,
+        `JSON：${basename(integration.summaryPath)}`, `HTML：${basename(integration.htmlPath)}`);
+    } else details.push(`JSON：${relative(value.definition.projectRoot, integration.summaryPath)}`,
       `HTML：${relative(value.definition.projectRoot, integration.htmlPath)}`);
   }
-  if (value.phase === 'unknown') lines.push('验证结果或清理未确认，不会自动重跑；执行保护以当前状态与检查后恢复记录为准。');
-  lines.push('这是本次观测；当前适用性需另行核对。独立代码 review 和发布授权未由此确认。');
-  return lines.join('\n');
+  const execution = [...(context.execution ?? [])];
+  if (value.phase === 'unknown') execution.unshift('验证结果或清理未确认，不会自动重跑；执行保护以当前状态与检查后恢复记录为准。');
+  return message(`验证${value.phase === 'unknown' ? '结果未确认' : statusLabels[status] ?? status} · ${value.profile}`,
+    observation?.status === 'unverified' ? section('未核实原因', [observation.reason]) : undefined,
+    section('执行状态', execution), section('声明范围', scope),
+    context.applicability ? section('当前适用性', [context.applicability.replace(/^当前适用性：/, '')]) : undefined,
+    section('范围说明', [context.applicability ? '独立代码 review 和发布授权未由此确认。' : '这是本次观测；当前适用性需另行核对。独立代码 review 和发布授权未由此确认。']),
+    section('任务与报告 · 本机详情', [copyBlock(details.join('\n'))]));
 }
 
 export async function verificationApplicability(value: VerificationRecord, profiles: VerificationProfiles): Promise<string> {

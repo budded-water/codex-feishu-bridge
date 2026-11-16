@@ -191,3 +191,12 @@ test('latest clarification quote has its own cutoff while original history and c
   assert.deepEqual(full.messages.map(x => x.text), ['new-quote', 'old-quote', 'history']);
   assert.ok(historyRequests.every(x => x.params.end_time === '3'));
 });
+
+
+test('all post headings are separated from adjacent prose without changing fenced code', () => {
+  const text = '前文\n## 结果\n通过\n```text\n# literal\n\n\ncode\n```\n### 后续\n完成';
+  const rendered = markdownPost(text).zh_cn.content[0]![0]!.text;
+  assert.ok(rendered.includes('前文\n\n##### 结果\n\n通过'));
+  assert.ok(rendered.includes('```text\n# literal\n\n\ncode\n```'));
+  assert.ok(rendered.includes('```\n\n##### 后续\n\n完成'));
+});

@@ -1,3 +1,4 @@
+import { section } from '../presentation.js';
 import type { Config } from '../config.js';
 import type { State } from '../state.js';
 import { ownerKey, type IncomingMessage } from '../types.js';
@@ -53,7 +54,7 @@ export class FeishuRecovery {
       }
       const backlog = Number(this.admission.store.drainStatus().queued);
       this.state.send(message.chat, incidents.length ? lines.join('\n\n') + '\n\n' +
-        (backlog ? '仍有已接收的未执行任务，需要先通过本机维护核对队列。\n' : '') + usage : '当前没有属于本私聊的待恢复任务。', { replyTo: message.id });
+        section('下一步', [...(backlog ? ['仍有已接收的未执行任务，需要先通过本机维护核对队列。'] : []), usage]) : '当前没有属于本私聊的待恢复任务。', { replyTo: message.id });
       return;
     }
     const command = /^\/recover\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s+([\s\S]+)$/i.exec(text);
