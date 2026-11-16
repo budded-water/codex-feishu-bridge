@@ -6,6 +6,7 @@ import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
 import { OWNER_WITHDRAWN, type RequestRecord } from './store.js';
 import { verificationText } from './verification-view.js';
+import { repairText } from './repair-view.js';
 
 // Transport projections use State's delivery contracts, never its execution queue.
 export class HandoffTransport {
@@ -47,7 +48,8 @@ export class HandoffTransport {
         this.state.projectAssignedTask(request, this.gateway.scope.pilot, this.gateway.directory,
           projection.sealed ? String(projection.outcome.status) : this.gateway.store.execution(request.execution)!.status === 'unknown' ? 'unknown' : 'running');
         const verification = projection.sealed && this.gateway.store.verification(request.execution);
-        this.state.projectNativeMessages(request, projection, verification ? verificationText(verification) : undefined);
+        const repair = projection.sealed && this.gateway.store.repairs.get(request.execution);
+        this.state.projectNativeMessages(request, projection, repair ? repairText(repair) : verification ? verificationText(verification) : undefined);
         if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.gateway.store.retireReferences(request.execution);
         if (projection.sealed && !projection.task) this.state.projectAdmissionNotice(request, '任务在开始执行前已取消，没有启动模型任务。');
       } catch {

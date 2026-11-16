@@ -9,6 +9,7 @@ export interface VerificationProfile {
   projectRoot: string; projectId: string; suite: string; engineRoot: string; engineRevision: string;
   cliHash: string; libraryHash: string; timeoutMs: number;
   policyFiles: Record<string, string>;
+  repair?: { scenarios: string[]; timeoutMs: number };
 }
 export type VerificationProfiles = Readonly<Record<string, VerificationProfile>>;
 export const fingerprint = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
@@ -22,7 +23,7 @@ export function verificationProfiles(input: unknown): VerificationProfiles {
   const profiles: Record<string, VerificationProfile> = Object.create(null);
   for (const [name, value] of Object.entries(record(input))) {
     const p = record(value);
-    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name) || Object.keys(p).sort().join(',') !==
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name) || Object.keys(p).filter(key => key !== 'repair').sort().join(',') !==
       'cliHash,engineRevision,engineRoot,libraryHash,policyFiles,projectId,projectRoot,suite,timeoutMs' ||
       typeof p.projectId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(p.projectId) ||
       typeof p.suite !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(p.suite) ||
@@ -43,9 +44,17 @@ export function verificationProfiles(input: unknown): VerificationProfiles {
     for (const required of ['ui-eval/project.json', 'ui-eval/engine.json', `ui-eval/integrations/${p.suite}.json`]) {
       if (!Object.hasOwn(policyFiles, required)) throw new Error('Missing required verification policy file');
     }
+    let repair: VerificationProfile['repair'];
+    if (p.repair !== undefined) {
+      const r = record(p.repair);
+      if (Object.keys(r).sort().join(',') !== 'scenarios,timeoutMs' || !Array.isArray(r.scenarios) || !r.scenarios.length || r.scenarios.length > 32 ||
+        r.scenarios.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) || new Set(r.scenarios).size !== r.scenarios.length ||
+        !Number.isSafeInteger(r.timeoutMs) || Number(r.timeoutMs) < 1000 || Number(r.timeoutMs) > 7_200_000) throw new Error('Invalid repair policy');
+      repair = { scenarios: r.scenarios as string[], timeoutMs: Number(r.timeoutMs) };
+    }
     profiles[name] = { projectRoot: directory(p.projectRoot), projectId: p.projectId, suite: p.suite,
       engineRoot: directory(p.engineRoot), engineRevision: p.engineRevision, cliHash: String(p.cliHash),
-      libraryHash: String(p.libraryHash), timeoutMs: Number(p.timeoutMs), policyFiles };
+      libraryHash: String(p.libraryHash), timeoutMs: Number(p.timeoutMs), policyFiles, ...(repair ? { repair } : {}) };
   }
   return profiles;
 }

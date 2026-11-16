@@ -14,6 +14,7 @@ import { journalControl, journalProjection } from './journal.js';
 import { ProcessObserver, parseProcessObservation, readProcessTable, processState, type ProcessObservation, type ProcessTable } from './processes.js';
 import { profileDigest, type VerificationProfiles } from './verification-profile.js';
 import { runVerification } from './verification-runner.js';
+import { RepairOwner, type RepairReport } from './repair-owner.js';
 
 export interface ManagedCodex extends CodexPort {
   readonly pid?: number;
@@ -21,12 +22,13 @@ export interface ManagedCodex extends CodexPort {
   close(): Promise<void>;
 }
 type Outcome = { task: string | null; thread: string | null; turn: string | null; status: string; generation: string };
-export type NativeReport = {
+type SingleNativeReport = {
   version: 1; binding: string; permit: Permit; outcome: Outcome;
   childSettled: true; databaseHash: string | null; checkpoint: string;
   verification?: string;
 };
-type Owner = { version: 1; binding: string; permit: Permit; socket: string; pid: number };
+export type NativeReport = SingleNativeReport | RepairReport;
+type Owner = { version: 1 | 2; binding: string; permit: Permit; socket: string; pid: number };
 const hash = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
 const ownerFile = 'native-owner.json';
 const resultFile = 'native-result.json';
@@ -56,11 +58,11 @@ function binding(gateway: PilotAdmission, request: RequestRecord): string {
 
 export class NativeExecutions {
   private root: string;
-  private active?: NativeOwner;
+  private active?: NativeOwner | RepairOwner;
   private stopping = false;
 
   constructor(private gateway: PilotAdmission, private config: Config, private createCodex?: () => ManagedCodex,
-    private profiles: VerificationProfiles = {}) {
+    private profiles: VerificationProfiles = {}, private options: { outerDeadline?: number } = {}) {
     if ((config.allowedTenant && config.allowedTenant !== gateway.scope.tenant) ||
       (config.accessMode === 'allowlist' && !config.allowedUsers.includes(gateway.scope.operator)) ||
       config.projects[gateway.scope.pilot] !== gateway.directory) throw new Error('Native configuration does not admit the pilot');
@@ -78,7 +80,7 @@ export class NativeExecutions {
     if (lstatSync(folder).isSymbolicLink()) throw new Error('Invalid execution directory');
     const value = readRecord(join(folder, ownerFile));
     const permit = record(value.permit);
-    if (value.version !== 1 || permit.execution !== execution || typeof permit.token !== 'string' || typeof value.socket !== 'string' ||
+    if (value.version !== (this.gateway.store.repairs.get(execution) ? 2 : 1) || permit.execution !== execution || typeof permit.token !== 'string' || typeof value.socket !== 'string' ||
       !Number.isSafeInteger(value.pid) || typeof value.binding !== 'string') throw new Error('Invalid native owner');
     const request = this.gateway.store.ownedRequest(permit as Permit);
     if (binding(this.gateway, request) !== value.binding) throw new Error('Native owner binding changed');
@@ -90,11 +92,26 @@ export class NativeExecutions {
     const value = readRecord(join(this.folder(execution), resultFile));
     const permit = record(value.permit);
     const outcome = record(value.outcome);
-    if (value.version !== 1 || value.binding !== owner.binding || permit.execution !== execution || permit.token !== owner.permit.token ||
+    if (value.version !== owner.version || value.binding !== owner.binding || permit.execution !== execution || permit.token !== owner.permit.token ||
       value.childSettled !== true || typeof value.checkpoint !== 'string' || typeof outcome.status !== 'string' ||
       typeof outcome.generation !== 'string' || !['completed', 'interrupted', 'unknown'].includes(outcome.status) ||
       ![outcome.task, outcome.thread, outcome.turn].every(item => item === null || typeof item === 'string') ||
       (outcome.status === 'completed' && (!outcome.thread || !outcome.turn || !outcome.generation))) throw new Error('Invalid native terminal evidence');
+    if (owner.version === 2) {
+      const goal = this.gateway.store.repairs.get(execution)!;
+      if (!goal.status || value.repair !== this.gateway.store.repairs.binding(execution) ||
+        hash(readFileSync(join(this.folder(execution), 'repair-manifest.json'))) !== value.repair) throw new Error('Repair manifest is missing or changed');
+      for (const attempt of goal.attempts) {
+        if (!attempt.native || JSON.stringify(readRecord(join(this.folder(execution), 'attempts', attempt.id, resultFile))) !== JSON.stringify(attempt.native) ||
+          (attempt.native.databaseHash !== null && hash(readFileSync(join(this.folder(execution), 'attempts', attempt.id, 'bridge.db'))) !== attempt.native.databaseHash)) {
+          throw new Error('Repair attempt evidence changed');
+        }
+      }
+      const last = goal.attempts.at(-1)?.native;
+      if (JSON.stringify(outcome) !== JSON.stringify(last?.outcome ?? { task: null, thread: null, turn: null, status: 'interrupted', generation: '' }) ||
+        value.databaseHash !== (last?.databaseHash ?? null)) throw new Error('Repair outcome binding changed');
+      return value as unknown as RepairReport;
+    }
     const database = join(this.folder(execution), 'bridge.db');
     if (value.databaseHash !== null) {
       if (typeof value.databaseHash !== 'string' || lstatSync(database).isSymbolicLink() || hash(readFileSync(database)) !== value.databaseHash) throw new Error('Native journal evidence changed');
@@ -103,7 +120,7 @@ export class NativeExecutions {
     if (verification && (['planned', 'running'].includes(verification.phase) ||
       value.verification !== this.gateway.store.verificationBinding(execution))) throw new Error('Missing or changed verification handoff');
     if (!verification && value.verification !== undefined) throw new Error('Unselected verification handoff');
-    return value as unknown as NativeReport;
+    return value as unknown as SingleNativeReport;
   }
 
   apply(execution: string): NativeReport {
@@ -111,8 +128,8 @@ export class NativeExecutions {
     const reference = 'native-checkpoint/' + report.checkpoint;
     if (report.outcome.thread) this.gateway.store.nativeSnapshot(report.permit, {
       thread: report.outcome.thread, turn: report.outcome.turn, generation: report.outcome.generation,
-    });
-    if (this.gateway.store.verification(execution)?.phase === 'unknown') {
+    }, report.version === 2 ? this.gateway.store.repairs.get(execution)?.attempts.at(-1)?.id : undefined);
+    if (this.gateway.store.verification(execution)?.phase === 'unknown' || this.gateway.store.repairs.get(execution)?.status === 'unknown') {
       this.gateway.uncertain(report.permit, 'verification_unconfirmed');
     } else if (report.outcome.status === 'completed' || report.outcome.status === 'interrupted') {
       this.gateway.terminal(report.permit, { status: report.outcome.status, processSettled: true, reference });
@@ -168,8 +185,10 @@ export class NativeExecutions {
         this.gateway.store.startableRequest(permit);
         if (request.message.chatType === 'group' && !this.config.enableGroups) throw new Error('Native configuration does not admit the pilot chat');
         if (request.message.chatType === 'group' && !this.gateway.store.reference(request.execution, request.message)?.context) throw new Error('Missing retained group references');
-        const codex = this.createCodex?.() ?? new CodexClient(this.config.codexExecutable, [], 30_000, this.config.codexReasoningEffort);
-        this.active = new NativeOwner(this.gateway, this.config, request, permit, folder, codex, this.profiles);
+        const factory = () => this.createCodex?.() ?? new CodexClient(this.config.codexExecutable, [], 30_000, this.config.codexReasoningEffort);
+        this.active = this.gateway.store.repairs.get(request.execution)
+          ? new RepairOwner(this.gateway, this.config, request, permit, folder, binding(this.gateway, request), factory, this.profiles, this.options.outerDeadline)
+          : new NativeOwner(this.gateway, this.config, request, permit, folder, factory(), this.profiles);
         if (this.stopping) await this.active.stop();
         try { await this.active.run(); }
         catch (failure) {
@@ -207,6 +226,11 @@ export class NativeExecutions {
     } catch {
       const report = this.evidence(execution);
       if (!report.databaseHash) return 'rejected';
+      const goal = this.gateway.store.repairs.get(execution);
+      if (goal) {
+        for (const attempt of goal.attempts) { try { const result = journalControl(join(this.folder(execution), 'attempts', attempt.id, 'bridge.db'), message); if (result) return result; } catch { /* Prelaunch attempts have no journal. */ } }
+        return 'rejected';
+      }
       return journalControl(join(this.folder(execution), 'bridge.db'), message) ?? 'rejected';
     }
   }
@@ -218,7 +242,8 @@ export class NativeExecutions {
     let outcome: Record<string, unknown>;
     try { const report = this.evidence(execution); sealed = true; checkpoint = report.checkpoint; outcome = report.outcome; }
     catch { outcome = await this.inspect(execution); }
-    const path = join(this.folder(execution), 'bridge.db');
+    if (this.gateway.store.repairs.get(execution)?.attempts.length === 0) return { sealed, checkpoint, outcome, messages: [], prompts: [] };
+    const path = this.journalPath(execution);
     let projection;
     try { projection = journalProjection(path); }
     catch (error) { if (!outcome.task) return { sealed, checkpoint, outcome, messages: [], prompts: [] }; throw error; }
@@ -232,8 +257,15 @@ export class NativeExecutions {
         p.chat !== row.chat || row.prompt_id !== p.prompt || prompt?.expires !== p.expires ||
         p.target.thread !== outcome.thread || p.target.turn !== outcome.turn || p.target.generation !== outcome.generation) throw new Error('Approval presentation binding changed');
     }
-    return { ...projection, sealed, checkpoint, outcome,
+    const goal = this.gateway.store.repairs.get(execution);
+    const priorPrompts = goal ? goal.attempts.slice(0, -1).flatMap(a => {
+      const path = join(this.folder(execution), 'attempts', a.id, 'bridge.db');
+      if (!a.native?.databaseHash || hash(readFileSync(path)) !== a.native.databaseHash) throw new Error('Prior attempt journal changed');
+      return journalProjection(path).prompts;
+    }) : [];
+    return { ...projection, prompts: [...priorPrompts, ...projection.prompts], sealed, checkpoint, outcome,
       messages: projection.messages.filter(row => (!row.final || sealed) &&
+        !(row.final && goal && ['stopped', 'incomplete', 'unknown'].includes(goal.status ?? '')) &&
         (!(row.transient || row.prompt_id) || (!sealed && ['queued', 'running'].includes(String(outcome.status))))) };
   }
 
@@ -250,7 +282,7 @@ export class NativeExecutions {
     if (typeof snapshot.thread === 'string' && snapshot.thread && typeof snapshot.generation === 'string' && snapshot.generation &&
       (snapshot.turn === null || typeof snapshot.turn === 'string')) this.gateway.store.nativeSnapshot(owner.permit, {
       thread: snapshot.thread, turn: snapshot.turn, generation: snapshot.generation,
-    });
+    }, owner.version === 2 && typeof snapshot.attempt === 'string' ? snapshot.attempt : undefined);
     return snapshot;
   }
 
@@ -268,15 +300,17 @@ export class NativeExecutions {
     let sealed = false, sealedOutcome: 'completed' | 'interrupted' | 'unknown' | null = null;
     try { const report = this.evidence(execution); sealed = report.childSettled && Boolean(report.databaseHash); if (sealed) sealedOutcome = report.outcome.status as Exclude<typeof sealedOutcome, null>; } catch { /* Missing or changed evidence remains unverified. */ }
     let observation: ProcessObservation | null = null, table: ProcessTable | null = null;
-    try { observation = parseProcessObservation(readRecord(join(this.folder(execution), 'native-processes.json')), owner.binding); } catch { /* Legacy or invalid process metadata has no authority. */ }
+    try { observation = parseProcessObservation(readRecord(this.gateway.store.repairs.get(execution)
+      ? join(this.journalPath(execution), '..', 'native-processes.json') : join(this.folder(execution), 'native-processes.json')), owner.binding); } catch { /* Legacy or invalid process metadata has no authority. */ }
     if (observation) { try { table = await readProcessTable(); } catch { /* OS observation is unavailable. */ } }
     const processes = observation && { currentAvailable: Boolean(table), observedAt: observation.observedAt, available: observation.available, truncated: observation.truncated,
       owner: processState(observation.owner, table), native: processState(observation.native, table),
       descendants: observation.descendants.map(value => ({ pid: value.pid, state: processState(value, table) })) };
-    return { checkedAt, connection, sealed, sealedOutcome, recoveryEligible: sealed && sealedOutcome === 'unknown' && connection !== 'reachable', processes };
+    return { checkedAt, connection, sealed, sealedOutcome, recoveryEligible: owner.version === 1 && sealed && sealedOutcome === 'unknown' && connection !== 'reachable', processes };
   }
 
   async recoveryCheckpoint(execution: string): Promise<string> {
+    if (this.gateway.store.repairs.get(execution)) throw new Error('Repair goals require local attempt/process inspection');
     let reachable = false;
     try { await this.inspect(execution); reachable = true; } catch { /* A sealed report is still required below. */ }
     if (reachable) throw new Error('Native owner is still reachable');
@@ -292,10 +326,18 @@ export class NativeExecutions {
     try {
       const owner = this.owner(execution);
       const request = this.gateway.store.ownedRequest(owner.permit);
-      const task = journalProjection(join(this.folder(execution), 'bridge.db')).task;
+      const task = journalProjection(this.journalPath(execution)).task;
       if (!task || task.owner !== ownerKey(request.message) || task.trigger !== request.message.id || task.directory !== this.gateway.directory || !task.thread) return;
-      this.gateway.store.nativeSnapshot(owner.permit, { thread: task.thread, turn: task.turn, generation: null });
+      this.gateway.store.nativeSnapshot(owner.permit, { thread: task.thread, turn: task.turn, generation: null },
+        owner.version === 2 ? this.gateway.store.repairs.get(execution)?.attempts.at(-1)?.id : undefined);
     } catch { /* Missing or conflicting journal identity cannot supply a conversation reference. */ }
+  }
+
+  private journalPath(execution: string): string {
+    const goal = this.gateway.store.repairs.get(execution);
+    const attempt = goal?.attempts.at(-1);
+    if (goal && !attempt) throw new Error('Repair native attempt has not started');
+    return attempt ? join(this.folder(execution), 'attempts', attempt.id, 'bridge.db') : join(this.folder(execution), 'bridge.db');
   }
 
   stop(): Promise<void> { this.stopping = true; return this.active?.stop() ?? Promise.resolve(); }

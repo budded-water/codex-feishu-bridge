@@ -5,12 +5,13 @@ import { openPrivateDatabase } from '../private-database.js';
 import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition, type ChatContext } from '../types.js';
 import { fingerprint, profileDigest, type VerificationProfile } from './verification-profile.js';
 import type { VerificationObservation } from './verification-runner.js';
+import { RepairStore } from './repair-store.js';
 
 export interface VerificationRecord {
   execution: string; profile: string; digest: string; definition: VerificationProfile;
   phase: 'planned' | 'running' | 'observed' | 'skipped' | 'unknown'; observation: VerificationObservation | null;
 }
-export type VerificationSelection = { profile: string; definition: VerificationProfile };
+export type VerificationSelection = { profile: string; definition: VerificationProfile; repair?: true };
 
 export type RequestRecord = {
   id: string; execution: string; conversation: string; project: string;
@@ -34,6 +35,7 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 export class AdmissionStore {
   private db: DatabaseSync;
   readonly maintenance: Maintenance;
+  readonly repairs: RepairStore;
 
   constructor(directory: string, binding: string) {
     this.db = openPrivateDatabase(directory, 'handoff.db');
@@ -84,6 +86,7 @@ export class AdmissionStore {
           definition TEXT NOT NULL, phase TEXT NOT NULL, observation TEXT
         );
       `);
+      this.repairs = new RepairStore(this.db, permit => { this.startableRequest(permit); });
       this.transaction(() => {
         for (const [table, columns] of Object.entries({ conversations: ['thread', 'last_execution'], executions: ['native_thread', 'native_turn', 'native_generation'] })) {
           const present = this.db.prepare('PRAGMA table_info(' + table + ')').all() as { name: string }[];
@@ -143,7 +146,8 @@ export class AdmissionStore {
         message, input, blocked: uncertain ? 'project_outcome_unknown' : null };
       this.db.prepare('INSERT INTO requests VALUES (?,?,?,?,?,?,?,?)').run(request.id, request.execution, request.conversation,
         project, origin, JSON.stringify(message), input, request.blocked);
-      if (verification) this.db.prepare('INSERT INTO verifications VALUES (?,?,?,?,?,NULL)')
+      if (verification?.repair) this.repairs.admit(request.execution, verification, Boolean(request.blocked));
+      else if (verification) this.db.prepare('INSERT INTO verifications VALUES (?,?,?,?,?,NULL)')
         .run(request.execution, verification.profile, profileDigest(verification.definition), JSON.stringify(verification.definition), request.blocked ? 'skipped' : 'planned');
       if (!request.blocked) this.db.prepare("INSERT INTO submissions(request,status) VALUES (?,'pending')").run(request.id);
       return { duplicate: false, request };
@@ -216,7 +220,7 @@ export class AdmissionStore {
     return row && { ...row, message: JSON.parse(row.message), target: row.target ? JSON.parse(row.target) : null };
   }
 
-  acceptControl(execution: string, message: IncomingMessage, target?: NativeControlTarget): ControlRecord {
+  acceptControl(execution: string, message: IncomingMessage, target?: NativeControlTarget, repairStop = false): ControlRecord {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already has another purpose');
@@ -224,6 +228,13 @@ export class AdmissionStore {
       if (previous) return previous;
       if (!this.db.prepare('SELECT 1 FROM guards WHERE execution=?').get(execution)) throw new Error('No current execution for control');
       this.db.prepare("INSERT INTO controls VALUES (?,?,?,?,'received',NULL)").run(origin, execution, JSON.stringify(message), target ? JSON.stringify(target) : null);
+      if (repairStop) {
+        const row = this.execution(execution), request = row && this.request(row.request);
+        if (!request || !this.repairs.get(execution) || message.chatType !== 'p2p' || ownerKey(message) !== ownerKey(request.message)) throw new Error('Invalid repair stop owner');
+        this.repairs.stop(execution);
+        this.db.prepare("UPDATE controls SET status='stopping',result=? WHERE origin=?")
+          .run('已记录停止整个修复任务的请求；不会启动后续轮次，当前执行和清理结果仍需确认。', origin);
+      }
       return this.control(message)!;
     });
   }
@@ -360,15 +371,32 @@ export class AdmissionStore {
     return row.thread;
   }
 
-  nativeSnapshot(permit: Permit, snapshot: { thread: string; turn: string | null; generation: string | null }): void {
+  nativeSnapshot(permit: Permit, snapshot: { thread: string; turn: string | null; generation: string | null }, repairAttempt?: string): void {
     this.transaction(() => {
       const request = this.ownedRequest(permit);
       const prior = this.db.prepare('SELECT native_thread,native_turn,native_generation FROM executions WHERE id=?').get(permit.execution) as
         { native_thread: string | null; native_turn: string | null; native_generation: string | null };
-      if ((prior.native_thread && prior.native_thread !== snapshot.thread) || (prior.native_turn && snapshot.turn && prior.native_turn !== snapshot.turn) ||
-        (prior.native_generation && snapshot.generation && prior.native_generation !== snapshot.generation)) throw new Error('Native execution identity changed');
-      this.db.prepare('UPDATE executions SET native_thread=?,native_turn=COALESCE(?,native_turn),native_generation=COALESCE(?,native_generation) WHERE id=?')
-        .run(snapshot.thread, snapshot.turn, snapshot.generation, permit.execution);
+      const goal = this.repairs.get(permit.execution);
+      if (goal) {
+        const a = goal.attempts.at(-1);
+        if (!a || a.id !== repairAttempt) throw new Error('Stale repair attempt snapshot');
+        const saved = this.db.prepare('SELECT live_thread,live_turn,live_generation FROM repair_attempts WHERE id=?').get(a.id) as
+          { live_thread: string | null; live_turn: string | null; live_generation: string | null };
+        if ((prior.native_thread && prior.native_thread !== snapshot.thread) ||
+          (saved.live_thread && saved.live_thread !== snapshot.thread) || (saved.live_turn && snapshot.turn && saved.live_turn !== snapshot.turn) ||
+          (saved.live_generation && snapshot.generation && saved.live_generation !== snapshot.generation) ||
+          (a.native && (a.native.outcome.thread !== snapshot.thread || (snapshot.turn && a.native.outcome.turn !== snapshot.turn) ||
+            (snapshot.generation && a.native.outcome.generation !== snapshot.generation)))) throw new Error('Repair native identity changed');
+        this.db.prepare('UPDATE repair_attempts SET live_thread=?,live_turn=COALESCE(?,live_turn),live_generation=COALESCE(?,live_generation) WHERE id=?')
+          .run(snapshot.thread, snapshot.turn, snapshot.generation, a.id);
+        this.db.prepare('UPDATE executions SET native_thread=?,native_turn=?,native_generation=? WHERE id=?')
+          .run(snapshot.thread, snapshot.turn ?? saved.live_turn, snapshot.generation ?? saved.live_generation, permit.execution);
+      } else {
+        if (repairAttempt || (prior.native_thread && prior.native_thread !== snapshot.thread) || (prior.native_turn && snapshot.turn && prior.native_turn !== snapshot.turn) ||
+          (prior.native_generation && snapshot.generation && prior.native_generation !== snapshot.generation)) throw new Error('Native execution identity changed');
+        this.db.prepare('UPDATE executions SET native_thread=?,native_turn=COALESCE(?,native_turn),native_generation=COALESCE(?,native_generation) WHERE id=?')
+          .run(snapshot.thread, snapshot.turn, snapshot.generation, permit.execution);
+      }
       this.db.prepare(`UPDATE conversations SET thread=?,last_execution=? WHERE id=? AND
         (last_execution=? OR EXISTS(SELECT 1 FROM guards WHERE guards.execution=? AND guards.project=conversations.project))`)
         .run(snapshot.thread, permit.execution, request.conversation, permit.execution, permit.execution);

@@ -1,5 +1,5 @@
 import { readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { loadConfig } from '../config.js';
 import { CodexClient } from '../codex/client.js';
 import { record } from '../types.js';
@@ -42,7 +42,17 @@ async function main(): Promise<void> {
   try {
     validateNativeRegistry(gateway, JSON.parse(readFileSync(join(home, 'rules.json'), 'utf8')));
     const outbox = new SourceOutbox(gateway, new AutoloopSource(value.hubUrl, sourceKey));
-    runtime = new NativeExecutions(gateway, config, () => new CodexClient(config.codexExecutable, prefix as string[], 30_000, config.codexReasoningEffort), verificationProfiles(value.verificationProfiles));
+    let outerDeadline: number | undefined;
+    try {
+      const entry = record(JSON.parse(readFileSync(join(dirname(realpathSync(contextFile)), 'entry.json'), 'utf8')));
+      const job = record(entry.job), agent = record(job.agent);
+      if (entry.run === run && job.run === run && record(job.rule).name === gateway.scope.rule && agent.id === gateway.scope.agent &&
+        typeof agent.timeout === 'number' && Number.isFinite(agent.timeout) && agent.timeout > 0 && Number.isSafeInteger(entry.launchedAt)) {
+        outerDeadline = Number(entry.launchedAt) + agent.timeout * 60_000;
+      }
+    } catch { /* Ordinary tasks need no new budget source; repair goals fail closed without the actual launch budget. */ }
+    runtime = new NativeExecutions(gateway, config, () => new CodexClient(config.codexExecutable, prefix as string[], 30_000, config.codexReasoningEffort),
+      verificationProfiles(value.verificationProfiles), { outerDeadline });
     await runtime.recover();
     const grant = await outbox.claimContext(run, turn.cwd, JSON.parse(readFileSync(contextFile, 'utf8')));
     let report: NativeReport | undefined;
@@ -66,7 +76,7 @@ async function main(): Promise<void> {
     }
     clearInterval(progress);
     let status = grant.kind === 'withdrawn' ? 'withdrawn' : report?.outcome.status ?? 'unknown';
-    if (report && gateway.store.verification(report.permit.execution)?.phase === 'unknown') {
+    if (report && (gateway.store.verification(report.permit.execution)?.phase === 'unknown' || gateway.store.repairs.get(report.permit.execution)?.status === 'unknown')) {
       status = report.outcome.status === 'completed' ? 'verification_unknown' : 'unknown';
     }
     console.log(JSON.stringify({ nativeExecution: 1, started: true, session: report?.outcome.thread ?? undefined,

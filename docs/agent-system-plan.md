@@ -1,6 +1,6 @@
 # Agent system direction and delivery plan
 
-Status: the selected composition is deployed through the bounded P0-P2 owner-private workflow on M6, with optional P3 fixture verification/history and message-layout acceptance. Real business-task verification remains deferred; automatic repair/discovery and optional publication integration remain future work. Delivered requirements are in the [OpenSpec baseline index](../openspec/README.md); use [dated acceptance](live-acceptance.md) for scope and unexecuted families.
+Status: the selected composition is deployed through the bounded P0-P2 owner-private workflow on M6, with optional P3 fixture verification/history and message-layout acceptance. Explicit bounded repair is implemented with isolated evidence; its activation/owner acceptance is separate. Real business-task verification, discovery and optional publication integration remain deferred. Delivered requirements are in the [OpenSpec baseline index](../openspec/README.md); use [dated acceptance](live-acceptance.md) for scope and unexecuted families.
 
 ## Intended outcome
 
@@ -144,6 +144,6 @@ The delivered bounded P2 slice is [owner-private queue withdrawal](../openspec/c
 
 The bounded M6 owner-private P3 fixture /verify and /verification campaign is now live-verified through actual Feishu, Hub/Worker, native Codex and pinned UI-eval, with unchanged history/evidence across the read-only query. A business task and its declared acceptance plan remain pending; fixture results do not establish a feature, review or release outcome. See the dated acceptance record.
 
-## Proposed bounded repair extension
+## Bounded repair extension
 
-The [bounded repair proposal](../openspec/changes/add-bounded-verification-repair/proposal.md) prepares explicit owner opt-in, at most one additional Codex turn, fresh verification and immutable attempt evidence under the existing assignment. Only validated registered functional failures qualify; stop, budget and uncertainty prohibit further work. This is design-only: continuation/control proof and all implementation/acceptance gates remain open. Current `/verify` is unchanged. No extra service/model manager, discovery or publication is introduced. Isolated fixture work is separate from pending business acceptance and deferred host exercises.
+The [bounded repair change](../openspec/changes/add-bounded-verification-repair/proposal.md) implements explicit owner opt-in, at most one additional Codex turn, fresh verification and immutable attempt evidence under the existing assignment. Only validated registered functional failures qualify; stop, budget and uncertainty prohibit further work. The continuation/control boundary and scripted actual scheduler/browser fixture have isolated evidence; complete review, real inference, deployment and owner transport acceptance are separately tracked. Current `/verify` is unchanged. No extra service/model manager, discovery or publication is introduced. See [runtime contract](bounded-repair.md); business acceptance and deferred host exercises stay separate.

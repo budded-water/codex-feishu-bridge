@@ -82,6 +82,10 @@ export class PilotAdmission {
 
   receiveVerification(message: IncomingMessage, input: string, selection: VerificationSelection): Admission {
     if (!this.operator(message) || message.chatType !== 'p2p' || message.unsupported || message.text.length > 30_000 || !input.trim()) return { status: 'rejected' };
+    if (selection.repair) {
+      const explicit = /^\/verify-repair\s+([a-zA-Z0-9_-]{1,64})\s+([\s\S]+)$/.exec(message.text.trimStart());
+      if (!selection.definition.repair || explicit?.[1] !== selection.profile || !explicit[2]!.trim()) return { status: 'rejected' };
+    }
     const accepted = this.store.accept(message, input, this.project, selection);
     if ('paused' in accepted) return { status: 'rejected', reason: 'maintenance' };
     return { status: accepted.duplicate ? 'duplicate' : accepted.request.blocked ? 'blocked' : 'accepted', request: accepted.request };

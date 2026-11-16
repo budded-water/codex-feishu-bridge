@@ -13,9 +13,9 @@ An enrolled owner who also satisfies the approval-role/private-chat boundary can
 
 This creates a new native task, not a verification of an arbitrary historical report. The original message is retained and the trusted project's target accompanies the task. Selection does not switch the workspace globally. Codex retains its local model subscription, tools and native approvals. After a completed turn, its execution-ID owner invokes verification before sealing its checkpoint. The existing Worker assignment and workspace guard stay occupied, preventing subsequent harness tasks from changing source during capture. External host writers are not isolated; engine source checks still apply.
 
-During verification `/status` describes its phase and `/stop` requests supported signal cleanup. An incomplete native turn skips verification. Duplicate input, gateway restart, status lookup and delivery retries cannot authorize another invocation. No automatic repair loop is installed.
+During verification `/status` describes its phase and `/stop` requests supported signal cleanup. An incomplete native turn skips verification. Duplicate input, gateway restart, status lookup and delivery retries cannot authorize another invocation. `/verify` never starts a repair turn.
 
-A separate [bounded repair design](../openspec/changes/add-bounded-verification-repair/proposal.md) proposes an explicit new-task opt-in with at most one additional native turn. It is not implemented or enabled and does not change the commands or behavior documented here.
+A separate [bounded repair entry](bounded-repair.md) implements explicit `/verify-repair` opt-in with at most one additional native turn. It uses distinct goal/attempt records and does not change ordinary verification. Implementation, deployment and actual owner acceptance remain separate facts.
 
 ## Trusted configuration
 

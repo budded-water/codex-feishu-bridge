@@ -13,6 +13,7 @@ import { FeishuRecovery } from './recovery.js';
 import { OwnerQueue } from './queue.js';
 import { approvalActorAllowed, type ApprovalClick, type CardResult } from '../approval.js';
 import { isMaintenanceOwner } from './owner-access.js';
+import { repairText } from './repair-view.js';
 import { type VerificationProfiles } from './verification-profile.js';
 import { verificationApplicability, verificationText } from './verification-view.js';
 
@@ -39,7 +40,7 @@ export class PilotInteractions {
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
-    if (/^\/(?:verify|verification)(?:\s|$)/.test(message.text.trim())) return this.verificationCommand(message);
+    if (/^\/(?:verify|verify-repair|verification)(?:\s|$)/.test(message.text.trim())) return this.verificationCommand(message);
     if (/^\/recover(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
     if (/^\/(?:queue|withdraw)(?:\s|$)/.test(message.text.trim())) return this.queue.receive(message);
     const operator = message.tenant === this.admission.scope.tenant && message.user === this.admission.scope.operator && message.chat === this.admission.scope.chat;
@@ -74,7 +75,9 @@ export class PilotInteractions {
           section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
           section('本人私聊维护', ['- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
-          Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务', '- `/verification 任务编号` 查看历史观测']) : undefined,
+          Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',
+            ...(Object.values(this.profiles).some(p => p.repair) ? ['- `/verify-repair profile 任务内容` 显式允许一轮修复'] : []),
+            '- `/verification 任务编号` 查看历史观测']) : undefined,
           section('帮助', ['`/help` 查看本说明'])), { replyTo: message.id });
       return { status: 'help' as const };
     }
@@ -82,6 +85,16 @@ export class PilotInteractions {
     if (previous) return { status: 'duplicate' as const, control: previous };
     const held = this.admission.store.unsettled();
     const execution = held.length === 1 ? held[0] : undefined;
+    const reference = message.parentId ? this.transport.state.referencedTask(message.parentId, ownerKey(message)) : undefined;
+    const repair = execution && this.admission.store.repairs.get(execution.id);
+    if (repair && operator && (!message.parentId || reference === execution!.id) &&
+      (/^\/status(?:\s|$)/.test(message.text.trim()) || message.text.trim() === '/stop' || natural === 'stop')) {
+      if (message.text.trim() === '/stop' || natural === 'stop') {
+        const control = this.admission.store.acceptControl(execution!.id, message, undefined, true);
+        this.transport.state.projectControlNotice(control);
+      } else if (this.transport.state.remember(message)) this.transport.state.send(message.chat, repairText(repair, undefined, execution!.status === 'unknown'), { replyTo: message.id });
+      return { status: 'repair-control' as const };
+    }
     if (execution && /^\/status(?:\s|$)/.test(message.text.trim())) {
       const verification = this.admission.store.verification(execution.id);
       if (verification?.phase === 'running') {
@@ -90,7 +103,6 @@ export class PilotInteractions {
         return { status: 'verification-status' as const };
       }
     }
-    const reference = message.parentId ? this.transport.state.referencedTask(message.parentId, ownerKey(message)) : undefined;
     const quotedSupplement = /^\/steer\s/.test(message.text.trim()) && !reference;
     if (!execution || (!approval && message.parentId && reference !== execution.id && !quotedSupplement)) {
       this.transport.state.transaction(() => {
@@ -122,17 +134,22 @@ export class PilotInteractions {
   private verificationCommand(message: IncomingMessage) {
     if (!isMaintenanceOwner(this.admission.scope, this.config, message) || message.unsupported || message.text.length > 30_000) return { status: 'rejected' as const };
     const text = message.text.trim();
-    const selected = /^\/verify\s+([a-zA-Z0-9_-]{1,64})\s+([\s\S]+)$/.exec(message.text.trimStart());
+    const repair = /^\/verify-repair(?:\s|$)/.test(text);
+    const selected = /^\/(?:verify|verify-repair)\s+([a-zA-Z0-9_-]{1,64})\s+([\s\S]+)$/.exec(message.text.trimStart());
     if (selected && selected[2]!.trim() && Object.hasOwn(this.profiles, selected[1]!)) {
       const definition = this.profiles[selected[1]!]!;
+      if (repair && !definition.repair) {
+        if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '该 profile 未登记有界修复策略。可使用 /verify 执行单轮任务与验证。', { replyTo: message.id });
+        return { status: 'rejected' as const };
+      }
       const result = this.admission.receiveVerification(message,
         `本任务选择的项目验证目标为 ${definition.projectRoot}。仅在该项目处理以下需求；完成后系统会运行已登记验证，无需自行重复调用验证器。\n\n${selected[2]!}`,
-        { profile: selected[1]!, definition });
+        { profile: selected[1]!, definition, ...(repair ? { repair: true as const } : {}) });
       if ('request' in result) {
         this.transport.admit(result.request);
         if (result.status !== 'duplicate' && this.transport.state.remember(message)) this.transport.state.send(message.chat,
           present(`已保存验证任务 · ${selected[1]}`,
-            result.status === 'blocked' ? '前序结果未确认，本次未开始且不会自动执行；请先核对。' : 'Codex 完成本轮后执行已登记验证。',
+            result.status === 'blocked' ? '前序结果未确认，本次未开始且不会自动执行；请先核对。' : repair ? '已显式选择有界修复：符合登记条件的功能断言失败后，最多追加一轮 Codex 修复和一次完整验证。' : 'Codex 完成本轮后执行已登记验证。',
             section('查看进度与结果', [copyBlock(`/verification ${result.request.execution}`)])), { replyTo: message.id });
         return result;
       }
@@ -143,6 +160,16 @@ export class PilotInteractions {
     if (!this.transport.state.remember(message)) return { status: 'duplicate' as const };
     const query = /^\/verification\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(text);
     const request = query && this.admission.store.requests().find(row => row.execution === query[1]!.toLowerCase() && ownerKey(row.message) === ownerKey(message));
+    const goal = request && this.admission.store.repairs.get(request.execution);
+    if (goal) {
+      this.viewWork = this.viewWork.then(async () => {
+        const last = goal.attempts.at(-1);
+        const applicability = last?.observation ? await verificationApplicability({ execution: goal.execution, profile: goal.profile,
+          digest: goal.digest, definition: goal.definition, phase: 'observed', observation: last.observation }, this.profiles) : '暂无可核实的验证观测。';
+        this.transport.state.send(message.chat, repairText(goal, applicability, this.admission.store.execution(goal.execution)?.status === 'unknown'), { replyTo: message.id });
+      }).catch(() => { this.transport.state.send(message.chat, '修复记录暂时无法核实，不会重新执行。', { replyTo: message.id }); });
+      return { status: 'verification-view' as const };
+    }
     const value = request && this.admission.store.verification(request.execution);
     if (value) {
       this.viewWork = this.viewWork.then(async () => {

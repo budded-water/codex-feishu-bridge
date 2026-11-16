@@ -2,6 +2,8 @@
 
 已配置 P1 验证 profile 的本人私聊还可使用 `/verify profile 任务内容` 和 `/verification 完整任务编号`；选择该 profile 会授权其登记的验证命令。原生任务完成后才进行验证，结果不等于独立 review 或发布授权，见 [项目验证](project-verification.md)。实际部署和验收范围另见 [验收记录](live-acceptance.md)。
 
+若 profile 另有受信任的 repair 策略，可用 `/verify-repair profile 任务内容` 显式允许一次修复续接。仅符合登记条件的功能断言失败会触发，最多两轮 Codex 和两次完整验证；`/stop` 停止整个任务。普通 `/verify` 仍为单轮。见 [有界修复](bounded-repair.md)；部署和实际飞书验收分别记录。
+
 这份说明给机器人使用者。你无需安装 Node、Codex 或飞书 CLI；需要应用部署者已把机器人发布给你，并把相关项目登记在运行电脑上。
 
 工作在**部署者的本机环境**中执行。你登录飞书的身份用于准入和会话归属，不会把你自己的 GitHub、文件或飞书 OAuth 自动带到这台电脑。
