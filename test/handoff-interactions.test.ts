@@ -688,7 +688,8 @@ test('owner-private queue view is bounded, content-free and does not mutate admi
   for (const changes of [{ user: 'ou_other' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' as const }]) assert.equal(h.interactions.receive({ ...view, ...changes, id: randomUUID() }).status, 'ignored');
   assert.equal(h.interactions.receive(view).status, 'queue');
   const reply = h.interactions.transport.state.pending().find(row => row.replyTo === view.id)!;
-  assert.match(reply.body, /12 个（显示前 10 个）/); assert.equal((reply.body.match(/请求编号：/g) ?? []).length, 10);
+  assert.match(reply.body, /12 个（显示前 10 个）/); assert.equal((reply.body.match(/\/withdraw [0-9a-f-]{36}/g) ?? []).length, 10);
+  assert.match(reply.body, /^### 任务队列/); assert.match(reply.body, /```\n\/withdraw /);
   assert.ok(reply.body.includes(first.request.execution)); assert.doesNotMatch(reply.body, /Private command|Foreign secret|fixture-private-secret/);
   assert.deepEqual(readFileSync(join(h.admission.stateDirectory, 'handoff.db')), before); assert.equal(h.codex.calls.length, 0);
   assert.equal(h.interactions.receive({ ...view, text: '/withdraw ' + first.request.execution }).status, 'duplicate');

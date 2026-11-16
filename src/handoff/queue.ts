@@ -1,3 +1,4 @@
+import { message as present, section, copyBlock } from '../presentation.js';
 import type { Config } from '../config.js';
 import type { State } from '../state.js';
 import { ownerKey, type IncomingMessage } from '../types.js';
@@ -34,10 +35,9 @@ export class OwnerQueue {
         const stamp = Number(row.message.createTime);
         const received = stamp > 0 && Number.isFinite(new Date(stamp).getTime()) ? new Date(stamp).toISOString() + '（UTC）' : '未记录';
         const blocked = row.blocked || this.admission.store.submission(row.id)?.status === 'blocked';
-        return `请求编号：${row.execution}\n状态：${blocked ? '已阻断，未开始' : '等待派活'}；收到时间：${received}`;
+        return section(blocked ? '已阻断，未开始' : '等待派活', [`收到时间：${received}`, copyBlock(`/withdraw ${row.execution}`)])!;
       });
-      this.state.send(message.chat, `尚未取得执行授权：${queued.length} 个${queued.length > LIMIT ? `（显示前 ${LIMIT} 个）` : ''}。\n` +
-        lines.join('\n\n') + '\n' + usage, { replyTo: message.id });
+      this.state.send(message.chat, present('任务队列', `尚未取得执行授权：${queued.length} 个${queued.length > LIMIT ? `（显示前 ${LIMIT} 个）` : ''}。`, ...lines, section('管理队列', [usage])), { replyTo: message.id });
       return { status: 'queue' as const };
     }
     const selector = /^\/withdraw(?:\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/i.exec(text);

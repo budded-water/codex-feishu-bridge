@@ -1,3 +1,4 @@
+import { message as present, section, copyBlock } from '../presentation.js';
 import type { Config } from '../config.js';
 import type { Sender } from '../outbox.js';
 import type { ReactionPort } from '../feedback.js';
@@ -69,10 +70,12 @@ export class PilotInteractions {
     if (message.text.trim() === '/help') {
       if (!this.transport.state.remember(message)) return { status: 'duplicate' as const };
       this.transport.state.send(message.chat,
-        '命令：/help、/status、/status details、/steer 内容、/stop、/approve 编号、/reject 编号、/answer 编号 内容。\n' +
-        '本人私聊维护命令：/recover [编号 检查依据]、/queue、/withdraw [完整请求编号]；维护操作还须具备审批角色。\n' +
-        '普通消息交办任务；撤回仅处理尚未取得执行授权的请求。' +
-        (Object.keys(this.profiles).length ? '\n验证：/verify profile 任务内容；查看 /verification 任务编号。' : ''), { replyTo: message.id });
+        present('使用帮助',
+          section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。']),
+          section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
+          section('本人私聊维护', ['- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
+          Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务', '- `/verification 任务编号` 查看历史观测']) : undefined,
+          section('帮助', ['`/help` 查看本说明'])), { replyTo: message.id });
       return { status: 'help' as const };
     }
     const previous = this.admission.store.control(message);
@@ -83,7 +86,7 @@ export class PilotInteractions {
       const verification = this.admission.store.verification(execution.id);
       if (verification?.phase === 'running') {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
-          'Codex 本轮已完成，项目验证正在运行；执行保护保留，/stop 可请求中止验证。\n' + verificationText(verification), { replyTo: message.id });
+          verificationText(verification, { execution: ['Codex 本轮已完成，项目验证正在运行；执行保护保留，`/stop` 可请求中止验证。'] }), { replyTo: message.id });
         return { status: 'verification-status' as const };
       }
     }
@@ -95,7 +98,7 @@ export class PilotInteractions {
         const queued = this.admission.store.requests().filter(request => !request.blocked && !this.admission.store.execution(request.execution) &&
           this.admission.store.submission(request.id)?.status !== 'blocked').length;
         const body = /^\/status(?:\s|$)/.test(message.text.trim()) && !execution
-          ? `${this.config.projectRouting === 'workspace' ? '当前：通用工作区。\n' : ''}当前没有运行任务。${queued ? `还有 ${queued} 个已接收的请求等待派活。` : ''}未确认的结果需要先核对，不会自动重跑。`
+          ? present('当前状态', section('执行', [this.config.projectRouting === 'workspace' ? '当前：通用工作区。' : '当前：项目工作区。', '当前没有运行任务。', ...(queued ? [`还有 ${queued} 个已接收的请求等待派活。`] : [])]), section('结果边界', ['未确认的结果需要先核对，不会自动重跑。']))
           : execution ? '未能确定这条引用对应的运行任务，请引用自己的原提问。' : '当前没有可控制的运行任务。已接收的排队请求会保留；未确认的结果需要先核对。';
         this.transport.state.send(message.chat, body, { replyTo: message.id });
       });
@@ -105,7 +108,7 @@ export class PilotInteractions {
       const verification = this.admission.store.verification(execution.id);
       this.transport.state.transaction(() => {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
-          verification ? verificationText(verification) + '\n原生/验证执行保护仍保留；阶段记录不证明进程在线。请本机检查进程与副作用后登记恢复，不会重跑。'
+          verification ? verificationText(verification, { execution: ['原生/验证执行保护仍保留；阶段记录不证明进程在线。请本机检查进程与副作用后登记恢复，不会重跑。'] })
             : '原任务结果未确认，执行保护仍保留。本人可在登记私聊发送 /recover 查看检查条件；不会自动重跑。', { replyTo: message.id });
       });
       return { status: 'rejected' as const };
@@ -128,9 +131,9 @@ export class PilotInteractions {
       if ('request' in result) {
         this.transport.admit(result.request);
         if (result.status !== 'duplicate' && this.transport.state.remember(message)) this.transport.state.send(message.chat,
-          `已保存验证任务 · ${selected[1]}\n任务编号：${result.request.execution}\n` +
-          (result.status === 'blocked' ? '前序结果未确认，本次未开始且不会自动执行；请先核对。' : 'Codex 完成本轮后执行已登记验证。') +
-          `查看 /verification ${result.request.execution}。`, { replyTo: message.id });
+          present(`已保存验证任务 · ${selected[1]}`,
+            result.status === 'blocked' ? '前序结果未确认，本次未开始且不会自动执行；请先核对。' : 'Codex 完成本轮后执行已登记验证。',
+            section('查看进度与结果', [copyBlock(`/verification ${result.request.execution}`)])), { replyTo: message.id });
         return result;
       }
       if (result.reason === 'maintenance' && this.transport.state.remember(message)) this.transport.state.send(message.chat,
@@ -146,8 +149,10 @@ export class PilotInteractions {
         const applicability = await verificationApplicability(value, this.profiles);
         const unknown = this.admission.store.execution(value.execution)?.status === 'unknown' && ['planned', 'running'].includes(value.phase);
         const guarded = this.admission.store.unsettled().some(row => row.id === value.execution);
-        this.transport.state.send(message.chat, verificationText(value) + (unknown ? '\n执行器已无法确认；上述阶段是保留记录，不代表进程仍在线。' : '') +
-          (guarded ? '\n当前执行保护仍保留。' : '\n当前该任务无执行保护；历史结果保持原记录。') + '\n' + applicability, { replyTo: message.id });
+        this.transport.state.send(message.chat, verificationText(value, {
+          execution: [...(unknown ? ['执行器已无法确认；上述阶段是保留记录，不代表进程仍在线。'] : []),
+            guarded ? '当前执行保护仍保留。' : '当前该任务无执行保护；历史结果保持原记录。'], applicability,
+        }), { replyTo: message.id });
       }).catch(() => { this.transport.state.send(message.chat, '验证观测暂时无法核实，不会重新执行。', { replyTo: message.id }); });
     } else this.transport.state.send(message.chat,
       '未启动验证。请用 /verify profile 任务内容，或 /verification 完整任务编号查看自己的观测。可用 profile：' + (Object.keys(this.profiles).join('、') || '未配置'), { replyTo: message.id });
