@@ -1,5 +1,15 @@
 # Live acceptance evidence
 
+## 2026-11-16 — Task overview, copied detail and same-card refresh accepted
+
+After the reviewed PR #30 cutover, the genuine enrolled owner received the revised `/tasks` overview and copied a `/task` query that arrived as a pure rich post. Official message reads matched both queries and their delivered replies. The selected historical repair task's confirmed detail presentation retained the owned execution, chat and original-query association. The owner confirmed receiving the overview and detail card.
+
+The owner then clicked “刷新进度” and confirmed that the same card's query time updated. The authenticated refresh receipt and retained presentation/message identity establish a same-message update, without a replacement detail card. The platform's message GET exposes a card summary rather than its complete button layout; button interaction is evidenced by the genuine callback and owner feedback, not inferred from absent summary fields.
+
+Comparison with the original corrected-source pre-query baseline confirms unchanged full admission ledger, Hub run history, transport task/approval facts and all retained native/project/report file hashes. The queries and refresh created no execution request, native turn or verifier report, and did not alter sealed evidence or historical outcomes. Failed-client messages and the earlier baseline remain separately retained; no old message was replayed or baseline reset. Private message, presentation, callback and hash records remain in the deployment inventory.
+
+This completes the bounded owner-private historical overview/detail/refresh campaign. The task-progress requirements are synchronized into a delivered main specification and its completed change is archived. This documentation closeout changes no runtime, configuration, permission, profile or execution policy; the reviewed corrected artifact remains active. Live active-stage interactions, other client/user/group and fault families retain their existing source/automated or pending evidence. P3 business-task acceptance, deferred host login/wake/network exercises and live restored-consumer activation remain open. Earlier pending statements below are dated campaign snapshots.
+
 ## 2026-11-16 — Task progress real-client correction
 
 The owner received the real `/tasks` list but reported no detail reply after copying a command, and excessive historical entries. Official SDK reads showed both copied commands arrived as title-free rich posts; neither was seen/admitted and no task/card was created. The prior text-only ingress classified them as unsupported and the P1 route provided no format reply. This was a real input-format gap, not a native execution failure.

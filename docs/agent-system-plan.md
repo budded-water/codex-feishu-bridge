@@ -77,7 +77,7 @@ Research, document and data tasks can use the same native executor with appropri
 
 ## Delivery milestones
 
-The [owner task-progress slice](../openspec/changes/add-owner-task-progress/proposal.md) unifies existing task browsing before further proactive work: paginated history, exact-task detail, authenticated activity and refreshable cards. It reuses current task/executor/scheduler identities and adds no automatic discovery or model manager. Source, deployment and owner acceptance are tracked separately.
+The [owner task-progress slice](../openspec/changes/archive/2026-11-16-add-owner-task-progress/proposal.md) unifies existing task browsing before further proactive work: paginated history, exact-task detail, authenticated activity and refreshable cards. It reuses current task/executor/scheduler identities and adds no automatic discovery or model manager. Source, deployment and owner acceptance are tracked separately. The M6 owner-private overview, copied rich-post historical repair detail and same-card refresh are accepted with an unchanged original task/evidence baseline; broader live activity/client/fault families remain separate.
 
 | Milestone | Deliverable | Exit evidence |
 | --- | --- | --- |

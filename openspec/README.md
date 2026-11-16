@@ -4,7 +4,7 @@ OpenSpec records execution, orchestration, authorization, interaction, recovery 
 
 ## Current checkpoint — 2026-11-16
 
-Ten completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
+Eleven completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
 
 | Delivered capability | Main specification | Archived change |
 | --- | --- | --- |
@@ -18,6 +18,7 @@ Ten completed bounded changes have been synchronized into delivered main specifi
 | Approval cards | [approval-cards](specs/approval-cards/spec.md) | [Cards](changes/archive/2026-11-16-enable-feishu-approval-cards/tasks.md) |
 | Bounded verification repair | [bounded-verification-repair](specs/bounded-verification-repair/spec.md) | [Repair](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) |
 | Read-only verification findings | [verification-findings](specs/verification-findings/spec.md) | [Findings](changes/archive/2026-11-16-add-verification-findings/tasks.md) |
+| Owner task progress | [owner-task-progress](specs/owner-task-progress/spec.md) | [Task progress](changes/archive/2026-11-16-add-owner-task-progress/tasks.md) |
 
 These are implemented contracts with bounded evidence, not universal live acceptance. Owner-private operation is observed on one M6 deployment. Other typed-English, colleague/group, host-login/wake/network and additional fault families retain the limits in [live acceptance](../docs/live-acceptance.md) and [operation](../docs/operation.md).
 
@@ -29,7 +30,7 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 ## Where facts belong
 
-The active [owner task-progress slice](changes/add-owner-task-progress/proposal.md) adds read-only owner task browsing and confirmed-message refresh over existing execution facts. Source checks, exact-head CI/independent review, PR merge and managed M6 activation are complete. Genuine owner list/detail/refresh acceptance remains pending, so the change is not archived. It does not close P3 business acceptance or enable proactive task admission.
+The delivered [owner task-progress slice](changes/archive/2026-11-16-add-owner-task-progress/proposal.md) adds read-only owner task browsing and confirmed-message refresh over existing execution facts. Source checks, exact-head CI/independent review, PR merge, managed M6 activation and genuine owner overview/historical-detail/refresh acceptance are complete. The corrected copied rich-post query and same-card update preserve the original task, approval, Hub and evidence baseline without new execution. Requirements are in the main specification and the change is archived. Broader live activity/client/fault families remain separate; this does not close P3 business acceptance or enable proactive task admission.
 
 The delivered [verification findings slice](changes/archive/2026-11-16-add-verification-findings/proposal.md) adds a bounded owner-requested discovery view over retained observations. Corrected source review/CI, PR delivery, managed M6 activation and the real owner-private empty view over latest passing fixture records are verified. Native/project/report hashes and admission/Hub history stayed unchanged across the query. Its normative requirements are in the main specification; non-pass/fault cases retain automated coverage. It does not close P3 business validation or introduce scheduled execution.
 

@@ -25,6 +25,10 @@ Detail queries create snapshot cards with a refresh button. Only a confirmed del
 
 Use the original approval card or the displayed English prompt command for a live approval/question. Quote the detail card for `/steer content` or `/stop`; its confirmed reply association selects the original task, so a historical card cannot stop a newer task. Withdrawal and recovery retain their existing conditions. Cards are snapshots, not subscriptions; controls/prompts are revalidated by their original owners when acted on.
 
+## Observed acceptance
+
+The M6 enrolled owner has received the current-work overview, copied a pure rich-post query for a historical repair task, received its detail card and refreshed that same card. Confirmed transport/callback identity and the original pre-query baseline establish unchanged admission, Hub, task/approval and native/project/report facts with no new execution. This is historical owner-private query acceptance; live active-stage, other-client and fault families retain the separate source/automated or pending limits in [live acceptance](live-acceptance.md).
+
 ## Persistence and compatibility
 
 Admission owns task identity and grants. The read-only owner-channel operation exposes bounded activity without ordinary snapshot/outbox cleanup. Closed journals remain unchanged. Transport State owns the additive task_views table, optional outbox task_view payload, confirmed platform IDs, query/callback receipts and patch deliveries. These are presentation facts, not accepted tasks.

@@ -1,8 +1,8 @@
 # Implementation and acceptance status
 
-## Owner task progress candidate
+## Owner task progress delivery
 
-The [bounded task-progress change](../openspec/changes/add-owner-task-progress/tasks.md) implements owner-private list/detail and confirmed-message refresh cards. Initial PR #29 passed 310 tests, strict specs, smoke, scripted integration and independent review/CI, then merged/deployed. Real client acceptance found copied queries arriving as rich posts. Corrected PR #30 passed 313 tests/typecheck/build, twelve strict items and exact-head independent correctness/test-quality review/CI, then merged/deployed with retained closed-state evidence and managed readiness. The correction accepts only pure private progress-query posts and makes `/tasks` a current-work overview with explicit complete pagination. Corrected genuine owner detail/refresh acceptance remains pending; the change stays active. P3 business and host gates remain open. See [usage](task-progress.md) and the dated record.
+The [bounded task-progress change](../openspec/changes/archive/2026-11-16-add-owner-task-progress/tasks.md) implements owner-private list/detail and confirmed-message refresh cards. Initial PR #29 passed 310 tests, strict specs, smoke, scripted integration and independent review/CI, then merged/deployed. Real client acceptance found copied queries arriving as rich posts. Corrected PR #30 passed 313 tests/typecheck/build, twelve strict items and exact-head independent correctness/test-quality review/CI, then merged/deployed with retained closed-state evidence and managed readiness. The correction accepts only pure private progress-query posts and makes `/tasks` a current-work overview with explicit complete pagination. Genuine corrected owner overview, copied rich-post historical repair detail and same-message refresh are now accepted. The original query baseline confirms unchanged admission/Hub/task/approval facts and native/project/report hashes, with no new execution. Requirements are promoted to the delivered main specification and the bounded change is archived; broader live activity/client/fault families retain separate limits. P3 business and host gates remain open. See [usage](task-progress.md) and the dated record.
 
 ## Verification findings slice
 
@@ -14,8 +14,8 @@ The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-v
 
 | Layer | Current delivery | Remaining boundary |
 | --- | --- | --- |
-| Design and requirements | Selected Feishu/Autoloop/native Codex composition; ten delivered main specs and archived bounded changes | Active P3 business acceptance stays open; future changes need their own bounded contract |
-| Remote workflow | Managed M6 owner-private assignment, controls, approval buttons, withdrawal and native continuation accepted | Broader users/groups and other typed-English families retain separate live gaps |
+| Design and requirements | Selected Feishu/Autoloop/native Codex composition; eleven delivered main specs and archived bounded changes | Active P3 business acceptance stays open; future changes need their own bounded contract |
+| Remote workflow | Managed M6 owner-private assignment, controls, approval buttons, withdrawal, native continuation and read-only task overview/detail/refresh accepted | Broader users/groups and other typed-English families retain separate live gaps |
 | Operation and recovery | Durable guards, inspected recovery, diagnostics and rollback fixtures; coordinated service readiness and closed-bundle isolated restore verified | Actual host login/wake/network exercises and live restored-consumer activation remain pending; effects inspection remains human |
 | Project verification | Optional pinned UI-eval runtime, explicit one-repair goals and real owner fixture/history accepted | No current business task/declared acceptance plan; no publication authority |
 | Presentation | Shared templates, native rich posts, original-turn style guidance and bounded owner verification-view feedback accepted | Other message/client layouts retain source/automated coverage |
