@@ -1,5 +1,11 @@
 # Live acceptance evidence
 
+## 2026-11-16 — Task progress real-client correction
+
+The owner received the real `/tasks` list but reported no detail reply after copying a command, and excessive historical entries. Official SDK reads showed both copied commands arrived as title-free rich posts; neither was seen/admitted and no task/card was created. The prior text-only ingress classified them as unsupported and the P1 route provided no format reply. This was a real input-format gap, not a native execution failure.
+
+The correction accepts only bounded text-only private progress queries, preserves real actor/message identity and gives unsupported owner posts format guidance. General post prose and write controls remain unsupported. Default `/tasks` becomes a current-work overview plus three recent historical requests; `/tasks 1` retains complete pagination. New regressions cover the actual copied text/md/code-block shape, duplicate representations, mixed content/control rejection, no model admission and current/history separation. Corrected checks passed 313 tests/typecheck/build. CI, independent review, managed corrected activation and genuine owner detail/refresh acceptance remain separate gates. No historical task records are deleted or reclassified as successful.
+
 ## 2026-11-16 — Owner task progress candidate
 
 The candidate unifies P1 owner-private ordinary/verification/repair browsing through `/tasks [page]`, exact `/task` detail and confirmed-message snapshot-card refresh. Activity comes from a separate authenticated read-only owner operation; legacy missing timing and unknown owner/evidence stay explicit. Existing native controls/approvals and sealed journals retain their authority. No model inference, new task or automatic replay is introduced by a query.

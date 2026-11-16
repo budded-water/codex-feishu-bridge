@@ -1,8 +1,8 @@
 # Implementation and acceptance status
 
-## Owner task progress
+## Owner task progress candidate
 
-The [bounded task-progress change](../openspec/changes/add-owner-task-progress/tasks.md) implements owner-private list/detail and confirmed-message refresh cards across ordinary/verification/repair tasks. New activity reads avoid native snapshot cleanup; missing owners/evidence remain unverified and historical journals are not migrated. Required checks passed with 310 tests/typecheck/build, twelve strict specification items, no-inference protocol smoke and pinned Hub/Worker scripted regression. Exact-head CI/preflight and independent correctness/test-quality review approved the complete source. [PR #29](https://github.com/budded-water/codex-feishu-bridge/pull/29) is merged and its reviewed artifact is active on M6 after drained coordinated capture/replacement, managed readiness and unchanged historical evidence/policies. Genuine owner list/detail/refresh acceptance remains separate. See [usage](task-progress.md) and the dated record; P3 business and host gates remain open.
+The [bounded task-progress change](../openspec/changes/add-owner-task-progress/tasks.md) implements owner-private list/detail and confirmed-message refresh cards. Initial PR #29 passed 310 tests, strict specs, smoke, scripted integration and exact-head independent review/CI, then merged and deployed on M6. The real owner received the list but copied commands arrived as unsupported rich posts; no detail task was admitted. The correction accepts only pure private progress-query posts and makes `/tasks` a current-work overview with explicit complete pagination. Corrected checks passed 313 tests/typecheck/build and twelve strict items; corrected review/CI, activation and genuine detail/refresh acceptance remain pending. P3 business and host gates remain open. See [usage](task-progress.md) and the dated record.
 
 ## Verification findings slice
 
@@ -16,7 +16,6 @@ The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-v
 | --- | --- | --- |
 | Design and requirements | Selected Feishu/Autoloop/native Codex composition; ten delivered main specs and archived bounded changes | Active P3 business acceptance stays open; future changes need their own bounded contract |
 | Remote workflow | Managed M6 owner-private assignment, controls, approval buttons, withdrawal and native continuation accepted | Broader users/groups and other typed-English families retain separate live gaps |
-| Task progress | Scoped paginated list, exact detail, authenticated read-only activity and same-card refresh merged/deployed | Genuine owner list/detail/refresh acceptance remains pending; active/other-client/fault families remain separately scoped |
 | Operation and recovery | Durable guards, inspected recovery, diagnostics and rollback fixtures; coordinated service readiness and closed-bundle isolated restore verified | Actual host login/wake/network exercises and live restored-consumer activation remain pending; effects inspection remains human |
 | Project verification | Optional pinned UI-eval runtime, explicit one-repair goals and real owner fixture/history accepted | No current business task/declared acceptance plan; no publication authority |
 | Presentation | Shared templates, native rich posts, original-turn style guidance and bounded owner verification-view feedback accepted | Other message/client layouts retain source/automated coverage |

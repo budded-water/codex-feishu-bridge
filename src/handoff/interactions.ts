@@ -45,6 +45,13 @@ export class PilotInteractions {
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
+    if (message.unsupported === 'post' && isMaintenanceOwner(this.admission.scope, this.config, message)) {
+      this.transport.state.transaction(() => {
+        if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
+          '暂不支持这类消息。请用纯文本交办任务；进度查询可发送 /tasks 或 /task 完整编号，也支持仅包含这条查询的文字富文本。', { replyTo: message.id });
+      });
+      return { status: 'rejected' as const };
+    }
     if (/^\/(?:tasks|task)(?:\s|$)/.test(message.text.trim())) return this.tasks.receive(message);
     if (/^\/findings(?:\s|$)/.test(message.text.trim())) return this.findingsCommand(message);
     if (/^\/(?:verify|verify-repair|verification)(?:\s|$)/.test(message.text.trim())) return this.verificationCommand(message);
