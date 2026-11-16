@@ -331,6 +331,20 @@ export class State {
     return task;
   }
 
+  // Internal goal continuation: a real original reply trigger, never a new platform ingress event.
+  enqueueContinuation(session: string, input: string, authority: { goal: string; attempt: string; priorCheckpoint: string;
+    thread: string; source: NonNullable<Task['source']> }): Task {
+    const saved = this.session(session);
+    if (!authority.goal || !authority.attempt || !authority.priorCheckpoint || !authority.source.id || !authority.thread ||
+      saved.thread !== authority.thread || this.db.prepare('SELECT 1 FROM tasks').get()) throw new Error('Invalid internal continuation authority');
+    return this.transaction(() => {
+      this.db.exec('CREATE TABLE IF NOT EXISTS continuation_origin (task TEXT PRIMARY KEY REFERENCES tasks(id), authority TEXT NOT NULL)');
+      const task = this.enqueue(session, input, authority.source, undefined, undefined, true);
+      this.db.prepare('INSERT INTO continuation_origin VALUES (?,?)').run(task.id, JSON.stringify(authority));
+      return task;
+    });
+  }
+
   queued(directory: string): Task | undefined {
     const row = this.db.prepare(`SELECT tasks.id, tasks.session, tasks.input, tasks.status, tasks.turn, tasks.source, tasks.routed, tasks.routing_origin AS routingOrigin, tasks.routing_revision AS routingRevision FROM tasks
       JOIN sessions ON sessions.id=tasks.session WHERE tasks.status='queued' AND sessions.directory=? ORDER BY tasks.sequence LIMIT 1`)

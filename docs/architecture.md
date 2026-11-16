@@ -16,6 +16,8 @@ The optional workspace routing mode uses one neutral execution directory and own
 
 ## Goal and boundary
 
+The separate [bounded repair entry](bounded-repair.md) adds explicit owner-private new-task opt-in under the same assignment/guard. A goal coordinator records launch credits, per-attempt native journals/generations and observations, allowing only one same-conversation repair for validated registered functional assertions. Version-2 results bind the goal manifest; version-1 behavior is unchanged. Goal stop/receipt is atomic, controls remain current-attempt bound, and owner loss cannot replay unused work. Deployment/real transport acceptance is recorded separately.
+
 Optional task verification is implemented in the P1 entry through the execution-ID native owner. `/verify` admits one immutable trusted profile selection with a new task; after native completion its existing Worker assignment/guard remain held during the fixed pinned UI-eval invocation. A separate SQLite observation and bound terminal checkpoint preserve native and validation outcomes. Transport atomically persists a bounded verification handoff with the native checkpoint projection, preserving native chunk sizes and sealed journals. `/verification` is read-only; uncertainty never authorizes replay. Configuration, host-command authority and initial local recovery limits are in [project verification](project-verification.md). Deployment/actual acceptance are separately recorded.
 
 Expose the Codex already installed on the owner's computer through a Feishu application bot for colleagues using private text or group @mentions. Keep project execution, Codex configuration, and local tools on that computer.

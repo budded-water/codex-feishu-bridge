@@ -231,6 +231,8 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
     for (const request of admission.store.requests()) {
       const verification = admission.store.verification(request.execution);
       if (verification && ['planned', 'running'].includes(verification.phase)) throw new Error('Selected verification is unsettled');
+      const repair = admission.store.repairs.get(request.execution);
+      if (repair && !repair.status) throw new Error('Repair goal requires terminal attempt/process inspection before rollback');
     }
     const checkpoints = database(join(plan.pilotDirectory, 'transport/bridge.db'), false, db => new Map(rows(db, 'projected_tasks')
       .map(row => [column(row, 'execution'), column(row, 'checkpoint')])));
@@ -241,7 +243,8 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
         if (execution.status === 'completed' || execution.status === 'interrupted') {
           const report = native.evidence(String(column(execution, 'id')));
           if (checkpoints.get(column(execution, 'id')) !== report.checkpoint) throw new Error('Native final delivery has not been projected');
-          if (admission.store.verification(String(column(execution, 'id'))) && !transport.verificationNoticeProjected(String(column(execution, 'id')))) throw new Error('Verification handoff has not been projected');
+          if ((admission.store.verification(String(column(execution, 'id'))) || admission.store.repairs.get(String(column(execution, 'id')))) &&
+            !transport.verificationNoticeProjected(String(column(execution, 'id')))) throw new Error('Verification handoff has not been projected');
         }
         else {
           if (execution.status !== 'unknown' || !db.prepare('SELECT 1 FROM recoveries WHERE execution=?').get(column(execution, 'id'))) throw new Error('Native outcome is unresolved');
@@ -352,19 +355,7 @@ export async function rollbackHandoff(plan: MigrationPlan) {
     mkdirSync(archive, { mode: 0o700 });
     const pilotHash = copyClosed(join(plan.pilotDirectory, 'handoff.db'), join(archive, 'handoff.db'));
     const transportHash = copyClosed(join(plan.pilotDirectory, 'transport/bridge.db'), join(archive, 'transport.db'));
-    const nativeFiles: Record<string, string> = {};
-    const executions = join(plan.pilotDirectory, 'executions');
-    if (existsSync(executions)) for (const execution of readdirSync(executions)) {
-      if (/^[0-9a-f-]{36}\.lock$/.test(execution) && lstatSync(join(executions, execution)).isDirectory()) continue;
-      if (!/^[0-9a-f-]{36}$/.test(execution)) throw new Error('Unsettled execution artifact');
-      const source = join(executions, execution);
-      if (!lstatSync(source).isDirectory() || lstatSync(source).isSymbolicLink()) throw new Error('Invalid native archive');
-      const directory = join(archive, execution); mkdirSync(directory, { mode: 0o700 });
-      for (const name of readdirSync(source)) {
-        if (!['bridge.db', 'bridge.db-journal', 'native-owner.json', 'native-result.json', 'native-processes.json'].includes(name) && !/^native-(?:result|processes)\.json\.[0-9a-f-]{36}\.tmp$/.test(name)) throw new Error('Unexpected native state artifact');
-        nativeFiles[execution + '/' + name] = copyClosed(join(source, name), join(directory, name));
-      }
-    }
+    const nativeFiles = archiveNativeEvidence(plan.pilotDirectory, archive);
     const beforeTraffic = facts(join(archive, 'handoff.db')) === saved.pilotFacts && facts(join(archive, 'transport.db')) === saved.transportFacts;
     const temporary = join(archive, 'restored.db');
     copyFileSync(join(plan.bundleDirectory, 'legacy.db'), temporary, constants.COPYFILE_EXCL); chmodSync(temporary, 0o600);
@@ -396,4 +387,38 @@ export function inspectLegacy(plan: MigrationPlan) {
       WHERE tasks.status='unknown' AND NOT EXISTS(SELECT 1 FROM migration_reconciliations WHERE task=tasks.id)`).all() as Row[];
     return { sessions, unresolved };
   });
+}
+
+// Archive only closed, admission-bound native artifacts; UI-eval report assets remain project-owned.
+export function archiveNativeEvidence(pilotDirectory: string, archive: string): Record<string, string> {
+  const nativeFiles: Record<string, string> = {};
+  const executions = join(pilotDirectory, 'executions');
+  if (existsSync(executions)) for (const execution of readdirSync(executions)) {
+    if (/^[0-9a-f-]{36}\.lock$/.test(execution) && lstatSync(join(executions, execution)).isDirectory()) continue;
+    if (!/^[0-9a-f-]{36}$/.test(execution)) throw new Error('Unsettled execution artifact');
+    const source = join(executions, execution);
+    if (!lstatSync(source).isDirectory() || lstatSync(source).isSymbolicLink()) throw new Error('Invalid native archive');
+    const directory = join(archive, execution); mkdirSync(directory, { mode: 0o700 });
+    for (const name of readdirSync(source)) {
+      if (name === 'attempts') {
+        const ids = database(join(archive, 'handoff.db'), false, db => rows(db, 'repair_attempts')
+          .filter(row => row.execution === execution).map(row => String(column(row, 'id'))));
+        if (!ids.length || !lstatSync(join(source, name)).isDirectory() || lstatSync(join(source, name)).isSymbolicLink()) throw new Error('Invalid repair attempt archive');
+        mkdirSync(join(directory, name), { mode: 0o700 });
+        for (const id of readdirSync(join(source, name))) {
+          const attempt = join(source, name, id), target = join(directory, name, id);
+          if (!ids.includes(id) || !lstatSync(attempt).isDirectory() || lstatSync(attempt).isSymbolicLink()) throw new Error('Foreign repair attempt archive');
+          mkdirSync(target, { mode: 0o700 });
+          for (const file of readdirSync(attempt)) {
+            if (!['bridge.db', 'bridge.db-journal', 'native-result.json', 'native-processes.json'].includes(file) && !/^native-processes\.json\.[0-9a-f-]{36}\.tmp$/.test(file)) throw new Error('Unexpected repair artifact');
+            nativeFiles[execution + '/attempts/' + id + '/' + file] = copyClosed(join(attempt, file), join(target, file));
+          }
+        }
+        continue;
+      }
+      if (!['bridge.db', 'bridge.db-journal', 'native-owner.json', 'native-result.json', 'native-processes.json', 'repair-manifest.json'].includes(name) && !/^native-(?:result|processes)\.json\.[0-9a-f-]{36}\.tmp$/.test(name)) throw new Error('Unexpected native state artifact');
+      nativeFiles[execution + '/' + name] = copyClosed(join(source, name), join(directory, name));
+    }
+  }
+  return nativeFiles;
 }

@@ -1,6 +1,6 @@
 # Implementation and acceptance status
 
-The [bounded repair change](../openspec/changes/add-bounded-verification-repair/proposal.md) is a design-only next-step proposal: explicit opt-in, at most one additional native turn, narrow functional-failure eligibility and immutable attempt/control/recovery boundaries. No command, schema, runtime, deployment or live acceptance is implemented. Existing `/verify` and pending P3 business acceptance are unchanged; its [implementation and acceptance tasks](../openspec/changes/add-bounded-verification-repair/tasks.md) remain open.
+The [bounded repair change](../openspec/changes/add-bounded-verification-repair/proposal.md) now implements explicit opt-in, at most one additional native turn, narrow functional-failure eligibility and immutable attempt/control/recovery boundaries. Actual SQLite/child/IPC tests cover continuation, stale approval/snapshot isolation, stop/receipt loss, budgets, unknown cleanup and owner-process loss in both native rounds. An isolated actual pinned Hub/Worker/UI-eval/Chrome campaign passed with scripted native protocol. Real inference, complete implementation review, managed activation and actual owner transport acceptance remain separate gates in its [tasks](../openspec/changes/add-bounded-verification-repair/tasks.md). Existing `/verify` and pending P3 business acceptance are unchanged. See [runtime contract](bounded-repair.md).
 
 ## Current checkpoint — 2026-11-16
 

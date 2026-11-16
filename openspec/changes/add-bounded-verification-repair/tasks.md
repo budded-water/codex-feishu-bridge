@@ -5,16 +5,16 @@
 - [x] 1.1 Inspect current single-turn owner/verification persistence and selected UI-eval result classification.
 - [x] 1.2 Define opt-in, fixed repair credit, ownership, eligibility, stop/recovery and immutable evidence.
 
-This is a proposal. The command, goal ledger and runtime below are not implemented or deployed.
+The command, goal ledger and runtime are implemented with isolated evidence. Deployment and actual owner acceptance remain separate open gates.
 
 ## 2. Isolated implementation
 
-- [ ] 2.1 Prove explicit internal native continuation, separate sealed attempts, verified same conversation and real current-attempt controls; record any missing API before expanding scope.
-- [ ] 2.2 Add typed opt-in admission, immutable trusted policy, finite work/cleanup deadlines and compatible goal/attempt persistence.
-- [ ] 2.3 Implement single-owner launch intent/credit transactions and lookup-only restart handling under the existing assignment/guard.
-- [ ] 2.4 Implement narrow functional-failure eligibility using pinned engine validators; reject unsupported/mixed outcomes.
-- [ ] 2.5 Integrate goal stop, actual approvals/questions, current-attempt controls and final-only answer projection without synthetic Feishu ingress.
-- [ ] 2.6 Preserve existing `/verify`, historical records, native-only recovery and coordinated upgrade/rollback boundaries.
+- [x] 2.1 Prove explicit internal native continuation, separate sealed attempts, verified same conversation and real current-attempt controls; record any missing API before expanding scope.
+- [x] 2.2 Add typed opt-in admission, immutable trusted policy, finite work/cleanup deadlines and compatible goal/attempt persistence.
+- [x] 2.3 Implement single-owner launch intent/credit transactions and lookup-only restart handling under the existing assignment/guard.
+- [x] 2.4 Implement narrow functional-failure eligibility using pinned engine validators; reject unsupported/mixed outcomes.
+- [x] 2.5 Integrate goal stop, actual approvals/questions, current-attempt controls and final-only answer projection without synthetic Feishu ingress.
+- [x] 2.6 Preserve existing `/verify`, historical records, native-only recovery and coordinated upgrade/rollback boundaries.
 
 ## 3. Verification and delivery
 
