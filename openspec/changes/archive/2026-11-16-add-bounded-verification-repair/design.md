@@ -1,12 +1,12 @@
 # Bounded verification repair design
 
-Status: runtime implemented with isolated continuation/control and scripted scheduler/browser evidence. Complete review, real inference, managed activation and owner transport acceptance remain separately tracked in tasks.md; this design is not a deployment record.
+Status: reviewed implementation and bounded M6 owner-private fixture acceptance are delivered. Actual two-turn repair, genuine command-approval button, final delivery and read-only history are verified; see tasks.md and the dated acceptance record for evidence/limits. This design is not a universal deployment promise.
 
 ## Scenario and composition
 
 An owner explicitly requests a small change with one repair allowed. Codex implements it; UI-eval finds a reproducible functional assertion failure; the same native conversation receives validated evidence and repairs the candidate; the fixed full suite runs again. Feishu receives the final outcome with separate native, verification, review and publication facts. First use an isolated Web fixture with pinned assertions. `/verify-repair PROFILE TASK` starts a new task, never a replay of historical work or arbitrary imported reports. Existing `/verify` remains one turn plus one verification.
 
-The implemented first predicate accepts only completed capture steps, product assertions and simple pinned zero-failed-assertion/valid-execution gate shapes. See [runtime details](../../../docs/bounded-repair.md#eligible-failure-class); failed action steps and unsupported policy expressions remain ineligible. The harness temporal source seal supplements rather than replaces engine SourceRevision. Goal stop and its control receipt share the admission transaction. Native lifecycle timing is retained; exact token-cost totals are not currently collected.
+The implemented first predicate accepts only completed capture steps, product assertions and simple pinned zero-failed-assertion/valid-execution gate shapes. See [runtime details](../../../../docs/bounded-repair.md#eligible-failure-class); failed action steps and unsupported policy expressions remain ineligible. The harness temporal source seal supplements rather than replaces engine SourceRevision. Goal stop and its control receipt share the admission transaction. Native lifecycle timing is retained; exact token-cost totals are not currently collected.
 
 ```mermaid
 flowchart TD

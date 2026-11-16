@@ -1,6 +1,6 @@
 # Bounded verification repair
 
-The P1 entry implements an explicit owner-private repair task. Implementation and isolated evidence are separate from managed deployment and actual Feishu acceptance; see [live acceptance](live-acceptance.md). Existing ordinary tasks and `/verify` retain their behavior.
+The P1 entry implements an explicit owner-private repair task. One M6 deployment has completed bounded real owner fixture task, command-approval button, final delivery and read-only history acceptance; see [live acceptance](live-acceptance.md) for exact scope and remaining families. New deployments require their own acceptance. Existing ordinary tasks and `/verify` retain their behavior.
 
 ## Use and trusted policy
 
