@@ -1,5 +1,7 @@
 # Implementation and acceptance status
 
+The [bounded repair change](../openspec/changes/add-bounded-verification-repair/proposal.md) is a design-only next-step proposal: explicit opt-in, at most one additional native turn, narrow functional-failure eligibility and immutable attempt/control/recovery boundaries. No command, schema, runtime, deployment or live acceptance is implemented. Existing `/verify` and pending P3 business acceptance are unchanged; its [implementation and acceptance tasks](../openspec/changes/add-bounded-verification-repair/tasks.md) remain open.
+
 ## Current checkpoint — 2026-11-16
 
 | Layer | Current delivery | Remaining boundary |
