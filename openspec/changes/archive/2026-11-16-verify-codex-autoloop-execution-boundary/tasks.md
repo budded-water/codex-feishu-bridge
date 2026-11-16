@@ -28,4 +28,4 @@
 - [x] 4.2 Update architecture, implementation status and sanitized acceptance evidence with actual outcomes; preserve deployment gaps.
 - [x] 4.3 Record the P0 readiness decision, limitations and exact requirements for the separate P1 production-handoff proposal.
 
-Evidence and conditional P1 handoff requirements are maintained in [the probe document](../../../docs/autoloop-p0.md) and [dated acceptance](../../../docs/live-acceptance.md). All bounded tasks are complete. Retain the change with the open implementation PR pending merge and subsequent spec synchronization; preserve unexecuted live-family limits in the acceptance record.
+Evidence and conditional P1 handoff requirements are maintained in [the probe document](../../../../docs/autoloop-p0.md) and [dated acceptance](../../../../docs/live-acceptance.md). All bounded tasks are complete. Retain the change with the open implementation PR pending merge and subsequent spec synchronization; preserve unexecuted live-family limits in the acceptance record.

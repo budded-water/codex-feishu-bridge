@@ -1,6 +1,6 @@
 # Isolated Autoloop execution probe
 
-Status: implemented experimental entry point. This is not the production scheduler or a Feishu deployment. The existing application keeps its listener, queue and private configuration. The broader direction remains in [the system plan](agent-system-plan.md); requirements and task evidence are in [the P0 change](../openspec/changes/verify-codex-autoloop-execution-boundary/README.md).
+Status: implemented experimental entry point. This is not the production scheduler or a Feishu deployment. The existing application keeps its listener, queue and private configuration. The broader direction remains in [the system plan](agent-system-plan.md); requirements and task evidence are in [the P0 change](../openspec/changes/archive/2026-11-16-verify-codex-autoloop-execution-boundary/README.md).
 
 ## Process and state ownership
 
@@ -58,7 +58,7 @@ Observed acceptance is recorded in [live acceptance](live-acceptance.md), separa
 
 Initial probe decision: the documented Autoloop plugin boundary is viable for this single-host execution probe. Continue to a separate P1 handoff design; retain the existing production scheduler until that design and its acceptance pass. This result does not establish production migration readiness.
 
-The [P1 handoff](../openspec/changes/integrate-feishu-autoloop-handoff/README.md) subsequently implemented and activated the authorized M6 owner-private pilot. Its dated real-model steering, stop, command approval/refusal and inspected app-server-loss recovery complete P0's bounded native campaign. P0's isolated command itself still uses synthetic transport; the initial decision above records its original handoff boundary.
+The [P1 handoff](../openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/README.md) subsequently implemented and activated the authorized M6 owner-private pilot. Its dated real-model steering, stop, command approval/refusal and inspected app-server-loss recovery complete P0's bounded native campaign. P0's isolated command itself still uses synthetic transport; the initial decision above records its original handoff boundary.
 
 The P1 handoff requirements below are implemented and accepted within the recorded owner-private scope. The project-evidence contract remains planned for P3:
 

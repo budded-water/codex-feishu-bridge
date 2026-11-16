@@ -61,7 +61,7 @@ This change does not migrate production state. Retain the existing listener, map
 
 ## Implementation decisions and remaining acceptance
 
-The standalone plugin launches a runner inside the Worker's detached process group; native app-server remains a direct child of that runner. A token-authenticated private Unix socket forwards only fixture controls through the existing Bridge. State is keyed by logical run rather than attempt directory. Native answers are normalized into fixed receipts; they do not become scheduler instructions. See [the implemented topology and limits](../../../docs/autoloop-p0.md).
+The standalone plugin launches a runner inside the Worker's detached process group; native app-server remains a direct child of that runner. A token-authenticated private Unix socket forwards only fixture controls through the existing Bridge. State is keyed by logical run rather than attempt directory. Native answers are normalized into fixed receipts; they do not become scheduler instructions. See [the implemented topology and limits](../../../../docs/autoloop-p0.md).
 
 The selected CLI and generated bindings are aligned. Reviewed binding differences add optional initialization/turn/tool-output fields and a user-audio representation; supported text/approval behavior remains covered. The generated version file is canonical.
 

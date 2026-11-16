@@ -58,7 +58,7 @@ For P1:
 - Set `resume: false`. The runner ignores scheduler session suggestions as execution authority and resolves the native conversation from the verified conversation ID. The reported native session remains useful as a status projection.
 - Require exactly one recognized request event per initial assignment. A duplicate publication uses the same event ID. Unexpected mixed events fail closed; never merge prompts or pick one silently.
 
-This separates the scheduling lane (one request), native conversation (owner/chat/project/session) and resource (canonical project). The feasibility command tests kernel behavior; it does not implement gateway validation or native session lookup. Keep the selected values/shape in [the routing fixture](../../../experiments/autoloop/verify-handoff-routing.mjs) and verify them before upgrading [the shared pin](../../../experiments/autoloop/source.json).
+This separates the scheduling lane (one request), native conversation (owner/chat/project/session) and resource (canonical project). The feasibility command tests kernel behavior; it does not implement gateway validation or native session lookup. Keep the selected values/shape in [the routing fixture](../../../../experiments/autoloop/verify-handoff-routing.mjs) and verify them before upgrading [the shared pin](../../../../experiments/autoloop/source.json).
 
 ## Admission, outcomes and uncertainty
 
@@ -121,7 +121,7 @@ The native-execution slice uses a channel adapter to normalize incoming messages
 
 The public Autoloop agent Turn supplies context, cwd and run identity through its documented fields/environment. It omits the full rule/agent job object. The runner therefore validates the configured rule/agent/group through the documented rules configuration and correlates the context against the source event's actual claimed run through public HTTP. The full-job admission API continues to validate explicit job fields. Both paths load task content from the retained request.
 
-The [component entry](../../../src/handoff/gateway.ts), [private store](../../../src/handoff/store.ts) and [source client/outbox](../../../src/handoff/source.ts) now implement durable request identity, registered assignment validation, active-run source lookup and atomic project reservation. The shared private-database opener preserves the existing State permissions and SQLite settings.
+The [component entry](../../../../src/handoff/gateway.ts), [private store](../../../../src/handoff/store.ts) and [source client/outbox](../../../../src/handoff/source.ts) now implement durable request identity, registered assignment validation, active-run source lookup and atomic project reservation. The shared private-database opener preserves the existing State permissions and SQLite settings.
 
 The store serializes competing reservations with `BEGIN IMMEDIATE`, re-reads canonical request state inside that transaction and returns an execution permit once. It retains active/uncertain guard ownership through database reopening. Reported terminal evidence is permit-bound and idempotent. Operator recovery records its actor, source message and evidence while retaining the historical uncertain outcome. Fresh remaining work receives a new identity.
 

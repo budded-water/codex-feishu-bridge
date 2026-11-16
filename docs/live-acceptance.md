@@ -103,7 +103,7 @@ Required local checks, strict OpenSpec validation and the separate no-inference 
 
 ## 2026-11-13: P1 routing feasibility
 
-The [P1 handoff design](../openspec/changes/integrate-feishu-autoloop-handoff/design.md) was checked against the same pinned upstream source. The explicit `npm run verify:handoff-routing -- <pinned-checkout>` command started an isolated actual Hub and used its public source/worker/owner HTTP APIs with synthetic records. It did not start a Worker process, native agent, model call, Feishu connection or service installation.
+The [P1 handoff design](../openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/design.md) was checked against the same pinned upstream source. The explicit `npm run verify:handoff-routing -- <pinned-checkout>` command started an isolated actual Hub and used its public source/worker/owner HTTP APIs with synthetic records. It did not start a Worker process, native agent, model call, Feishu connection or service installation.
 
 The negative control reproduced coalescing of two distinct events into the default queued lane and inheritance of that lane's completed session. The proposed configuration then verified separate runs for burst requests, source deduplication, retrieval of an existing claim after acknowledgement loss, serial dispatch across aliases sharing a canonical-project group, and independent dispatch for another project. Subject lanes with group concurrency one were sufficient; no per-project agent fleet or kernel patch was required. A deliberately reused lane with resume disabled did not inherit its earlier session. Native owner/conversation lookup remains proposed gateway behavior, not evidence supplied by this Hub test.
 
@@ -171,7 +171,7 @@ The fresh state was prepared with admission paused under the managed pilot role.
 
 An idle gateway SIGTERM exercise observed automatic startup with a new process, Feishu reconnection and the persisted admission pause. The owner then received the idle status response and M6_RESUME_OK. Read-only native history inspection confirmed two turns in one conversation with no tool execution items. Private evidence retains the exact candidate and message/execution references. This acceptance used the initial fixed verification workspace.
 
-The owner subsequently requested general task targeting through a neutral workspace. The [workspace change](../openspec/changes/enable-general-workspace-mode/tasks.md) tracks that capability and its separate rollout. Required local checks passed with 210 tests, and the real pinned Hub/Worker scripted path verified workspace instructions at native start/resume. Strict validation passed for all three OpenSpec changes. Real-model active steering, approval/rejection and process-loss acceptance remain open in P0/P1.
+The owner subsequently requested general task targeting through a neutral workspace. The [workspace change](../openspec/changes/archive/2026-11-16-enable-general-workspace-mode/tasks.md) tracks that capability and its separate rollout. Required local checks passed with 210 tests, and the real pinned Hub/Worker scripted path verified workspace instructions at native start/resume. Strict validation passed for all three OpenSpec changes. Real-model active steering, approval/rejection and process-loss acceptance remain open in P0/P1.
 
 ## 2026-11-14 — General workspace deployment
 
