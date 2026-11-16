@@ -6,6 +6,8 @@ The owner received the real `/tasks` list but reported no detail reply after cop
 
 The correction accepts only bounded text-only private progress queries, preserves real actor/message identity and gives unsupported owner posts format guidance. General post prose and write controls remain unsupported. Default `/tasks` becomes a current-work overview plus three recent historical requests; `/tasks 1` retains complete pagination. New regressions cover the actual copied text/md/code-block shape, duplicate representations, mixed content/control rejection, no model admission and current/history separation. Corrected checks passed 313 tests/typecheck/build. CI, independent review, managed corrected activation and genuine owner detail/refresh acceptance remain separate gates. No historical task records are deleted or reclassified as successful.
 
+The complete corrected [PR #30](https://github.com/budded-water/codex-feishu-bridge/pull/30) passed current-head CI/preflight and independent correctness/test-quality review with no actionable findings, then merged. Its locked artifact passed build/doctor and replaced the drained M6 services after closed-state capture. Managed readiness, open/drained admission and unchanged native/project/report payloads and project policy were verified. Original failed-client messages/baseline remain retained; corrected acceptance uses a separate source-bound pre-query baseline. Old failed queries were not replayed. Corrected real owner detail/refresh acceptance remains pending.
+
 ## 2026-11-16 — Owner task progress candidate
 
 The candidate unifies P1 owner-private ordinary/verification/repair browsing through `/tasks [page]`, exact `/task` detail and confirmed-message snapshot-card refresh. Activity comes from a separate authenticated read-only owner operation; legacy missing timing and unknown owner/evidence stay explicit. Existing native controls/approvals and sealed journals retain their authority. No model inference, new task or automatic replay is introduced by a query.
@@ -13,6 +15,12 @@ The candidate unifies P1 owner-private ordinary/verification/repair browsing thr
 Required local type/behavior/build checks passed with 310 tests and twelve strict specification items. Coverage includes actual SDK dispatch/interactive payloads, SQLite receipt/card transactions, owner IPC, live command/prompt stages, sealed bytes, legacy timing, unreachable/unknown owners, repair attempts/results, repeated/restarted/uncertain refresh, stale/current quoted controls, redaction, persistent storage failure and closed-state rollback archive/deduplication/message links. Exact-head CI/review, source delivery, managed M6 activation and genuine owner list/detail/refresh acceptance remain separate gates. Business validation and deferred host exercises remain open.
 
 The same candidate also passed real local Codex protocol smoke without inference and the actual pinned Hub/Worker scripted regression for withdrawal/restart, duplicate controls, approval/stop, owner recovery/loss, final delivery and reaction cleanup. Human transport in that campaign was synthetic; it does not establish real task-card reception or refresh acceptance.
+
+## 2026-11-16 — Owner task progress delivery and managed activation
+
+The complete corrected [PR #29](https://github.com/budded-water/codex-feishu-bridge/pull/29) passed exact-head CI/preflight and independent correctness/test-quality review with no actionable findings. It is merged. The locked artifact passed build/doctor and replaced drained M6 gateway/Worker services after observed settlement and closed-state capture using the prior compatible CLI before the additive transport migration. Managed SDK/Hub readiness, open/drained admission, unchanged native/project/report payloads and unchanged project policies were verified. The existing application callback subscription was reused without new permissions or model/native settings.
+
+A private pre-query baseline now retains admission/Hub records, native/project/report hashes and transport task/approval facts. Genuine owner list/detail/refresh reception remains separate from source tests and service readiness. P3 business validation, broader native interaction/client/fault acceptance and owner-deferred host exercises remain open.
 
 ## 2026-11-16 — Verification findings candidate
 
