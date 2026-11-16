@@ -143,9 +143,11 @@ export class PilotInteractions {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat, body, { replyTo: message.id });
       });
     }).catch(() => {
-      this.transport.state.transaction(() => {
-        if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '验证线索暂时无法读取，没有启动任务。请稍后发送新的 /findings。', { replyTo: message.id });
-      });
+      try {
+        this.transport.state.transaction(() => {
+          if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '验证线索暂时无法读取，没有启动任务。请稍后发送新的 /findings。', { replyTo: message.id });
+        });
+      } catch { console.error('Findings answer could not be retained; query receipt rolled back'); }
     });
     return { status: 'findings-view' as const };
   }

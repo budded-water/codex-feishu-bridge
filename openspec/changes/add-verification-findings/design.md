@@ -8,4 +8,6 @@ Only the existing enrolled private owner with the approval role may request the 
 
 Distinguish active/queued, unknown/protected, absent observation and sealed recorded observation. Validate the closed native evidence with the existing read-only evidence reader before presenting a recorded outcome. Missing or changed evidence stays unverified. Use existing applicability checks for profile/policy/report/source drift. Failures are verification leads, not automatically classified product bugs: infrastructure and human review remain possible causes. Do not interpolate report contents into task commands.
 
+If both the answer and fallback transactions fail, retain neither receipt nor answer and settle the view chain with a bounded operational log. Storage recovery must allow ordinary synchronization and closure; safe query redelivery may recompute the read.
+
 Only transport receipt/outbox writes are permitted. Never call native apply/recover/control/start, modify observation/native journals, release guards, publish source events or invoke UI-eval. A future discovery scheduler or candidate acceptance policy requires a separate change.

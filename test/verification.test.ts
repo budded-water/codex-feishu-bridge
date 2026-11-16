@@ -179,6 +179,24 @@ test('findings enforces owner/chat/approval boundary and malformed commands neve
   assert.match(h.sent.at(-1)!, /需核对 0 个/); assert.match(h.sent.at(-1)!, /空列表不代表项目没有问题/);
 });
 
+test('persistent findings answer failure rolls back receipt without poisoning synchronization or shutdown', async t => {
+  const h = handoff(t), state = h.interactions.transport.state, send = state.send.bind(state);
+  const query = message('/findings', { chatType: 'p2p' });
+  state.send = () => { throw Error('Synthetic persistent outbox storage failure'); };
+  try {
+    h.interactions.receive(query);
+    await assert.doesNotReject(h.interactions.flush());
+    const db = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'), { readOnly: true });
+    assert.equal(db.prepare('select count(*) n from seen where tenant=? and id=?').get(query.tenant, query.id)!.n, 0);
+    assert.equal(db.prepare('select count(*) n from outbox').get()!.n, 0); db.close();
+  } finally { state.send = send; }
+  await assert.doesNotReject(h.interactions.flush());
+  await h.restart(); h.interactions.receive(query); h.interactions.receive(query); await drain(h);
+  assert.equal(h.sent.filter(x => x.includes('验证线索')).length, 1);
+  assert.equal(h.admission.store.requests().length, 0); assert.equal(h.codex.calls.length, 0);
+  await assert.doesNotReject(h.interactions.close());
+});
+
 test('findings selects latest profile before filtering, scopes history in SQLite and bounds displayed leads', async t => {
   const h = handoff(t, 'fail'), task = await h.launch(); await task.running; await drain(h);
   const accept = (profile: string, overrides = {}) => {

@@ -28,3 +28,7 @@ The query SHALL write only its transport receipt and answer. It SHALL NOT start 
 #### Scenario: Duplicate view across restart
 - **WHEN** the same real owner message is delivered repeatedly or after restart
 - **THEN** at most one durable answer is queued and execution, verification and source state remain unchanged
+
+#### Scenario: Persistent answer storage failure
+- **WHEN** both the answer and fallback transactions fail
+- **THEN** the receipt rolls back, synchronization and shutdown remain usable, and redelivery after storage recovery can retain one answer
