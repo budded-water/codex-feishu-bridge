@@ -208,6 +208,23 @@ export class AdmissionStore {
     return row && this.request(row.id);
   }
 
+  taskOverview(owner: string, project: string) {
+    const scope = `FROM requests r JOIN conversations c ON c.id=r.conversation LEFT JOIN executions e ON e.id=r.execution
+      LEFT JOIN guards g ON g.execution=e.id WHERE c.owner=? AND r.project=?`;
+    const active = "e.status='active'", unknown = "e.status='unknown' AND g.execution IS NOT NULL";
+    const unstarted = "e.id IS NULL AND COALESCE(r.blocked,'')<>?";
+    const counts = this.db.prepare(`SELECT COUNT(*) total,COALESCE(SUM(${active}),0) active,
+      COALESCE(SUM(${unknown}),0) unknown,COALESCE(SUM(${unstarted}),0) unstarted ${scope}`)
+      .get(OWNER_WITHDRAWN, owner, project) as { total: number; active: number; unknown: number; unstarted: number };
+    const recent = this.db.prepare(`SELECT r.id ${scope} AND NOT (COALESCE(${active},0) OR COALESCE((${unknown}),0) OR (${unstarted})) ORDER BY r.rowid DESC LIMIT 3`)
+      .all(owner, project, OWNER_WITHDRAWN) as { id: string }[];
+    const current = this.taskPage(owner, project, 1).requests.filter(r => {
+      const e = this.execution(r.execution);
+      return e?.status === 'active' || (e?.status === 'unknown' && this.unsettled().some(g => g.id === e.id)) || (!e && r.blocked !== OWNER_WITHDRAWN);
+    });
+    return { counts, current, recent: recent.map(row => this.request(row.id)!) };
+  }
+
   verification(execution: string): VerificationRecord | undefined {
     const row = this.db.prepare('SELECT * FROM verifications WHERE execution=?').get(execution) as
       (Omit<VerificationRecord, 'definition' | 'observation'> & { definition: string; observation: string | null }) | undefined;

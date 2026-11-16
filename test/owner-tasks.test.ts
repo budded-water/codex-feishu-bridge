@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import * as lark from '@larksuiteoapi/node-sdk';
-import { Feishu } from '../src/feishu.js';
+import { Feishu, normalizeMessage } from '../src/feishu.js';
 import { record } from '../src/types.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
@@ -69,7 +69,7 @@ test('owner task browsing is scoped, paginated and rejected commands never becom
   for (const changes of [{ user: 'other' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' as const }]) owner.receive(message('/tasks', { chatType: 'p2p', ...changes }));
   h.config.approvalUsers = []; owner.receive(message('/tasks', { chatType: 'p2p' })); await owner.idle(); assert.equal(h.interactions.transport.state.pending().length, 0);
   h.config.approvalUsers = ['ou_owner'];
-  for (const text of ['/tasks', '/tasks 2', '/tasks 3', '/tasks 0', '/task ' + randomUUID()]) { owner.receive(message(text, { chatType: 'p2p' })); await owner.idle(); await h.interactions.transport.flush(); }
+  for (const text of ['/tasks 1', '/tasks 2', '/tasks 3', '/tasks 0', '/task ' + randomUUID()]) { owner.receive(message(text, { chatType: 'p2p' })); await owner.idle(); await h.interactions.transport.flush(); }
   const bodies = h.sent.map(s => s.body);
   assert.ok(bodies.some(b => b.includes('第 1/2 页') && (b.match(/\/task [a-f0-9-]{36}/g) ?? []).length === 10));
   assert.ok(bodies.some(b => b.includes('第 2/2 页') && (b.match(/\/task [a-f0-9-]{36}/g) ?? []).length === 2));
@@ -139,7 +139,7 @@ test('persistent task answer failure rolls back receipt and preserves idle/close
   state.send = () => { throw Error('Synthetic persistent storage failure'); };
   owner.receive(query); await assert.doesNotReject(owner.idle()); state.send = send;
   owner.receive(query); owner.receive(query); await owner.idle(); await h.interactions.transport.flush();
-  assert.equal(h.sent.filter(s => s.body.includes('任务列表')).length, 1); await assert.doesNotReject(h.interactions.close());
+  assert.equal(h.sent.filter(s => s.body.includes('任务概览')).length, 1); await assert.doesNotReject(h.interactions.close());
 });
 
 test('task presentation redacts request secrets before escaping and refresh preserves redaction', async t => {
@@ -186,7 +186,7 @@ test('pilot command wiring admits no work and unknown outcomes preserve guards',
   h.interactions.receive(message('/tasks', { chatType: 'p2p' })); await h.drain();
   const card = h.sent.find(s => s.options?.taskView)!; assert.ok(card.body.includes('结果未确认')); assert.ok(card.body.includes('不解除保护'));
   assert.deepEqual(h.admission.store.unsettled(), before); assert.equal(h.admission.store.requests().length, count); assert.equal(h.codexes.length, 1);
-  assert.ok(h.sent.some(s => s.body.startsWith('### 任务列表')));
+  assert.ok(h.sent.some(s => s.body.startsWith('### 任务概览')));
   h.admission.store.reconcileLocal(randomUUID(), task.request.execution, 'Controlled fixture process/effect inspection');
   const queued = h.admit('New task after inspection');
   const page = h.admission.store.taskPage(JSON.stringify(['tenant', 'ou_owner', 'chat']), h.admission.project, 1);
@@ -218,4 +218,38 @@ test('sealed legacy task timing remains absent and the progress read does not mi
   report.databaseHash = createHash('sha256').update(bytes).digest('hex'); writeFileSync(reportPath, JSON.stringify(report));
   const value = await h.native.progress(task.request.execution); assert.equal(value.live, false); assert.equal(value.startedAt, undefined); assert.equal(value.finishedAt, undefined);
   assert.deepEqual(readFileSync(path), bytes);
+});
+
+test('copied text-only rich-post progress commands enter read-only query exactly once', async t => {
+  const h = setup(t), request = h.admit(), command = '/task ' + request.execution;
+  const raw = (content: unknown) => ({ tenant_key: 'tenant', sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } },
+    message: { message_id: randomUUID(), chat_id: 'chat', chat_type: 'p2p', message_type: 'post', content: JSON.stringify(content) } });
+  for (const tag of ['text', 'md', 'code_block']) {
+    const incoming = normalizeMessage(raw({ title: '', content: [[{ tag, text: command, style: ['code'] }]], content_v2: [[{ tag: 'md', text: command }]] }))!;
+    assert.equal(incoming.text, command); assert.equal(incoming.unsupported, undefined);
+    h.interactions.receive(incoming); h.interactions.receive(incoming); await h.drain();
+  }
+  assert.equal(h.sent.filter(s => s.options?.taskView).length, 3); assert.equal(h.admission.store.requests().length, 1); assert.equal(h.codexes.length, 0);
+});
+
+test('mixed rich posts and write controls stay unsupported with one useful private-owner reply', async t => {
+  const h = setup(t), command = '/task ' + randomUUID();
+  for (const content of [{ title: '', content: [[{ tag: 'text', text: '/stop' }]] }, { title: '', content: [[{ tag: 'text', text: command }, { tag: 'img', image_key: 'img_fixture' }]] },
+    { title: 'Additional instructions', content: [[{ tag: 'text', text: command }]] }, { title: '', content: [[{ tag: 'a', text: command, href: 'https://example.invalid' }]] }]) {
+    const incoming = normalizeMessage({ tenant_key: 'tenant', sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } },
+      message: { message_id: randomUUID(), chat_id: 'chat', chat_type: 'p2p', message_type: 'post', content: JSON.stringify(content) } })!;
+    assert.equal(incoming.unsupported, 'post'); h.interactions.receive(incoming); h.interactions.receive(incoming); await h.drain();
+  }
+  assert.equal(h.sent.filter(s => s.body.includes('暂不支持这类消息')).length, 4); assert.equal(h.admission.store.requests().length, 0); assert.equal(h.codexes.length, 0);
+});
+
+test('default task overview separates current work from at most three recent historical records', async t => {
+  const h = setup(t);
+  for (let i = 0; i < 8; i++) { const r = h.admit('Historical fixture ' + i); h.admission.store.withdraw(message('/withdraw ' + r.execution, { chatType: 'p2p' }), r.execution, h.admission.project); }
+  const owner = h.views(); owner.receive(message('/tasks', { chatType: 'p2p' })); await owner.idle(); await h.interactions.transport.flush();
+  const body = h.sent.at(-1)!.body;
+  assert.ok(body.includes('执行中：0') && body.includes('未开始（含阻断）：0') && body.includes('待检查：0'));
+  assert.equal((body.match(/\/task [0-9a-f-]{36}/g) ?? []).length, 3); assert.ok(body.includes('共 8 条') && body.includes('历史数量不代表当前待办'));
+  const queued = h.admit('Current work'); owner.receive(message('/tasks', { chatType: 'p2p' })); await owner.idle(); await h.interactions.transport.flush();
+  assert.ok(h.sent.at(-1)!.body.includes(queued.execution)); assert.ok(h.sent.at(-1)!.body.includes('未开始（含阻断）：1'));
 });
