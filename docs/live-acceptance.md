@@ -1,5 +1,13 @@
 # Live acceptance evidence
 
+## 2026-11-16 — Owner task progress candidate
+
+The candidate unifies P1 owner-private ordinary/verification/repair browsing through `/tasks [page]`, exact `/task` detail and confirmed-message snapshot-card refresh. Activity comes from a separate authenticated read-only owner operation; legacy missing timing and unknown owner/evidence stay explicit. Existing native controls/approvals and sealed journals retain their authority. No model inference, new task or automatic replay is introduced by a query.
+
+Required local type/behavior/build checks passed with 310 tests and twelve strict specification items. Coverage includes actual SDK dispatch/interactive payloads, SQLite receipt/card transactions, owner IPC, live command/prompt stages, sealed bytes, legacy timing, unreachable/unknown owners, repair attempts/results, repeated/restarted/uncertain refresh, stale/current quoted controls, redaction, persistent storage failure and closed-state rollback archive/deduplication/message links. Exact-head CI/review, source delivery, managed M6 activation and genuine owner list/detail/refresh acceptance remain separate gates. Business validation and deferred host exercises remain open.
+
+The same candidate also passed real local Codex protocol smoke without inference and the actual pinned Hub/Worker scripted regression for withdrawal/restart, duplicate controls, approval/stop, owner recovery/loss, final delivery and reaction cleanup. Human transport in that campaign was synthetic; it does not establish real task-card reception or refresh acceptance.
+
 ## 2026-11-16 — Verification findings candidate
 
 The owner-private P1 `/findings` candidate derives a bounded latest-profile view from retained verification/repair tasks. It distinguishes unfinished work, unknown cleanup, missing/changed native evidence and historical outcomes with applicability limits. It admits no task, invokes no model/verifier and retains no competing backlog. Existing `/verify`, repair limits and P3 business acceptance remain unchanged.

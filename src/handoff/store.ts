@@ -191,6 +191,23 @@ export class AdmissionStore {
     return rows.map(row => this.request(row.id)!);
   }
 
+  taskPage(owner: string, project: string, page: number): { total: number; requests: RequestRecord[] } {
+    const total = Number((this.db.prepare(`SELECT COUNT(*) n FROM requests r JOIN conversations c ON c.id=r.conversation
+      WHERE c.owner=? AND r.project=?`).get(owner, project) as { n: number }).n);
+    const rows = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
+      LEFT JOIN executions e ON e.id=r.execution WHERE c.owner=? AND r.project=? ORDER BY
+      CASE WHEN e.status='active' OR (e.status='unknown' AND EXISTS(SELECT 1 FROM guards g WHERE g.execution=e.id)) THEN 0
+      WHEN e.id IS NULL AND COALESCE(r.blocked,'')<>? THEN 1 ELSE 2 END,
+      r.rowid DESC LIMIT 10 OFFSET ?`).all(owner, project, OWNER_WITHDRAWN, (page - 1) * 10) as { id: string }[];
+    return { total, requests: rows.map(row => this.request(row.id)!) };
+  }
+
+  ownedTask(execution: string, owner: string, project: string): RequestRecord | undefined {
+    const row = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
+      WHERE r.execution=? AND c.owner=? AND r.project=?`).get(execution, owner, project) as { id: string } | undefined;
+    return row && this.request(row.id);
+  }
+
   verification(execution: string): VerificationRecord | undefined {
     const row = this.db.prepare('SELECT * FROM verifications WHERE execution=?').get(execution) as
       (Omit<VerificationRecord, 'definition' | 'observation'> & { definition: string; observation: string | null }) | undefined;

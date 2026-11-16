@@ -6,11 +6,11 @@ import type { Config } from '../config.js';
 import { CodexClient } from '../codex/client.js';
 import { Bridge } from '../bridge.js';
 import { State } from '../state.js';
-import { ownerKey, record, type CodexPort, type IncomingMessage, type NativeControlTarget, type ControlDisposition } from '../types.js';
+import { ownerKey, record, type CodexPort, type IncomingMessage, type NativeControlTarget, type ControlDisposition, type NativeActivity } from '../types.js';
 import { PilotAdmission } from './gateway.js';
 import type { Permit, RequestRecord } from './store.js';
 import { openOwnerChannel, probeOwner, requestOwner } from './owner-channel.js';
-import { journalControl, journalProjection } from './journal.js';
+import { journalControl, journalProjection, readJournal } from './journal.js';
 import { ProcessObserver, parseProcessObservation, readProcessTable, processState, type ProcessObservation, type ProcessTable } from './processes.js';
 import { profileDigest, type VerificationProfiles } from './verification-profile.js';
 import { runVerification } from './verification-runner.js';
@@ -275,6 +275,40 @@ export class NativeExecutions {
     return value.ready === true;
   }
 
+  async progress(execution: string): Promise<{ live: boolean; activity?: NativeActivity; startedAt?: number; finishedAt?: number }> {
+    const row = this.gateway.store.execution(execution);
+    if (!row || row.status === 'unknown') throw new Error('Progress cannot confirm this execution');
+    const owner = this.owner(execution);
+    if (row.status !== 'active') {
+      const report = this.evidence(execution);
+      if (report.outcome.status !== row.status) throw new Error('Terminal execution evidence differs');
+      if (!report.databaseHash) return { live: false };
+      const timing = readJournal(this.journalPath(execution), db => {
+        const columns = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name);
+        const fields = ['execution_at', 'finished_at'].map(name => columns.includes(name) ? name : `NULL AS ${name}`);
+        return db.prepare(`SELECT ${fields.join(',')} FROM tasks WHERE id=?`).get(report.outcome.task!) as { execution_at: number | null; finished_at: number | null } | undefined;
+      });
+      return { live: false, ...(timing?.execution_at && { startedAt: timing.execution_at }), ...(timing?.finished_at && { finishedAt: timing.finished_at }) };
+    }
+    const attempt = this.gateway.store.repairs.get(execution)?.attempts.at(-1)?.id;
+    const value = await requestOwner(owner.socket, owner.permit.token, execution, { op: 'progress' });
+    if (value.pid !== owner.pid || value.execution !== execution || value.attempt !== attempt ||
+      this.gateway.store.repairs.get(execution)?.attempts.at(-1)?.id !== attempt || this.gateway.store.execution(execution)?.status !== 'active') throw new Error('Progress owner or attempt changed');
+    if (value.activity === null) return { live: true };
+    const a = record(value.activity);
+    if (!['task', 'thread', 'turn', 'generation', 'stage'].every(k => typeof a[k] === 'string' && String(a[k]).length <= 200) ||
+      !a.task || !a.generation || !a.stage || !Number.isSafeInteger(a.startedAt) || Number(a.startedAt) <= 0 ||
+      !(a.lastEventAt === null || (Number.isSafeInteger(a.lastEventAt) && Number(a.lastEventAt) > 0)) || !Array.isArray(a.prompts) || a.prompts.length > 20 ||
+      a.prompts.some(p => { const v = record(p); return typeof v.token !== 'string' || !/^[a-f0-9]{8}$/.test(v.token) || !['approval', 'question'].includes(String(v.kind)) || !Number.isSafeInteger(v.expires); })) throw new Error('Invalid activity');
+    const request = this.gateway.store.ownedRequest(owner.permit);
+    const task = readJournal(this.journalPath(execution), db => db.prepare(`SELECT tasks.id,sessions.owner,trigger_message AS trigger,directory,thread,turn
+      FROM tasks JOIN sessions ON sessions.id=tasks.session WHERE tasks.id=?`).get(String(a.task)) as
+      { owner: string; trigger: string; directory: string; thread: string | null; turn: string | null } | undefined);
+    if (!task || a.generation !== value.generation || task.owner !== ownerKey(request.message) || task.trigger !== request.message.id ||
+      task.directory !== this.gateway.directory || (a.thread && task.thread !== a.thread) || (a.turn && task.turn !== a.turn)) throw new Error('Activity identity differs');
+    return { live: true, activity: a as unknown as NativeActivity };
+  }
+
   async inspect(execution: string): Promise<Record<string, unknown>> {
     const owner = this.owner(execution);
     const snapshot = await probeOwner(owner.socket, owner.permit.token, execution);
@@ -370,6 +404,7 @@ class NativeOwner {
   async run(): Promise<void> {
     const channel = await openOwnerChannel(this.permit.token, this.permit.execution, async incoming => {
       if (incoming.op === 'diagnostic') return { execution: this.permit.execution, pid: process.pid };
+      if (incoming.op === 'progress') return { execution: this.permit.execution, pid: process.pid, generation: this.codex.generation, activity: this.bridge?.progress() ?? null };
       if (incoming.op === 'control-result') {
         if (typeof incoming.tenant !== 'string' || typeof incoming.id !== 'string' || !this.state) throw new Error('Invalid control lookup');
         return { status: journalControl(join(this.folder, 'bridge.db'), { tenant: incoming.tenant, id: incoming.id }) };

@@ -1,5 +1,11 @@
 export interface Mention { id: string; name: string }
-export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation }
+export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation; taskView?: import('./task-card.js').TaskPresentation }
+
+export interface NativeActivity {
+  task: string; thread: string; turn: string; generation: string; stage: string;
+  startedAt: number; lastEventAt: number | null;
+  prompts: { token: string; kind: 'approval' | 'question'; expires: number }[];
+}
 
 export interface IncomingMessage {
   tenant: string;

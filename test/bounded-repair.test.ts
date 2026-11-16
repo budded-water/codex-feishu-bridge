@@ -86,8 +86,10 @@ function setup(t: TestContext, mode = 'normal', budget = 30_000, outerBudget = 6
 
 test('bounded repair continues the verified conversation with immutable journals and final-only durable replies', async t => {
   const h = setup(t), task = await h.start(), first = await h.turn(0);
+  const firstProgress = await h.native.progress(task.request.execution); assert.equal(firstProgress.live, true); assert.equal(firstProgress.activity!.generation, first.generation);
   first.codex.complete(first.thread, first.turn, 'completed', 'FIRST_DRAFT');
   const second = await h.turn(1), goal = h.admission.store.repairs.get(task.request.execution)!;
+  const secondProgress = await h.native.progress(task.request.execution); assert.equal(secondProgress.live, true); assert.equal(secondProgress.activity!.generation, second.generation);
   assert.equal(goal.attempts.length, 2); assert.equal(second.thread, first.thread); assert.notEqual(second.generation, first.generation);
   assert.ok(second.codex.calls.some(c => c.method === 'thread/resume'));
   const other = new PilotAdmission(h.config.stateDirectory, h.scope, 'workspace');
@@ -147,6 +149,11 @@ test('repair is opt-in and already-pass, mixed failures and exhausted credit nev
     else { assert.match(view, /历史观测：验证未通过/); assert.ok(view.includes(task.request.execution)); }
     assert.deepEqual(h.admission.store.repairs.get(task.request.execution), goalBefore);
     assert.equal(h.admission.store.requests().length, countBefore); assert.equal(h.codexes.length, variant === 'twice' ? 2 : 1);
+    h.interactions.receive(message('/task ' + task.request.execution, { chatType: 'p2p' }));
+    for (let i = 0; i < 4; i++) await h.interactions.flush();
+    const detail = h.sent.find(x => x.options?.taskView)!.text;
+    assert.ok(detail.includes('原生封存证据已核对')); assert.ok(detail.includes('项目验证'));
+    assert.deepEqual(h.admission.store.repairs.get(task.request.execution), goalBefore); assert.equal(h.codexes.length, variant === 'twice' ? 2 : 1);
   }
 });
 

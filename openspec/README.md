@@ -29,6 +29,8 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 ## Where facts belong
 
+The active [owner task-progress slice](changes/add-owner-task-progress/proposal.md) adds read-only owner task browsing and confirmed-message refresh over existing execution facts. Source, review, deployment and real owner gates remain separate. It does not close P3 business acceptance or enable proactive task admission.
+
 The delivered [verification findings slice](changes/archive/2026-11-16-add-verification-findings/proposal.md) adds a bounded owner-requested discovery view over retained observations. Corrected source review/CI, PR delivery, managed M6 activation and the real owner-private empty view over latest passing fixture records are verified. Native/project/report hashes and admission/Hub history stayed unchanged across the query. Its normative requirements are in the main specification; non-pass/fault cases retain automated coverage. It does not close P3 business validation or introduce scheduled execution.
 
 The separately delivered [bounded repair change](changes/archive/2026-11-16-add-bounded-verification-repair/proposal.md) implements an explicit opt-in, one-repair extension. Its [tasks](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) retain reviewed source, scripted evidence, M6 activation and bounded real owner task/command-approval-button/final/history acceptance. It does not change `/verify` or complete P3 business acceptance. Its normative requirements are now in the main specification; broader interaction/fault/host families retain their dated limits.

@@ -56,6 +56,8 @@ Transport formatting, context bounds, authorization, session ownership, and deli
 
 The delivered [verification-findings specification](openspec/specs/verification-findings/spec.md) defines `/findings` as an owner-private, bounded read-only historical view. Preserve latest-profile selection, sealed evidence/applicability limits, atomic transport receipt/answer and synchronization after persistent storage failure. It must not create tasks, call models/verifiers or authorize follow-up. The M6 latest-passing-fixture empty view is live-accepted; non-pass/fault cases retain automated coverage. Scheduled discovery and candidate execution require a separate bounded policy.
 
+Read [task progress](docs/task-progress.md) and its bounded change before modifying `/tasks`, `/task` or refresh callbacks. Preserve owner/resource scope, read-only native activity, truthful uncertainty/legacy gaps, confirmed platform identity, redaction and atomic receipt/output. Detail replies bind existing task controls; refresh must never become an approval, task admission or execution replay. Drain transport card updates with compatible tooling before downgrade. Source implementation and actual owner acceptance remain separately recorded.
+
 ## Public repository hygiene
 
 Never commit real credentials, access tokens, personal user IDs, project paths, Codex auth files, SQLite state, logs, or transcripts. Example configuration must contain placeholders only. Do not activate a bot or send messages during tests without the user's authorization for that live test.

@@ -5,6 +5,7 @@ import { RECEIVED_EMOJI, type ReactionPort } from './feedback.js';
 import { markdownPost, notificationPost, safeMentionText } from './reply.js';
 import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext, type DeliveryOptions } from './types.js';
 import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
+import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
 
 export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMessage | undefined {
   // EventDispatcher flattens the v2 header and event into its callback argument.
@@ -96,7 +97,8 @@ export class Feishu implements ContextPort, ReactionPort {
     return id;
   }
 
-  async start(receive: (message: IncomingMessage) => void, cardAction?: (click: ApprovalClick) => CardResult): Promise<void> {
+  async start(receive: (message: IncomingMessage) => void, cardAction?: (click: ApprovalClick) => CardResult,
+    taskAction?: (click: TaskRefreshClick) => CardResult): Promise<void> {
     if (this.closed || this.startup) throw new Error('Feishu connection cannot be started');
     let botOpenId: string | undefined;
     if (this.enableGroups) {
@@ -114,12 +116,16 @@ export class Feishu implements ContextPort, ReactionPort {
           },
           'card.action.trigger': (data: unknown) => {
             let result: CardResult = 'rejected';
+            const refresh = normalizeTaskRefresh(data, this.appId);
             try {
-              const click = normalizeApprovalClick(data, this.appId);
-              if (click && cardAction && !this.closed) result = cardAction(click);
+              if (refresh && taskAction && !this.closed) result = taskAction(refresh);
+              else {
+                const click = normalizeApprovalClick(data, this.appId);
+                if (click && cardAction && !this.closed) result = cardAction(click);
+              }
             } catch { console.error('Card decision could not be confirmed'); }
             return { toast: { type: result === 'rejected' ? 'warning' : 'info', content: result === 'rejected'
-              ? '请求可能已处理、过期或尚未核实，请查看任务状态。' : '已收到本次确认，正在核对请求状态。' } };
+              ? '请求可能已处理、过期或尚未核实，请查看任务状态。' : refresh ? '正在读取任务进度。' : '已收到本次确认，正在核对请求状态。' } };
           },
         }),
       }).catch(() => this.connectionFailed());
@@ -144,8 +150,8 @@ export class Feishu implements ContextPort, ReactionPort {
 
   async send(chat: string, text: string, idempotencyKey: string, options: DeliveryOptions = {}): Promise<string | void> {
     const styled = markdownPost(safeMentionText(text)).zh_cn.content[0]![0]!.text;
-    const content = JSON.stringify(options.approval ? approvalCard(options.approval) : notificationPost(styled,options.mentions ?? []));
-    const msg_type = options.approval ? 'interactive' : 'post';
+    const content = JSON.stringify(options.taskView ? taskCard(options.taskView) : options.approval ? approvalCard(options.approval) : notificationPost(styled,options.mentions ?? []));
+    const msg_type = options.approval || options.taskView ? 'interactive' : 'post';
     if (options.replyTo) {
       const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
         const code = Number(record(record(record(error).response).data).code ?? record(error).code);
@@ -166,6 +172,13 @@ export class Feishu implements ContextPort, ReactionPort {
       .catch(error => { const code = Number(record(record(record(error).response).data).code ?? record(error).code);
         if ([230011, 230110].includes(code)) return { code }; throw error; });
     if (result.code !== 0 && ![230011, 230110].includes(result.code ?? -1)) throw new Error('Approval card update unconfirmed');
+  }
+
+  async updateTask(message: string, presentation: TaskPresentation): Promise<void> {
+    const result = await this.client.im.v1.message.patch({ path: { message_id: message }, data: { content: JSON.stringify(taskCard(presentation)) } })
+      .catch(error => { const code = Number(record(record(record(error).response).data).code ?? record(error).code);
+        if ([230011, 230110].includes(code)) return { code }; throw error; });
+    if (result.code !== 0 && ![230011, 230110].includes(result.code ?? -1)) throw new Error('Task card update unconfirmed');
   }
 
   async addReaction(message: string): Promise<string> {
