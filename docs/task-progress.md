@@ -4,13 +4,16 @@ The P1 gateway exposes a read-only view over existing ordinary, verification and
 
 ```text
 /tasks
+/tasks 1
 /tasks 2
 /task COMPLETE_EXECUTION_UUID
 ```
 
 ## What the view means
 
-The list contains ten owned tasks per page in the current canonical workspace/resource. Active tasks and still-guarded unknown outcomes come first, then unstarted requests, then history. Inspected historical unknowns without a guard retain their original outcome but do not displace current work. Pages reflect current records and can move as task state changes; exact execution IDs remain stable. Foreign/unknown IDs and malformed commands never admit work or disclose another owner's content.
+The default `/tasks` overview separates active, unstarted and still-guarded unknown counts from history. It shows at most ten outstanding items and three recent historical requests. `/tasks 1` opens complete records, ten per page, with outstanding work prioritized. Inspected historical unknowns without a guard retain their outcome and sort with history. Pages can move as state changes; exact execution IDs remain stable. Foreign/unknown IDs and malformed commands never admit work or disclose another owner's content.
+
+Copied progress queries can arrive as rich posts. Private title-free text-only posts containing exactly one supported `/tasks` or `/task` query use the same read-only route and real message identity. Links, mentions, images, mixed instructions, other controls and general task prose are not promoted to task authority. Unsupported owner posts receive format guidance. Plain-text task/control behavior is unchanged.
 
 Detail shows the bounded request title, execution state, current-round activity/elapsed time and recent-event age when the authenticated owner supplies them. It also shows non-sensitive pending-prompt tokens, verification status/applicability, repair rounds and history links where available. A connected owner or recent event does not prove model/network health. Missing owners remain unverified; retained phases are not liveness proof. Terminal native evidence is checked without changing its journal; missing legacy timing stays absent.
 

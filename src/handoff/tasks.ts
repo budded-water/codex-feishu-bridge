@@ -33,7 +33,7 @@ export class OwnerTasks {
     if (!isMaintenanceOwner(this.admission.scope, this.config, message) || message.unsupported || message.text.length > 30_000) return { status: 'rejected' as const };
     this.enqueue(message, async () => {
       const text = message.text.trim(), list = /^\/tasks(?:\s+([1-9][0-9]{0,5}))?$/.exec(text);
-      if (list) return { body: this.list(message, Number(list[1] ?? 1)) };
+      if (list) return { body: list[1] ? this.list(message, Number(list[1])) : this.overview(message) };
       const selected = new RegExp('^/task\\s+(' + uuid + ')$', 'i').exec(text);
       const request = selected && this.owned(message, selected[1]!.toLowerCase());
       if (!request) return { body: usage };
@@ -95,6 +95,16 @@ export class OwnerTasks {
 
   private title(request: RequestRecord): string {
     return escape(taskTitle(this.state.redact(request.message.text).replace(/^\/verify(?:-repair)?\s+\S+\s+/, '')));
+  }
+
+  private overview(message: IncomingMessage): string {
+    const { counts, current, recent } = this.admission.store.taskOverview(ownerKey(message), this.admission.project);
+    const row = (r: RequestRecord) => `${this.title(r)}\n${this.facts(r).status}\n${copyBlock('/task ' + r.execution)}`;
+    return present('任务概览', `执行中：${counts.active} · 未开始（含阻断）：${counts.unstarted} · 待检查：${counts.unknown}。`,
+      section('当前任务', current.length ? current.map(row) : ['当前没有执行、排队或仍受保护的未确认任务。']),
+      section('最近结果 · 历史记录', recent.map(row)),
+      section('完整记录', [`已接收请求共 ${counts.total} 条，包含已结束、撤回和历史未确认记录；历史数量不代表当前待办。`,
+        ...(current.length === 10 ? ['当前任务最多展示 10 条，完整记录可继续查看。'] : []), copyBlock('/tasks 1')]));
   }
 
   private list(message: IncomingMessage, page: number): string {

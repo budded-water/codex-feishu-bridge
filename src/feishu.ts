@@ -7,6 +7,24 @@ import { record, string, type IncomingMessage, type ContextPort, type Session, t
 import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
 
+function progressPost(body: Record<string, unknown>): string | undefined {
+  const { title, rows } = postRows(body);
+  if (title.trim() || !rows.length || rows.length > 8) return;
+  const lines: string[] = [];
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length > 16) return;
+    let line = '';
+    for (const value of row) {
+      const part = record(value);
+      if (!['text', 'md', 'code_block'].includes(string(part.tag)) || typeof part.text !== 'string' || part.text.length > 2000) return;
+      line += part.text;
+    }
+    lines.push(line);
+  }
+  const text = lines.join('\n').trim();
+  return /^\/(?:tasks(?:\s+[1-9][0-9]{0,5})?|task\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(text) ? text : undefined;
+}
+
 export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMessage | undefined {
   // EventDispatcher flattens the v2 header and event into its callback argument.
   const event = record(value);
@@ -16,8 +34,9 @@ export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMe
   let content: Record<string, unknown>;
   try { content = record(JSON.parse(string(message.content))); }
   catch { return; }
-  const unsupported = message.message_type !== 'text' ? string(message.message_type) || '未知格式' : undefined;
-  let text = unsupported ? '不支持的消息格式' : string(content.text);
+  const progress = message.message_type === 'post' && message.chat_type === 'p2p' ? progressPost(content) : undefined;
+  const unsupported = message.message_type !== 'text' && !progress ? string(message.message_type) || '未知格式' : undefined;
+  let text = unsupported ? '不支持的消息格式' : progress ?? string(content.text);
   if (message.chat_type === 'group') {
     if (!botOpenId || !Array.isArray(message.mentions)) return;
     const mentions = message.mentions.map(record).filter(mention =>
