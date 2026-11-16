@@ -7,7 +7,7 @@ Use this with [operation](operation.md), [handoff/rollback](handoff-migration.md
 | Area | Observed or implemented | Still separate |
 | --- | --- | --- |
 | Service registration | Actual installed gateway/Hub-Worker definitions match inventory; RunAtLoad and KeepAlive configured | A subsequent host login/reboot exercise |
-| Coordinated service restart | Exact services stopped; registered process identities settled; original services regained managed SDK/Hub readiness and admission reopened drained | A fresh owner roundtrip after this particular restart, and other fault families |
+| Coordinated service restart | Closed capture restored managed SDK/Hub readiness; the later reviewed bounded-repair cutover also verified a genuine owner task/approval/final/history roundtrip, as recorded in [dated acceptance](live-acceptance.md) | Other restart/fault families; restored-consumer activation remains separate |
 | Closed backup | Private state, configuration, service definitions, inventory and the current verification fixture/report tree captured together | Scheduled retention, off-host storage and full-machine backup |
 | Isolated restore | Copied payload hashes, SQLite integrity/foreign keys, retained native-journal bindings and verification report hashes verified | Activating restored state as the live consumer, or restoring on another host/root |
 | Sleep/wake and network | Existing reconnection/guard behavior has source and automated coverage; actual power/service policy inspected | Deliberate real host sleep/wake and connectivity interruption |
