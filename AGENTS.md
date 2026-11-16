@@ -48,7 +48,7 @@ Read openspec/changes/standardize-english-chat-commands for canonical English sl
 
 ## Maintaining bot behavior
 
-Read docs/project-verification.md and the add-project-verification-handoff change for optional task verification. Profiles are private trusted executable policy, not chat-selected modules. Keep one Worker assignment/guard through the native turn and verifier, durable launch intent, separate outcomes, unchanged sealed journals and lookup-only uncertainty. P3 source review and managed M6 deployment are verified; real owner commands and business-project acceptance remain pending separately from isolated fixture evidence.
+Read docs/project-verification.md and the add-project-verification-handoff change for optional task verification. Profiles are private trusted executable policy, not chat-selected modules. Keep one Worker assignment/guard through the native turn and verifier, durable launch intent, separate outcomes, unchanged sealed journals and lookup-only uncertainty. P3 source review, managed M6 deployment and bounded real owner-private fixture /verify plus read-only /verification acceptance are verified. Business-project acceptance remains pending; fixture success is not feature or release acceptance.
 
 Transport formatting, context bounds, authorization, session ownership, and delivery deduplication belong in runtime code and behavioral tests. Conversation style is supplied through thread developer instructions. Use this file and the referenced docs for the repository maintenance workflow; extract a skill only when a repeated workflow must be reused beyond this repository. A skill must reference live contracts instead of duplicating config defaults or acceptance status, and it never grants platform access.
 
