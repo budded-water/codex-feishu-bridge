@@ -196,7 +196,8 @@ export class AdmissionStore {
       WHERE c.owner=? AND r.project=?`).get(owner, project) as { n: number }).n);
     const rows = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
       LEFT JOIN executions e ON e.id=r.execution WHERE c.owner=? AND r.project=? ORDER BY
-      CASE WHEN e.status IN ('active','unknown') THEN 0 WHEN e.id IS NULL AND COALESCE(r.blocked,'')<>? THEN 1 ELSE 2 END,
+      CASE WHEN e.status='active' OR (e.status='unknown' AND EXISTS(SELECT 1 FROM guards g WHERE g.execution=e.id)) THEN 0
+      WHEN e.id IS NULL AND COALESCE(r.blocked,'')<>? THEN 1 ELSE 2 END,
       r.rowid DESC LIMIT 10 OFFSET ?`).all(owner, project, OWNER_WITHDRAWN, (page - 1) * 10) as { id: string }[];
     return { total, requests: rows.map(row => this.request(row.id)!) };
   }

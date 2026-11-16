@@ -10,7 +10,7 @@ The P1 gateway exposes a read-only view over existing ordinary, verification and
 
 ## What the view means
 
-The list contains ten owned tasks per page in the current canonical workspace/resource. Granted active/unknown tasks come first, then unstarted requests, then recent ended/withdrawn tasks. Pages reflect current records and can move as task state changes; exact execution IDs remain stable. Foreign/unknown IDs and malformed commands never admit work or disclose another owner's content.
+The list contains ten owned tasks per page in the current canonical workspace/resource. Active tasks and still-guarded unknown outcomes come first, then unstarted requests, then history. Inspected historical unknowns without a guard retain their original outcome but do not displace current work. Pages reflect current records and can move as task state changes; exact execution IDs remain stable. Foreign/unknown IDs and malformed commands never admit work or disclose another owner's content.
 
 Detail shows the bounded request title, execution state, current-round activity/elapsed time and recent-event age when the authenticated owner supplies them. It also shows non-sensitive pending-prompt tokens, verification status/applicability, repair rounds and history links where available. A connected owner or recent event does not prove model/network health. Missing owners remain unverified; retained phases are not liveness proof. Terminal native evidence is checked without changing its journal; missing legacy timing stays absent.
 

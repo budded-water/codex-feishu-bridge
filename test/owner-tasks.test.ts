@@ -187,6 +187,13 @@ test('pilot command wiring admits no work and unknown outcomes preserve guards',
   const card = h.sent.find(s => s.options?.taskView)!; assert.ok(card.body.includes('结果未确认')); assert.ok(card.body.includes('不解除保护'));
   assert.deepEqual(h.admission.store.unsettled(), before); assert.equal(h.admission.store.requests().length, count); assert.equal(h.codexes.length, 1);
   assert.ok(h.sent.some(s => s.body.startsWith('### 任务列表')));
+  h.admission.store.reconcileLocal(randomUUID(), task.request.execution, 'Controlled fixture process/effect inspection');
+  const queued = h.admit('New task after inspection');
+  const page = h.admission.store.taskPage(JSON.stringify(['tenant', 'ou_owner', 'chat']), h.admission.project, 1);
+  assert.equal(page.requests[0]!.execution, queued.execution);
+  h.interactions.receive(message('/task ' + task.request.execution, { chatType: 'p2p' })); await h.drain();
+  assert.ok(h.sent.filter(s => s.options?.taskView).at(-1)!.body.includes('历史结果未确认（当前无执行保护）'));
+  assert.equal(h.admission.store.execution(task.request.execution)!.status, 'unknown');
 });
 
 test('unreachable active owner stays unverified without changing grants or relaunching', async t => {

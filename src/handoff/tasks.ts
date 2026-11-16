@@ -84,12 +84,13 @@ export class OwnerTasks {
       definition: goal.definition, phase: goal.status === 'unknown' ? 'unknown' : goal.status ? 'observed' : goal.attempts.at(-1)?.phase === 'verifying' ? 'running' : 'planned',
       observation: goal.attempts.at(-1)?.observation ?? null } : store.verification(request.execution);
     const unknown = execution?.status === 'unknown' || goal?.status === 'unknown' || verification?.phase === 'unknown';
+    const guarded = store.unsettled().some(row => row.id === request.execution);
     const blocked = request.blocked || store.submission(request.id)?.status === 'blocked';
-    const status = request.blocked === OWNER_WITHDRAWN ? '已撤回，未开始' : unknown ? '结果未确认' : !execution ? blocked ? '已阻断，未开始' : '排队中'
+    const status = request.blocked === OWNER_WITHDRAWN ? '已撤回，未开始' : unknown ? guarded ? '结果未确认，保护保留' : '历史结果未确认（当前无执行保护）' : !execution ? blocked ? '已阻断，未开始' : '排队中'
       : execution.status === 'active' ? goal?.stop ? '停止请求已记录，等待收尾' : goal?.status ? '闭环已记录结果，等待执行器收尾' : verification?.phase === 'running' ? '验证阶段' : '执行授权已取得'
       : execution.status === 'interrupted' ? '原生已中断' : '原生本轮已完成';
-    const group = execution && ['active', 'unknown'].includes(execution.status) ? '执行 / 待处理' : !execution && request.blocked !== OWNER_WITHDRAWN ? '排队 / 阻断' : '已收尾 / 历史';
-    return { execution, goal, verification, unknown, status, group };
+    const group = execution && (execution.status === 'active' || (execution.status === 'unknown' && guarded)) ? '执行 / 待处理' : !execution && request.blocked !== OWNER_WITHDRAWN ? '排队 / 阻断' : '已收尾 / 历史';
+    return { execution, goal, verification, unknown, guarded, status, group };
   }
 
   private title(request: RequestRecord): string {
@@ -108,7 +109,7 @@ export class OwnerTasks {
     }
     return present('任务列表', `共 ${total} 个任务 · 第 ${page}/${pages} 页 · 每页最多 10 个。`,
       ...[...groups].map(([name, lines]) => section(name, lines)), total ? undefined : '暂无已登记任务。',
-      section('查看与翻页', ['本人当前工作区；执行/未确认在前，其次未开始任务，再列最近收尾记录。状态取自记录，详情可核对当前活动与证据。',
+      section('查看与翻页', ['本人当前工作区；执行/仍受保护的未确认在前，其次未开始任务，再列历史记录。状态取自记录，详情可核对当前活动与证据。',
         ...(page < pages ? [copyBlock('/tasks ' + (page + 1))] : []), ...(page > 1 ? [copyBlock('/tasks ' + (page - 1))] : []),
         '列表随任务状态变化；历史任务仍可按完整编号查询。']));
   }
@@ -119,7 +120,7 @@ export class OwnerTasks {
     if (initial.execution && !initial.unknown) { try { progress = await this.native.progress(request.execution); } catch { /* Preserve unverified activity/evidence. */ } }
     const facts = this.facts(request), activity = progress?.activity;
     const lines = [facts.status];
-    if (facts.unknown) lines.push('请本机核对进程与副作用；本查询不解除保护或重跑任务。');
+    if (facts.unknown) lines.push(facts.guarded ? '请本机核对进程与副作用；本查询不解除保护或重跑任务。' : '当前无执行保护；历史结果保持未确认，后续工作仍需新任务。');
     else if (facts.execution?.status === 'active') {
       if (!progress?.live) lines.push('当前执行器活动无法核实；授权记录不证明进程仍在线。');
       else if (activity) lines.push(activity.stage, `本轮已用：${duration(Date.now() - activity.startedAt)}`,
