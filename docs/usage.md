@@ -136,7 +136,7 @@
 
 进程范围限于运行时已采样登记的 PID 与启动身份。未登记、采样失败、身份变化或可见性不足的进程无法据此判定安全；旧任务缺少记录时会明确显示无法核实。报告不展示原始命令、环境或私有路径，也不清理进程、修改队列或解除保护。报告是带时间的快照，确认恢复时会重新校验，实际文件和外部服务的副作用仍需人工核对。
 
-该能力的实际部署和验收状态见 [验收记录](live-acceptance.md)，具体范围见 [诊断设计](../openspec/changes/add-readonly-incident-diagnostics/design.md)。
+该能力的实际部署和验收状态见 [验收记录](live-acceptance.md)，具体范围见 [诊断设计](../openspec/changes/archive/2026-11-16-add-readonly-incident-diagnostics/design.md)。
 
 ### P1 排队查看与撤回
 

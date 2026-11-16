@@ -2,7 +2,7 @@
 
 The optional P3 registry adds task-bound verification state and a terminal native-report binding. See [project verification](project-verification.md) for coordinated gateway/Worker upgrade, additive-ledger archival, separate project report retention and uncertainty/recovery boundaries. Do not use an older converter to bypass unfinished verification.
 
-The migration tools prepare one-host pilot state and manage the runtime admission gate. Keep the private plan, compatible bridge artifacts and bundle together throughout the handoff. The [P1 tasks](../openspec/changes/integrate-feishu-autoloop-handoff/tasks.md) track native interactive acceptance, independent review, service inventory and owner-authorized live acceptance.
+The migration tools prepare one-host pilot state and manage the runtime admission gate. Keep the private plan, compatible bridge artifacts and bundle together throughout the handoff. The [P1 tasks](../openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/tasks.md) track native interactive acceptance, independent review, service inventory and owner-authorized live acceptance.
 
 ## Prepare the private plan
 
@@ -70,7 +70,7 @@ The command acquires the shared legacy state lock, validates its closure receipt
 
 Both runtime entries use the same ownership root. The ordinary entry requires the legacy role. The pilot entry requires the pilot role, exact prepared data directory and matching import identities in both databases. This also constrains a stale local service restart.
 
-The prepared pilot entry uses the existing private HANDOFF_CONFIG format with `stateDirectory`, `bridgeConfig`, `hubUrl` and `scope`. Its `bridgeConfig` must name the active BRIDGE_CONFIG file. Configure HANDOFF_SOURCE_KEY and HANDOFF_RUNNER for the pinned Worker as described in the [P1 entry documentation](../openspec/changes/integrate-feishu-autoloop-handoff/README.md). During an authorized activation, the pilot startup command is `npm start -- handoff`. It verifies the actual bot identity, reconciles native owners and connects the gateway under the shared root lock. The local maintenance `resume` command opens admission after the approved acceptance.
+The prepared pilot entry uses the existing private HANDOFF_CONFIG format with `stateDirectory`, `bridgeConfig`, `hubUrl` and `scope`. Its `bridgeConfig` must name the active BRIDGE_CONFIG file. Configure HANDOFF_SOURCE_KEY and HANDOFF_RUNNER for the pinned Worker as described in the [P1 entry documentation](../openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/README.md). During an authorized activation, the pilot startup command is `npm start -- handoff`. It verifies the actual bot identity, reconciles native owners and connects the gateway under the shared root lock. The local maintenance `resume` command opens admission after the approved acceptance.
 
 ```bash
 npm run handoff -- resume /absolute/path/to/legacy-state
@@ -100,7 +100,7 @@ SDK messages sent during the consumer transition may require resubmission after 
 
 ## Owner-private recovery control
 
-The [P2 recovery change](../openspec/changes/enable-feishu-inspected-recovery/design.md) provides a narrower Feishu alternative to local reconciliation when a valid sealed native checkpoint is available and no unstarted admitted backlog remains. The original task owner must also be a designated approver in the enrolled private chat and attest inspected command descendants and effects. Recovery preserves maintenance pause, unknown history and blocked requests. It adds no schema tables; its receipt identities use the existing recovery ledger and transport notice tombstones, which the rollback converter already retains. Missing evidence or broader process inspection continues through the local maintenance route above.
+The [P2 recovery change](../openspec/changes/archive/2026-11-16-enable-feishu-inspected-recovery/design.md) provides a narrower Feishu alternative to local reconciliation when a valid sealed native checkpoint is available and no unstarted admitted backlog remains. The original task owner must also be a designated approver in the enrolled private chat and attest inspected command descendants and effects. Recovery preserves maintenance pause, unknown history and blocked requests. It adds no schema tables; its receipt identities use the existing recovery ledger and transport notice tombstones, which the rollback converter already retains. Missing evidence or broader process inspection continues through the local maintenance route above.
 
 Before pilot rollback, committed remote recovery notices must be projected and the outbox must be drained. Graceful gateway closure materializes pending recovery notices; missing projection or undelivered notices prevent conversion. Reopen the pilot to finish delivery before retrying rollback.
 
