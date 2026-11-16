@@ -17,11 +17,14 @@ import { repairText } from './repair-view.js';
 import { type VerificationProfiles } from './verification-profile.js';
 import { verificationApplicability, verificationText } from './verification-view.js';
 import { verificationFindings } from './findings.js';
+import { OwnerTasks } from './tasks.js';
+import type { TaskRefreshClick } from '../task-card.js';
 
 export class PilotInteractions {
   readonly transport: HandoffTransport;
   private recovery: FeishuRecovery;
   private queue: OwnerQueue;
+  private tasks: OwnerTasks;
   private work?: Promise<void>;
   private timer?: NodeJS.Timeout;
   private closing?: Promise<void>;
@@ -36,11 +39,13 @@ export class PilotInteractions {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
     this.queue = new OwnerQueue(admission, config, this.transport.state);
+    this.tasks = new OwnerTasks(admission, config, native, this.transport.state, profiles);
   }
 
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
+    if (/^\/(?:tasks|task)(?:\s|$)/.test(message.text.trim())) return this.tasks.receive(message);
     if (/^\/findings(?:\s|$)/.test(message.text.trim())) return this.findingsCommand(message);
     if (/^\/(?:verify|verify-repair|verification)(?:\s|$)/.test(message.text.trim())) return this.verificationCommand(message);
     if (/^\/recover(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
@@ -76,7 +81,7 @@ export class PilotInteractions {
         present('使用帮助',
           section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
-          section('本人私聊维护', ['- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
+          section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
           Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',
             ...(Object.values(this.profiles).some(p => p.repair) ? ['- `/verify-repair profile 任务内容` 显式允许一轮修复'] : []),
             '- `/verification 任务编号` 查看历史观测', '- `/findings` 汇总待核对验证线索（只读）']) : undefined,
@@ -224,6 +229,8 @@ export class PilotInteractions {
     return 'accepted';
   }
 
+  taskRefresh(click: TaskRefreshClick): CardResult { return this.closing ? 'rejected' : this.tasks.refresh(click); }
+
   private async relay(control: ControlRecord): Promise<void> {
     const message = this.dispatchMessage(control);
     if (control.status !== 'received') {
@@ -303,6 +310,7 @@ export class PilotInteractions {
 
   private async synchronize(): Promise<void> {
     await this.viewWork;
+    await this.tasks.idle();
     await this.recovery.idle();
     this.recovery.sync();
     this.queue.sync();
@@ -339,6 +347,7 @@ export class PilotInteractions {
       await this.publication;
       await this.controlWork;
       await this.viewWork;
+      await this.tasks.idle();
       await this.recovery.idle();
       this.recovery.sync();
       this.queue.sync();

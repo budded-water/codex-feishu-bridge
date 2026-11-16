@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { Config } from './config.js';
 import { parseRoute, routeSchema, routingConfig } from './routing.js';
 import { State } from './state.js';
-import { ownerKey, record, string, type CodexPort, type IncomingMessage, type RpcEvent, type RpcRequest, type Session, type Task, type ContextPort, type ChatContext, type NativeControlTarget, type ControlDisposition } from './types.js';
+import { ownerKey, record, string, type CodexPort, type IncomingMessage, type RpcEvent, type RpcRequest, type Session, type Task, type ContextPort, type ChatContext, type NativeControlTarget, type ControlDisposition, type NativeActivity } from './types.js';
 import type { ThreadStartParams } from './codex/generated/v2/ThreadStartParams.js';
 import type { ThreadResumeParams } from './codex/generated/v2/ThreadResumeParams.js';
 import type { TurnStartParams } from './codex/generated/v2/TurnStartParams.js';
@@ -291,6 +291,16 @@ export class Bridge {
     const execution = this.active.get(session.directory);
     if (execution && !execution.routing && !execution.done && execution.session.id === session.id) return execution;
     return [...this.active.values()].find(item => !item.done && item.routing && item.task.routingOrigin === session.id);
+  }
+
+  progress(): NativeActivity | null {
+    const active = [...this.active.values()].find(value => !value.done && !value.routing);
+    if (!active) return null;
+    const prompts = [...this.prompts.values()].filter(p => p.active === active && p.expires > Date.now())
+      .map(p => ({ token: p.token, kind: p.kind, expires: p.expires }));
+    return { task: active.task.id, thread: active.thread, turn: active.turn, generation: active.generation,
+      stage: prompts.some(p => p.kind === 'approval') ? '正在等待管理员确认' : prompts.length ? '正在等待你回答问题' : active.stage,
+      startedAt: active.started, lastEventAt: active.lastEvent || null, prompts };
   }
 
   private activity(active: Active): string {

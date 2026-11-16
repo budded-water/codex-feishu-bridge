@@ -63,7 +63,8 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     if (stopping) return;
     if (compromised) throw new Error('Consumer ownership unavailable');
     lease.assertHeld();
-    await feishu.start(message => { interactions!.receive(message); void interactions!.flush().catch(() => {}); }, click => interactions!.cardAction(click));
+    await feishu.start(message => { interactions!.receive(message); void interactions!.flush().catch(() => {}); },
+      click => interactions!.cardAction(click), click => interactions!.taskRefresh(click));
     console.log('Pilot gateway connected under managed ownership');
   } catch (error) {
     const intentionalStop = stopping;

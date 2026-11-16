@@ -46,6 +46,8 @@ export class RepairOwner {
   async run(): Promise<void> {
     const channel = await openOwnerChannel(this.permit.token, this.permit.execution, async incoming => {
       if (incoming.op === 'diagnostic') return { execution: this.permit.execution, pid: process.pid };
+      if (incoming.op === 'progress') return { execution: this.permit.execution, pid: process.pid,
+        attempt: this.goal().attempts.at(-1)?.id, generation: this.codex?.generation, activity: this.bridge?.progress() ?? null };
       if (incoming.op === 'control-result') {
         if (typeof incoming.tenant !== 'string' || typeof incoming.id !== 'string') throw new Error('Invalid control lookup');
         for (const attempt of this.goal().attempts) {

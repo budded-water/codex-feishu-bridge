@@ -1,10 +1,12 @@
 import type { DeliveryOptions } from './types.js';
 import { State, type Delivery } from './state.js';
 import type { ApprovalPresentation, ApprovalView } from './approval.js';
+import type { TaskPresentation } from './task-card.js';
 
 export interface Sender {
   send(chat: string, text: string, idempotencyKey: string, options?: DeliveryOptions): Promise<void | string>;
   updateApproval?(message: string, approval: ApprovalPresentation, view: ApprovalView): Promise<void>;
+  updateTask?(message: string, presentation: TaskPresentation): Promise<void>;
 }
 
 export class Outbox {
@@ -38,7 +40,15 @@ export class Outbox {
       if (!this.state.deliveryReady(delivery.id)) continue;
       let text = delivery.body;
       for (const secret of this.secrets) text = text.split(secret).join('[redacted]');
+      const taskView = delivery.taskView && { ...delivery.taskView };
+      if (taskView) for (const secret of this.secrets) taskView.text = taskView.text.split(secret).join('[redacted]');
       try {
+        if (delivery.updateMessage && taskView) {
+          if (!this.sender.updateTask) throw new Error('Task update transport unavailable');
+          await this.sender.updateTask(delivery.updateMessage, taskView);
+          this.state.delivered(delivery.id);
+          continue;
+        }
         if (delivery.updateMessage && delivery.approval && delivery.approvalView) {
           if (!this.sender.updateApproval) throw new Error('Approval update transport unavailable');
           await this.sender.updateApproval(delivery.updateMessage, delivery.approval, delivery.approvalView);
@@ -46,7 +56,7 @@ export class Outbox {
           continue;
         }
         const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined,
-          mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval });
+          mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval, taskView });
         this.state.delivered(delivery.id, message || undefined);
       } catch {
         this.state.retry(delivery);
