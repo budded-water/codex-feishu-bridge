@@ -15,6 +15,8 @@ This creates a new native task, not a verification of an arbitrary historical re
 
 During verification `/status` describes its phase and `/stop` requests supported signal cleanup. An incomplete native turn skips verification. Duplicate input, gateway restart, status lookup and delivery retries cannot authorize another invocation. No automatic repair loop is installed.
 
+A separate [bounded repair design](../openspec/changes/add-bounded-verification-repair/proposal.md) proposes an explicit new-task opt-in with at most one additional native turn. It is not implemented or enabled and does not change the commands or behavior documented here.
+
 ## Trusted configuration
 
 Add `verificationProfiles` to private `HANDOFF_CONFIG`, alongside `scope`, `stateDirectory`, `bridgeConfig` and `hubUrl`. This is not a bridge.config.json field; both ordinary bridge templates retain their defaults. Gateway and Worker must use the same reviewed artifact/configuration.

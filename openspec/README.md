@@ -27,6 +27,8 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 ## Where facts belong
 
+The separate [bounded repair proposal](changes/add-bounded-verification-repair/proposal.md) defines a possible explicit opt-in, one-repair extension. It is design-only: no command, goal runtime or deployment is implemented. It does not change `/verify` or complete P3 business acceptance. Its [implementation and acceptance tasks](changes/add-bounded-verification-repair/tasks.md) remain open.
+
 | Location | Authority |
 | --- | --- |
 | [Agent system plan](../docs/agent-system-plan.md) | Direction, tradeoffs, milestone scope and deferred choices |
