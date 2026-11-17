@@ -10,7 +10,7 @@ The renderer separates the two large fill-width once/reject controls from a stan
 
 ## Browser access handoff
 
-The active [browser change](../openspec/changes/add-browser-access-handoff/tasks.md) adds structured provider-denial observations, bounded owner-private views/remediation and an explicit source-bound ordinary continuation. Browser policy remains external; current supported interfaces have no remote site-grant mutation. Native completion, historical denial and actual delivery stay separate. Existing verification/repair plans, native permission policy and deferred gates are unchanged. Source checks, deployment and genuine owner acceptance are tracked separately in the change and dated record.
+The active [browser change](../openspec/changes/add-browser-access-handoff/tasks.md) adds structured provider-denial observations, bounded owner-private views/remediation and an explicit source-bound ordinary continuation. Browser policy remains external; current supported interfaces have no remote site-grant mutation. Native completion, historical denial and actual delivery stay separate. Existing verification/repair plans, native permission policy and deferred gates are unchanged. Source checks, deployment and genuine owner acceptance are tracked separately in the change and dated record. PR #38 is merged and managed M6 activation/readiness is verified; genuine owner local-change/continuation acceptance remains pending.
 
 ## Owner task progress delivery
 

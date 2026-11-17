@@ -1,5 +1,13 @@
 # Live acceptance evidence
 
+## 2026-11-18 browser access handoff managed deployment
+
+[PR #38](https://github.com/budded-water/codex-feishu-bridge/pull/38) merged after current-head CI, successful preflight and independent complete-diff correctness/test-quality review. The 365-test local check, 14 strict OpenSpec items, no-inference Codex metadata smoke and isolated actual pinned Hub/Worker scripted campaign passed. The reviewed head was built as a locked private artifact, with its runtime fingerprint verified.
+
+An authorized coordinated upgrade began open and drained, quiesced admission, observed both registered service process trees settle and captured a closed private configuration/state/report/service/evidence bundle plus point-in-time native user-rule inventory. Gateway and Worker references changed together. Fresh managed Feishu SDK/Hub readiness, actual installed-service parity, new operational tables and open/drained admission were verified. Original sealed execution evidence, project assets, configuration policy and external native user-rule hashes remained unchanged. Browser policy stores and host authentication were not copied or modified.
+
+This establishes managed activation/readiness, not an owner message roundtrip or a site grant. Genuine owner blocked guidance and linked continuation after locally handling a real browser permission remain pending. The original two sealed tasks retain unavailable observation coverage; no business inquiry was sent during this delivery. Native revocation/denial-retry, real business-project and deferred host gates remain separate.
+
 ## 2026-11-18 browser access handoff source evidence
 
 The earlier owner task and verbal allow follow-up were inspected through read-only native item history: native reviews approved while Browser Use returned structured `persisted_user_denied` for the same site. No native human approval or unsupported-interaction bridge rejection explained that block. A separate runtime variable loss preceded reconnection in the follow-up. This identifies an independent browser-origin gate, not a native command-policy denial. No new blocked-site navigation, policy change or business message was performed for this investigation. Private identities/transcripts remain local; the checked-in fixture retains only a sanitized metadata shape.
