@@ -21,6 +21,10 @@ Native files SHALL remain execution-policy authority. Rule queries SHALL be read
 - **WHEN** observed files diverge from the recorded grant or owned revocation content
 - **THEN** the bridge reports the mismatch and does not overwrite unrelated policy or claim unverified effectiveness
 
+#### Scenario: Native save observation is lost across restart
+- **WHEN** an actor-bound submission remains unconfirmed after Codex saved its allow rule
+- **THEN** an explicit owner revocation can install the prompt overlay without replaying approval, inferring execution or rewriting unrelated rules
+
 ### Requirement: Truthful native review evidence
 Native review events SHALL be identity/generation-bound and SHALL distinguish approval, denial, timeout and abort. A denied action SHALL remain unexecuted by the bridge; a timeout SHALL NOT become approval or proof of unsafe intent. Review observations alone SHALL NOT authorize task admission, replay, guard release or rule persistence.
 

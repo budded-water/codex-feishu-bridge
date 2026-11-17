@@ -101,7 +101,7 @@ export class PermissionState {
   }
   revoked(prefix: string[]): boolean { return this.revocations().some(x => JSON.stringify(x) === JSON.stringify(prefix)); }
   async setRevoked(id: string, revoked: boolean): Promise<void> {
-    const g = this.grant(id); if (!g || !g.actor || !['present', 'unconfirmed'].includes(g.status)) throw Error('No submitted owned rule');
+    const g = this.grant(id); if (!g || !g.actor || !['submitted', 'present', 'unconfirmed'].includes(g.status)) throw Error('No submitted owned rule');
     this.file(this.defaultFile); mkdirSync(this.rulesDirectory, { recursive: true, mode: 0o700 });
     const release = await lockfile.lock(this.revocationFile, { realpath: false, retries: 0 });
     try {

@@ -11,6 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Config } from '../src/config.js';
 import type { DeliveryOptions } from '../src/types.js';
 import { nativePermissions, parseNativeReview, rememberProposal, deniedActionEvent, type NativePermissions } from '../src/permissions.js';
+import { PermissionState } from '../src/permission-state.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { archiveNativeEvidence } from '../src/handoff/migration.js';
@@ -336,4 +337,18 @@ test('unaccepted proposals cannot hide an owned rule from inspection or save rec
   mkdirSync(join(h.home, 'rules')); writeFileSync(ledger.defaultFile, rule); ledger.observeSaves('saved'); assert.equal(ledger.grant(grant.id)!.status, 'present');
   h.interactions.receive(message('/rules', { chatType: 'p2p' })); await h.drain();
   assert.ok(h.sent.some(s => s.body.includes(grant.id) && s.body.includes('默认文件中存在'))); assert.equal(h.admission.store.requests().length, 0);
+});
+
+test('explicit revocation works after restart when native save observation was lost', async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'permission-save-restart-'))), home = join(root, 'codex');
+  const scope = { tenant: 'tenant', user: 'ou_owner', chat: 'chat' };
+  let ledger = new PermissionState(root, scope, 'codex', home); t.after(() => { ledger.close(); rmSync(root, { recursive: true, force: true }); });
+  const grant = ledger.propose('source', 'prompt', 'generation', prefix); ledger.submit(grant.id, 'ou_owner');
+  mkdirSync(ledger.rulesDirectory, { recursive: true });
+  const original = rule + 'prefix_rule(pattern=["gh", "run", "view"], decision="allow")\n'; writeFileSync(ledger.defaultFile, original);
+  assert.equal(ledger.grant(grant.id)!.status, 'submitted'); ledger.close(); ledger = new PermissionState(root, scope, 'codex', home);
+  assert.equal(ledger.grant(grant.id)!.status, 'submitted'); assert.equal(ledger.present(prefix), true);
+  assert.equal(await ledger.changeRule('owner-revoke', scope.user, grant.id, true), 'applied'); assert.equal(ledger.revoked(prefix), true);
+  assert.equal(readFileSync(ledger.defaultFile, 'utf8'), original); assert.equal(ledger.grant(grant.id)!.status, 'submitted');
+  assert.equal(await ledger.changeRule('owner-revoke', scope.user, grant.id, true), 'applied'); assert.equal(readFileSync(ledger.defaultFile, 'utf8'), original);
 });
