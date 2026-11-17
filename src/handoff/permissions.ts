@@ -65,8 +65,9 @@ export class OwnerPermissions {
     const message = reviewRetryMessage(click, '');
     if (!isMaintenanceOwner(this.admission.scope, this.config, message)) return 'rejected';
     const card = this.state.reviewCard(click), fact = card && this.native.permissions?.review(card.review);
-    if (!card || !fact || !card.retry && !card.consumed) return 'rejected';
-    if (card.consumed && this.admission.store.retryForReview(fact.execution, fact.review.id)) return 'duplicate';
+    if (!card || !fact) return 'rejected';
+    if (card.consumed) return this.admission.store.retryForReview(fact.execution, fact.review.id) ? 'duplicate' : 'rejected';
+    if (!card.retry) return 'rejected';
     this.enqueue(reviewRetryMessage(click, fact.id), async () => {
       const current = this.state.reviewCard(click);
       if (!current) throw Error('Native review card is no longer current');

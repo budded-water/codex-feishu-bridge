@@ -297,3 +297,14 @@ test('later approved reviews cannot hide an unpublished denial or remove it from
   assert.equal(h.native.permissions!.reviews('unpublished').length, 0);
   h.interactions.receive(message('/reviews', { chatType: 'p2p' })); await h.drain(); assert.ok(h.sent.some(s => s.body.includes('/review ' + denied.id)));
 });
+
+test('a consumed card cannot revive its authorization after a maintenance-rejected click', async t => {
+  const h = setup(t), task = await h.start(); task.c.notify('item/autoApprovalReview/completed', reviewEvent(task.current)); task.complete(); await task.running; await h.drain();
+  const card = h.sent.find(s => s.options?.reviewCard)!, action = click(card);
+  h.admission.store.maintenance.quiesce(); h.interactions.reviewAction(action); await h.drain(); assert.equal(h.admission.store.requests().length, 1);
+  h.admission.store.maintenance.resume(); assert.equal(h.interactions.reviewAction({ ...action, event: randomUUID() }), 'rejected'); await h.drain(); assert.equal(h.admission.store.requests().length, 1);
+  const fact = h.native.permissions!.reviews('nonapproved')[0]!;
+  h.interactions.receive(message('/review ' + fact.id, { chatType: 'p2p' })); await h.drain();
+  const fresh = h.sent.filter(s => s.options?.reviewCard).at(-1)!; assert.notEqual(fresh.id, card.id); assert.equal(fresh.options!.reviewCard!.retry, true);
+  h.interactions.reviewAction(click(fresh)); await h.drain(); assert.equal(h.admission.store.requests().length, 2);
+});
