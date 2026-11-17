@@ -8,7 +8,7 @@ import { OWNER_WITHDRAWN, type RequestRecord, type ControlRecord } from './hando
 import type { JournalProjection } from './handoff/journal.js';
 import { splitReply } from './reply.js';
 import { approvalCard, approvalText, parseApproval, cardMessage, approvalReplyTarget, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
-import { parseTaskPresentation, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
+import { parseTaskPresentation, redactTaskPresentation, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
 import { ownerKey, type IncomingMessage, type Session, type Task, type DeliveryOptions, type NativeControlTarget, type ControlDisposition } from './types.js';
 
 export interface Delivery {
@@ -478,7 +478,7 @@ export class State {
       return;
     }
     if (options.taskView) {
-      const p = parseTaskPresentation({ ...options.taskView, text: this.redact(options.taskView.text) });
+      const p = parseTaskPresentation(redactTaskPresentation(options.taskView, text => this.redact(text)));
       if (p.chat !== chat || options.taskId !== p.execution) throw new Error('Task presentation target differs');
       const insert = () => {
         const id = randomUUID();
@@ -523,7 +523,7 @@ export class State {
   }
 
   refreshTaskView(presentation: TaskPresentation, message: string): void {
-    const p = parseTaskPresentation({ ...presentation, text: this.redact(presentation.text) });
+    const p = parseTaskPresentation(redactTaskPresentation(presentation, text => this.redact(text)));
     if (!this.db.prepare('SELECT 1 FROM task_views WHERE id=? AND execution=? AND message=?').get(p.id, p.execution, message)) throw new Error('Unconfirmed task card');
     this.db.prepare('INSERT INTO outbox(id,chat,body,response_task,task_view,update_message) VALUES (?,?,?,?,?,?)')
       .run(randomUUID(), p.chat, p.text, p.execution, JSON.stringify(p), message);

@@ -1,12 +1,12 @@
-import { browserAccessText, browserRetryCommand } from '../browser-access.js';
+import { browserRetryCommand } from '../browser-access.js';
 import { randomUUID } from 'node:crypto';
 import { message as present, section, copyBlock } from '../presentation.js';
-import { duration, taskTitle } from '../ux.js';
+import { deadline, duration } from '../ux.js';
 import { ownerKey, type IncomingMessage } from '../types.js';
 import type { State } from '../state.js';
 import type { Config } from '../config.js';
 import type { CardResult } from '../approval.js';
-import type { TaskPresentation, TaskRefreshClick } from '../task-card.js';
+import { escapeTaskMarkdown as escape, taskText, type TaskLayout, type TaskPresentation, type TaskRefreshClick } from '../task-card.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
 import { OWNER_WITHDRAWN, type RequestRecord, type VerificationRecord } from './store.js';
@@ -18,7 +18,6 @@ const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const usage = '发送 /tasks [页码] 查看任务，或 /task 完整任务编号 查看进度。查询不会执行或重跑任务。';
 const labels: Record<string, string> = { pass: '通过', fail: '未通过', 'needs-review': '待人工复核', inconclusive: '无法得出结论',
   interrupted: '已中断', unverified: '未核实', planned: '尚未开始', running: '验证阶段', skipped: '已跳过', unknown: '结果未确认' };
-const escape = (text: string) => text.replace(/[\\`*_{}\[\]()<>!|]/g, '\\$&');
 
 export class OwnerTasks {
   private work: Promise<void> = Promise.resolve();
@@ -38,8 +37,8 @@ export class OwnerTasks {
       const selected = new RegExp('^/task\\s+(' + uuid + ')$', 'i').exec(text);
       const request = selected && this.owned(message, selected[1]!.toLowerCase());
       if (!request) return { body: usage };
-      const body = await this.detail(request);
-      return { body, card: { id: randomUUID(), execution: request.execution, tenant: message.tenant, user: message.user, chat: message.chat, text: body } };
+      const layout = await this.detail(request), body = taskText(layout);
+      return { body, card: { id: randomUUID(), execution: request.execution, tenant: message.tenant, user: message.user, chat: message.chat, text: body, layout } };
     });
     return { status: 'task-view' as const };
   }
@@ -51,8 +50,8 @@ export class OwnerTasks {
     const card = this.state.taskView(click), request = card && this.owned(message, card.execution);
     if (!card || !request) return 'rejected';
     this.enqueue(message, async () => {
-      const body = await this.detail(request);
-      return { body, card: { ...card, text: body }, refresh: click };
+      const layout = await this.detail(request), body = taskText(layout);
+      return { body, card: { ...card, text: body, layout }, refresh: click };
     });
     return 'accepted';
   }
@@ -91,11 +90,21 @@ export class OwnerTasks {
       : execution.status === 'active' ? goal?.stop ? '停止请求已记录，等待收尾' : goal?.status ? '闭环已记录结果，等待执行器收尾' : verification?.phase === 'running' ? '验证阶段' : '执行授权已取得'
       : execution.status === 'interrupted' ? '原生已中断' : '原生本轮已完成';
     const group = execution && (execution.status === 'active' || (execution.status === 'unknown' && guarded)) ? '执行 / 待处理' : !execution && request.blocked !== OWNER_WITHDRAWN ? '排队 / 阻断' : '已收尾 / 历史';
-    return { execution, goal, verification, unknown, guarded, status, group };
+    return { execution, goal, verification, unknown, guarded, blocked, status, group };
   }
 
   private title(request: RequestRecord): string {
-    return escape(taskTitle(this.state.redact(request.message.text).replace(/^\/verify(?:-repair)?\s+\S+\s+/, '')));
+    return escape(this.label(request));
+  }
+
+  private label(request: RequestRecord): string {
+    const text = this.state.redact(request.message.text).replace(/^\/verify(?:-repair)?\s+\S+\s+/, '').trim();
+    const prefix = /^([^：:\n]{1,36})(?:：|:(?!\/\/)|\n)/.exec(text);
+    const label = (prefix && !/^https?$/i.test(prefix[1]!) ? prefix[1]! : text.replace(/https?:\/\/[^\s]+/g, url => {
+      try { return new URL(url).host; } catch { return url; }
+    }).split(/[\n。！？]/)[0]!).replace(/\s+/g, ' ').trim();
+    const chars = Array.from(label);
+    return chars.length > 36 ? chars.slice(0, 36).join('') + '…' : label || '任务';
   }
 
   private async overview(message: IncomingMessage): Promise<string> {
@@ -132,7 +141,7 @@ export class OwnerTasks {
     catch { return ''; }
   }
 
-  private async detail(request: RequestRecord): Promise<string> {
+  private async detail(request: RequestRecord): Promise<TaskLayout> {
     const initial = this.facts(request);
     let progress: Awaited<ReturnType<NativeExecutions['progress']>> | undefined;
     if (initial.execution && !initial.unknown) { try { progress = await this.native.progress(request.execution); } catch { /* Preserve unverified activity/evidence. */ } }
@@ -156,21 +165,59 @@ export class OwnerTasks {
     const applicability = verification?.observation ? await verificationApplicability(verification, this.profiles) : undefined;
     const parent = this.admission.store.browserRetry(request.execution), followup = this.admission.store.browserRetryForSource(request.execution);
     const blocks = progress?.accessBlocks;
-    const details = [`任务编号：${request.execution}`, `查询快照：${new Date().toISOString()}（UTC）`];
+    const now = Date.now(), details = [`任务编号：${request.execution}`, `查询快照：${new Date(now).toISOString()}（UTC）`];
     const timestamp = Number(request.message.createTime);
     if (timestamp > 0 && Number.isFinite(new Date(timestamp).getTime())) details.push(`原消息时间：${new Date(timestamp).toISOString()}`);
-    return present(this.title(request), section('进度', lines), section('需要你处理', [...prompts, ...actions]),
-      verification ? section('项目验证', [`Profile：${verification.profile}`, `观测：${labels[verification.observation?.status ?? verification.phase] ?? '尚无结论'}`,
-        ...(applicability ? [applicability] : []), copyBlock('/verification ' + request.execution)]) : undefined,
-      blocks?.length ? section('浏览器访问', [browserAccessText(blocks),
-        ...(followup ? ['已登记过一个关联续接请求。', copyBlock('/task ' + followup.execution)] :
-          facts.execution?.status === 'completed' && !facts.goal && !verification ? [
-            '仅在本机处理设置并核对原任务副作用后，才发送下面的明确续接命令。它创建一个关联的新普通请求，不修改浏览器权限、不证明已放行或交付。会话已变化或有执行保护时会拒绝。',
-            copyBlock(browserRetryCommand(request.execution)),
-          ] : ['此阶段仅查看观测；验证/修复仍从原专用入口交办。'])]) : undefined,
-      parent ? section('续接来源', [copyBlock('/task ' + parent.sourceExecution), '原任务与历史证据保持原记录。']) : undefined,
-      section('详情', [copyBlock(details.join('\n')),
-        ...(progress && progress.accessBlocks === undefined ? ['旧记录未采集结构化浏览器权限观测。'] : []),
-        '这是查询时快照；事件时间不证明模型网络健康。原生结束、验证、独立 review 与发布授权分别判断。']));
+    const active = facts.execution?.status === 'active', completed = facts.execution?.status === 'completed';
+    let heading: string;
+    if (facts.unknown) heading = '结果未确认';
+    else if (!facts.execution) {
+      if (request.blocked === OWNER_WITHDRAWN) heading = '已撤回';
+      else heading = facts.blocked ? '尚未开始' : '排队中';
+    }
+    else if (active) {
+      if (prompts.length) heading = activity?.prompts.some(p => p.kind === 'approval') ? '等待审批' : '等待回答';
+      else if (facts.goal?.stop) heading = '正在停止';
+      else if (facts.goal?.status) heading = '正在收尾';
+      else heading = verification?.phase === 'running' ? '验证中' : '正在执行';
+    } else heading = completed ? '本轮已结束' : '执行已停止';
+
+    let tone: TaskLayout['tone'];
+    if (facts.unknown || prompts.length || (active && !progress?.live) || (!facts.execution && facts.blocked && request.blocked !== OWNER_WITHDRAWN)) tone = 'orange';
+    else if (completed) {
+      if (!progress || (blocks?.length && !followup) || (verification && verification.observation?.status !== 'pass')) tone = 'orange';
+      else tone = blocks?.length ? 'grey' : 'green';
+    } else tone = active || !facts.execution && request.blocked !== OWNER_WITHDRAWN ? 'blue' : 'grey';
+
+    let summary: string;
+    if (facts.unknown) summary = facts.guarded ? '结果尚未确认，请先核对进程与副作用；执行保护仍保留。' : '历史结果未确认；当前无执行保护，后续工作仍需新任务。';
+    else if (active) summary = !progress?.live ? '当前执行器活动无法核实；授权记录不证明进程仍在线。' : activity?.stage ?? '等待当前执行阶段更新。';
+    else if (blocks?.length) summary = followup ? '本轮保留历史访问拒绝，已登记关联续接；展开下方记录查看后续任务。' : '本轮已收尾，曾遇到浏览器访问拒绝；请核对最终回复与历史记录。';
+    else if (completed) summary = progress ? '本轮原生执行已结束；业务结果以最终回复为准。' : '记录显示本轮已结束，但当前封存证据无法核实。';
+    else summary = facts.status;
+    const original = Array.from(this.state.redact(request.message.text)), limit = 2000;
+    const panels: TaskLayout['panels'] = [{ title: original.length > limit ? '原始需求（前 2000 字）' : '原始需求（展开全文）',
+      text: escape(original.slice(0, limit).join('')) + (original.length > limit ? '\n\n需求较长，以上已明确省略；完整内容请查看飞书原任务消息。' : '') }];
+    if (blocks?.length) panels.push({ title: followup ? '历史访问记录与关联续接' : '浏览器访问记录与处理', text: [
+      '这些是本轮历史工具观测，不代表当前仍被拦截或业务交付失败；当前设置及任务交付结果仍需核对。', ...[...new Set(blocks.map(b => b.origin))].map(o => escape(this.state.redact(o))),
+      ...(followup ? ['已登记过一个关联续接请求；原记录保持不变。', copyBlock('/task ' + followup.execution)] : [
+        '在本机 Settings → Computer Use → 浏览器 Manage 核对站点设置；飞书文字允许和命令规则不会修改浏览器授权。',
+        ...(completed && !facts.goal && !verification ? ['仅在处理设置并核对副作用后，明确请求一次检查与续接；此命令不证明已放行或交付。', copyBlock(browserRetryCommand(request.execution))] : ['验证/修复仍从其专用入口交办。']),
+      ]),
+    ].join('\n\n') });
+    if (parent) panels.push({ title: '关联原任务', text: copyBlock('/task ' + parent.sourceExecution) + '\n\n原任务与历史证据保持原记录。' });
+    panels.push({ title: '执行与验证记录', text: [...lines, ...(verification ? [
+      `项目验证 · Profile：${verification.profile}`, `验证观测：${labels[verification.observation?.status ?? verification.phase] ?? '尚无结论'}`,
+      ...(applicability ? [applicability] : []), copyBlock('/verification ' + request.execution),
+    ] : [])].join('\n') });
+    panels.push({ title: '任务信息', text: [copyBlock(details.join('\n')),
+      ...(progress && progress.accessBlocks === undefined ? ['旧记录未采集结构化浏览器权限观测。'] : []),
+      '这是查询时快照；事件时间不证明模型网络健康。原生结束、验证、独立 review 与发布授权分别判断。'].join('\n\n') });
+    const elapsed = progress?.startedAt && progress.finishedAt ? duration(progress.finishedAt - progress.startedAt)
+      : activity ? duration(now - activity.startedAt) : '暂无可核实记录';
+    return { title: this.label(request), heading, tone, summary, updated: `更新于 ${deadline(now)} · 只读快照`,
+      facts: [{ label: active ? '本轮已用' : '执行用时', value: elapsed },
+        { label: verification ? '验证观测' : '执行记录', value: verification ? labels[verification.observation?.status ?? verification.phase] ?? '尚无结论' : progress ? '已核对' : '尚未核实' }],
+      ...([...prompts, ...actions].length ? { action: [...prompts, ...actions].join('\n') } : {}), panels };
   }
 }

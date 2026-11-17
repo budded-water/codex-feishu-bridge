@@ -414,3 +414,80 @@ test('browser progress is bounded and does not expose origin secrets or authoriz
   h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain();
   assert.equal(h.admission.store.requests().length, 1); assert.ok(h.sent.at(-1)!.body.includes('需脱敏内容'));
 });
+
+test('mobile task detail uses a complete short label with full original demand in a collapsed section', async t => {
+  const full = '浏览器权限验收：请按 Chrome 技能在本轮建立连接，只读访问 https://appstoreconnect.apple.com/ 和 https://github.com/example/complete-repository 。分别报告最终域名、页面标题及访问结果，末尾加完整需求结束标记。';
+  const h = setup(t), task = await h.start(h.admit(full)); task.complete(); await task.running; const bytes = journalBytes(h, task.request.execution);
+  h.interactions.receive(message('/task ' + task.request.execution, { chatType: 'p2p' })); await h.drain();
+  const p = h.sent.find(s => s.options?.taskView)!.options!.taskView!, l = p.layout!;
+  assert.equal(l.title, '浏览器权限验收'); assert.equal(l.heading, '本轮已结束'); assert.ok(l.summary.includes('业务结果以最终回复为准'));
+  assert.ok(l.panels.find(p => p.title === '原始需求（展开全文）')!.text.includes(full));
+  assert.ok(!JSON.stringify(taskCard(p).header).includes('任务已完成'));
+  assert.deepEqual(journalBytes(h, task.request.execution), bytes); assert.equal(h.admission.store.requests().length, 1);
+});
+
+test('long original demand has an explicit bounded disclosure instead of silent title truncation', async t => {
+  const full = 'Inspect ' + 'long demand '.repeat(200) + 'ORIGINAL_END_MARKER', h = setup(t), request = h.admit(full);
+  h.interactions.receive(message('/task ' + request.execution, { chatType: 'p2p' })); await h.drain();
+  const l = h.sent.find(s => s.options?.taskView)!.options!.taskView!.layout!;
+  assert.ok(l.title.endsWith('…')); assert.ok(l.panels[0]!.title.includes('前 2000 字'));
+  assert.ok(l.panels[0]!.text.includes('已明确省略')); assert.ok(h.admission.store.request(request.id)!.input.endsWith('ORIGINAL_END_MARKER'));
+  assert.equal(h.codexes.length, 0);
+});
+
+test('same-card refresh updates structured queue, running and terminal headers without extra task admission', async t => {
+  const h = setup(t), request = h.admit('Inspect the project'), owner = h.views();
+  owner.receive(message('/task ' + request.execution, { chatType: 'p2p' })); await owner.idle(); await h.interactions.transport.flush();
+  const card = h.sent.find(s => s.options?.taskView)!; assert.equal(card.options!.taskView!.layout!.heading, '排队中');
+  const task = await h.start(request); owner.refresh(click(card)); await owner.idle(); await h.interactions.transport.flush();
+  assert.equal(h.updates.at(-1)!.p.layout!.heading, '正在执行');
+  task.complete(); await task.running; owner.refresh(click(card)); await owner.idle(); await h.interactions.transport.flush();
+  assert.equal(h.updates.at(-1)!.p.layout!.heading, '本轮已结束');
+  assert.ok(h.updates.every(x => x.message === 'om_' + card.id && x.p.id === card.options!.taskView!.id));
+  assert.equal(h.admission.store.requests().length, 1); assert.equal(h.codexes.length, 1);
+});
+
+test('a historical browser refusal with a linked continuation stays concise without repeating local grant instructions', async t => {
+  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running; await h.drain();
+  h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain();
+  const next = h.admission.store.browserRetryForSource(task.request.execution)!;
+  h.interactions.receive(message('/task ' + task.request.execution, { chatType: 'p2p' })); await h.drain();
+  const l = h.sent.filter(s => s.options?.taskView).at(-1)!.options!.taskView!.layout!;
+  assert.equal(l.heading, '本轮已结束'); assert.equal(l.tone, 'grey'); assert.ok(l.summary.includes('关联续接'));
+  const history = l.panels.find(p => p.title === '历史访问记录与关联续接')!;
+  assert.ok(history.text.includes(next.execution) && history.text.includes('历史工具观测'));
+  assert.ok(!history.text.includes('Settings') && !history.text.includes('/browser-retry'));
+});
+
+test('a source-routing block is not presented as a runnable queued task', async t => {
+  const h = setup(t), request = h.admit('Inspect the project'); h.admission.store.routed(request.id, false);
+  h.interactions.receive(message('/task ' + request.execution, { chatType: 'p2p' })); await h.drain();
+  const l = h.sent.find(s => s.options?.taskView)!.options!.taskView!.layout!;
+  assert.equal(l.heading, '尚未开始'); assert.equal(l.tone, 'orange'); assert.ok(l.summary.includes('已阻断'));
+  assert.equal(h.admission.store.requests().length, 1); assert.equal(h.codexes.length, 0);
+});
+
+test('a URL inside a request is not mistaken for a topic delimiter', async t => {
+  const h = setup(t), request = h.admit('Read https://github.com/example/project and report the page title');
+  h.interactions.receive(message('/task ' + request.execution, { chatType: 'p2p' })); await h.drain();
+  const l = h.sent.find(s => s.options?.taskView)!.options!.taskView!.layout!;
+  assert.ok(l.title.includes('github.com')); assert.ok(!l.title.includes('https'));
+  assert.ok(l.panels[0]!.text.includes('https://github.com/example/project'));
+  assert.equal(h.codexes.length, 0);
+});
+
+test('task detail redacts Markdown-sensitive secrets in browser origins before persistence and on refresh', async t => {
+  const secret = 'fixture_secret', h = setup(t, [secret]), task = await h.start(), item = browserDenial();
+  item.result._meta.browser_use.url = 'https://' + secret + '.example.com/private';
+  task.c.notify('item/completed', { ...task.current, item }); task.complete(); await task.running; await h.drain();
+  const owner = h.views(); owner.receive(message('/task ' + task.request.execution, { chatType: 'p2p' })); await owner.idle();
+  const stored = h.interactions.transport.state.pending().find(d => d.taskView)!.taskView!;
+  const inspect = (p: TaskPresentation) => {
+    for (const text of [JSON.stringify(p), JSON.stringify(taskCard(p))]) { assert.ok(!text.includes(secret)); assert.ok(!text.includes('fixture\\_secret')); }
+    assert.ok(p.layout!.panels.find(p => p.title.includes('浏览器'))!.text.includes('redacted'));
+  };
+  inspect(stored); await h.interactions.transport.flush();
+  const card = h.sent.find(s => s.options?.taskView)!; inspect(card.options!.taskView!);
+  owner.refresh(click(card)); await owner.idle(); await h.interactions.transport.flush(); inspect(h.updates.at(-1)!.p);
+  assert.equal(h.admission.store.requests().length, 1); assert.equal(h.codexes.length, 1);
+});

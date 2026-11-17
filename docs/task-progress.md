@@ -19,6 +19,14 @@ Detail shows the bounded request title, execution state, current-round activity/
 
 Native completion, verifier observations, independent review, delivery and publication authorization remain separate. Unknown outcomes retain their guards. Viewing an ordinary task does not select a verification profile. No completion percentage, raw command argument, draft, periodic progress message or additional model inference is generated.
 
+## Mobile detail layout
+
+Fresh detail/refresh renders a short complete topic label, native-state header, one summary and two compact facts before a full-width refresh control. The label uses a bounded leading topic when present; a shortened generic label has an explicit ellipsis. The original request is available in a collapsed section; requests over 2,000 Unicode code points are explicitly marked as a partial preview, with the original Feishu message remaining the full source. No model summarizes titles.
+
+A terminal native record is labelled “本轮已结束”, not business completion. Uncertainty, active owner loss, waits and non-pass observations retain visible warnings. Historical browser denials with a registered continuation show that relationship and keep the old observation; they do not repeat local-settings instructions in the first screen. Request text, browser records, execution/verification details and task metadata expand separately. Query time remains a snapshot and refresh updates the same confirmed message.
+
+The optional structured layout is transport presentation data. Every nested rendered string is redacted, and its plain-text fallback is regenerated from that same layout. Browser origins are redacted before Markdown escaping; retained sends and patches reapply current-secret redaction to raw and escaped text at delivery. Legacy text-only payloads remain readable; a new refresh can modernize an existing card. Drain pending updates and use a compatible consumer before downgrade; old consumers do not implement structured-layout updates. Presentation changes never modify native/admission outcomes, guards or authority.
+
 ## Refresh and interaction
 
 Detail queries create snapshot cards with a refresh button. Only a confirmed delivered message and its exact presentation/owner/chat can refresh it. Refresh queues an ordered patch of the same message; uncertain acknowledgement retries the retained update rather than creating a replacement. The existing SDK callback subscription is reused without new application permissions.
