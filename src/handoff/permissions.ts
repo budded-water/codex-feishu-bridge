@@ -69,12 +69,16 @@ export class OwnerPermissions {
     if (card.consumed) return this.admission.store.retryForReview(fact.execution, fact.review.id) ? 'duplicate' : 'rejected';
     if (!card.retry) return 'rejected';
     this.enqueue(reviewRetryMessage(click, fact.id), async () => {
-      const current = this.state.reviewCard(click);
-      if (!current) throw Error('Native review card is no longer current');
-      const body = await this.retry(reviewRetryMessage(click, fact.id), fact);
+      const current = this.retryCard(click);
+      if (!current) return { body: '此卡片已处理或过期，没有新建任务；请重新发送 /review 查看记录。' };
+      const body = await this.retry(reviewRetryMessage(click, fact.id), fact, click);
       return { body, finish: current.id };
     });
     return 'accepted';
+  }
+  private retryCard(click: ReviewClick): ReviewPresentation | undefined {
+    const p = this.state.reviewCard(click);
+    return p?.retry && !p.consumed ? p : undefined;
   }
 
   private enqueue(message: IncomingMessage, run: () => Promise<{ body: string; card?: ReviewPresentation; finish?: string }>) {
@@ -133,11 +137,12 @@ export class OwnerPermissions {
       section('详情', [copyBlock(`/task ${fact.execution}\n/review ${fact.id}`), '原任务与证据保持不变。如显示按钮，其有效期为 15 分钟，点击时重新核对。']));
     return { id: randomUUID(), review: fact.id, tenant: this.admission.scope.tenant, user: this.admission.scope.operator, chat: this.admission.scope.chat, text, retry, expires: Date.now() + 15 * 60_000 };
   }
-  private async retry(message: IncomingMessage, fact: ReviewFact): Promise<string> {
+  private async retry(message: IncomingMessage, fact: ReviewFact, click?: ReviewClick): Promise<string> {
     const previous = this.admission.store.retryForReview(fact.execution, fact.review.id);
     if (previous) return `这项拒绝已登记过一次重试，不会再次新建。\n\n${copyBlock('/task ' + previous.execution)}`;
     if (!await this.retryable(fact)) return '当前原生证据、会话或执行保护不满足重试条件，没有新建任务。请先查看原任务。';
     const { request, evidence } = await this.source(fact);
+    if (click && !this.retryCard(click)) return '卡片在检查期间已处理或过期，没有新建任务；请重新发送 /review 查看记录。';
     const result = this.admission.store.acceptPermissionRetry(message, request, { sourceExecution: fact.execution, generation: fact.generation, checkpoint: evidence.checkpoint, review: fact.review },
       '本人明确授权对下列曾被原生审查拒绝的动作进行一次重试。仅处理这个动作，重新接受原生审查；不要保存长期权限、扩展为原任务的其他操作或自动重复。失败时说明实际原因。\n\n' + reviewCommand(fact.review));
     if ('paused' in result) return '系统维护暂停，没有新建重试任务。';

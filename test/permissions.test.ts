@@ -308,3 +308,24 @@ test('a consumed card cannot revive its authorization after a maintenance-reject
   const fresh = h.sent.filter(s => s.options?.reviewCard).at(-1)!; assert.notEqual(fresh.id, card.id); assert.equal(fresh.options!.reviewCard!.retry, true);
   h.interactions.reviewAction(click(fresh)); await h.drain(); assert.equal(h.admission.store.requests().length, 2);
 });
+
+test('two queued clicks cannot revive a card consumed while maintenance was paused', async t => {
+  const h = setup(t), task = await h.start(); task.c.notify('item/autoApprovalReview/completed', reviewEvent(task.current)); task.complete(); await task.running; await h.drain();
+  const card = h.sent.find(s => s.options?.reviewCard)!, state = h.interactions.transport.state, finish = state.finishReviewCard.bind(state);
+  let consumed = false;
+  t.mock.method(state, 'finishReviewCard', (id: string, text: string) => { finish(id, text); if (!consumed) { consumed = true; h.admission.store.maintenance.resume(); } });
+  h.admission.store.maintenance.quiesce();
+  assert.equal(h.interactions.reviewAction(click(card)), 'accepted'); assert.equal(h.interactions.reviewAction(click(card)), 'accepted');
+  await h.drain(); assert.ok(consumed); assert.equal(h.admission.store.maintenance.paused, false); assert.equal(h.admission.store.requests().length, 1);
+});
+
+test('a card expiring during asynchronous evidence inspection cannot authorize admission', async t => {
+  const h = setup(t), task = await h.start(); task.c.notify('item/autoApprovalReview/completed', reviewEvent(task.current)); task.complete(); await task.running; await h.drain();
+  const card = h.sent.find(s => s.options?.reviewCard)!, projection = h.native.projection.bind(h.native);
+  let release!: () => void, entered = false; const gate = new Promise<void>(resolve => { release = resolve; });
+  t.mock.method(h.native, 'projection', async (execution: string) => { entered = true; await gate; return projection(execution); });
+  h.interactions.reviewAction(click(card)); await until(() => entered);
+  const db = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  db.prepare('UPDATE review_cards SET payload=? WHERE id=?').run(JSON.stringify({ ...card.options!.reviewCard!, expires: Date.now() - 1 }), card.options!.reviewCard!.id); db.close();
+  release(); await h.drain(); assert.equal(h.admission.store.requests().length, 1); assert.equal(h.codexes.length, 1);
+});
