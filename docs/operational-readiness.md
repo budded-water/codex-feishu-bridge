@@ -75,3 +75,7 @@ For a restored snapshot, later receipts, decisions, conversations and deliveries
 ## After the exercise
 
 Record configuration, simulation, protocol, actual restart, owner interaction and offline/live restore evidence separately in the private inventory and a sanitized dated acceptance entry. Preserve pending host and business gates. Keep normal task authorization, human effect inspection and publication boundaries intact.
+
+## Native permission policy dependency
+
+When owner-native permissions are enabled, capture the closed `permissions/bridge.db` with handoff/transport/native state and retain its ownership binding. Separately inventory current CODEX_HOME/rules/default.rules, the bridge-owned revocation overlay and other loaded user rule files by private path/hash. They are native external policy authority, not reconstructed from Bot audit history. Runtime rollback retains policy changes; do not restore old files over newer user grants or copy host authentication. Drain review-card updates and use compatible migration tooling before downgrade. See [permission storage and upgrades](native-permissions.md#storage-upgrades-and-evidence).

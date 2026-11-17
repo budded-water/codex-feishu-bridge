@@ -151,3 +151,7 @@ The bounded M6 owner-private P3 fixture /verify and /verification campaign is no
 ## Bounded repair extension
 
 The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-verification-repair/proposal.md) implements explicit owner opt-in, at most one additional Codex turn, fresh verification and immutable attempt evidence under the existing assignment. Only validated registered functional failures qualify; stop, budget and uncertainty prohibit further work. Reviewed source, scripted scheduler/browser evidence and actual M6 owner-private two-turn repair/command-approval-card/final/history acceptance are verified. Current `/verify` is unchanged. No extra service/model manager, discovery or publication is introduced. See [runtime contract](bounded-repair.md) and [dated evidence](live-acceptance.md); business acceptance, broader interaction/fault families and deferred host exercises stay separate.
+
+## Native permission strategy
+
+The active [permission slice](native-permissions.md) reuses Codex sandbox, native rules and native Auto-review to reduce human waits without introducing a second policy model. Bridge owns exact human identity, immutable review/proposal provenance, fresh retry admission and transport. Persistent rules explicitly retain native user-wide scope; denied-action retry admits one request and does not create a persistent allow rule. Permission behavior is experimental/version-pinned, with source, native fixtures and genuine owner acceptance kept separate in the bounded change.

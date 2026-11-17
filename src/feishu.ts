@@ -1,3 +1,4 @@
+import { reviewCard, normalizeReviewClick, type ReviewPresentation, type ReviewHandler } from './review-card.js';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { attachImages, contextText, mentionText, postRows } from './chat-images.js';
 import { MAX_CONTEXT_MESSAGES, CONTEXT_WINDOW_MS } from './context-limits.js';
@@ -7,7 +8,7 @@ import { record, string, type IncomingMessage, type ContextPort, type Session, t
 import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
 
-function progressPost(body: Record<string, unknown>): string | undefined {
+function queryPost(body: Record<string, unknown>): string | undefined {
   const { title, rows } = postRows(body);
   if (title.trim() || !rows.length || rows.length > 8) return;
   const lines: string[] = [];
@@ -22,7 +23,7 @@ function progressPost(body: Record<string, unknown>): string | undefined {
     lines.push(line);
   }
   const text = lines.join('\n').trim();
-  return /^\/(?:tasks(?:\s+[1-9][0-9]{0,5})?|task\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(text) ? text : undefined;
+  return /^\/(?:tasks(?:\s+[1-9][0-9]{0,5})?|rules|reviews|(?:task|review)\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(text) ? text : undefined;
 }
 
 export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMessage | undefined {
@@ -34,7 +35,7 @@ export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMe
   let content: Record<string, unknown>;
   try { content = record(JSON.parse(string(message.content))); }
   catch { return; }
-  const progress = message.message_type === 'post' && message.chat_type === 'p2p' ? progressPost(content) : undefined;
+  const progress = message.message_type === 'post' && message.chat_type === 'p2p' ? queryPost(content) : undefined;
   const unsupported = message.message_type !== 'text' && !progress ? string(message.message_type) || '未知格式' : undefined;
   let text = unsupported ? '不支持的消息格式' : progress ?? string(content.text);
   if (message.chat_type === 'group') {
@@ -117,7 +118,7 @@ export class Feishu implements ContextPort, ReactionPort {
   }
 
   async start(receive: (message: IncomingMessage) => void, cardAction?: (click: ApprovalClick) => CardResult,
-    taskAction?: (click: TaskRefreshClick) => CardResult): Promise<void> {
+    taskAction?: (click: TaskRefreshClick) => CardResult, reviewAction?: ReviewHandler): Promise<void> {
     if (this.closed || this.startup) throw new Error('Feishu connection cannot be started');
     let botOpenId: string | undefined;
     if (this.enableGroups) {
@@ -135,9 +136,11 @@ export class Feishu implements ContextPort, ReactionPort {
           },
           'card.action.trigger': (data: unknown) => {
             let result: CardResult = 'rejected';
+            const review = normalizeReviewClick(data, this.appId);
             const refresh = normalizeTaskRefresh(data, this.appId);
             try {
-              if (refresh && taskAction && !this.closed) result = taskAction(refresh);
+              if (review && reviewAction && !this.closed) result = reviewAction(review);
+              else if (refresh && taskAction && !this.closed) result = taskAction(refresh);
               else {
                 const click = normalizeApprovalClick(data, this.appId);
                 if (click && cardAction && !this.closed) result = cardAction(click);
@@ -169,8 +172,8 @@ export class Feishu implements ContextPort, ReactionPort {
 
   async send(chat: string, text: string, idempotencyKey: string, options: DeliveryOptions = {}): Promise<string | void> {
     const styled = markdownPost(safeMentionText(text)).zh_cn.content[0]![0]!.text;
-    const content = JSON.stringify(options.taskView ? taskCard(options.taskView) : options.approval ? approvalCard(options.approval) : notificationPost(styled,options.mentions ?? []));
-    const msg_type = options.approval || options.taskView ? 'interactive' : 'post';
+    const content = JSON.stringify(options.reviewCard ? reviewCard(options.reviewCard) : options.taskView ? taskCard(options.taskView) : options.approval ? approvalCard(options.approval) : notificationPost(styled,options.mentions ?? []));
+    const msg_type = options.approval || options.taskView || options.reviewCard ? 'interactive' : 'post';
     if (options.replyTo) {
       const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
         const code = Number(record(record(record(error).response).data).code ?? record(error).code);
@@ -191,6 +194,11 @@ export class Feishu implements ContextPort, ReactionPort {
       .catch(error => { const code = Number(record(record(record(error).response).data).code ?? record(error).code);
         if ([230011, 230110].includes(code)) return { code }; throw error; });
     if (result.code !== 0 && ![230011, 230110].includes(result.code ?? -1)) throw new Error('Approval card update unconfirmed');
+  }
+
+  async updateReview(message: string, p: ReviewPresentation): Promise<void> {
+    const result = await this.client.im.v1.message.patch({ path: { message_id: message }, data: { content: JSON.stringify(reviewCard(p)) } });
+    if (result.code !== 0 && ![230011, 230110].includes(result.code ?? -1)) throw Error('Review card update failed');
   }
 
   async updateTask(message: string, presentation: TaskPresentation): Promise<void> {

@@ -93,7 +93,7 @@ workspace 模式保留任务原文，已配置的别名前缀也按普通文字�
 "codexReasoningEffort": "low"
 ```
 
-正常停止并重启 bridge 后，所有新发起的 `turn/start` 都携带这个强度，包括恢复的旧会话与路由判断；不必 `/new`。已经运行的任务不会中途改变强度。模型、身份、工具、sandbox 和审批策略仍沿用本机 Codex 配置，其他 CLI / 桌面会话不受此字段影响；不会修改 `~/.codex/config.toml`。这是部署者配置，没有聊天内切换命令。
+正常停止并重启 bridge 后，所有新发起的 `turn/start` 都携带这个强度，包括恢复的旧会话与路由判断；不必 `/new`。已经运行的任务不会中途改变强度。模型、身份和工具仍沿用本机 Codex 配置；sandbox 和审批策略默认沿用，另行启用 nativePermissions 时以该私有策略为准，其他 CLI / 桌面会话不受此字段影响；不会修改 `~/.codex/config.toml`。这是部署者配置，没有聊天内切换命令。
 
 省略或设为 `null` 时不发送强度覆盖，遵循 Codex 对该会话的继承行为；曾经覆盖过的旧会话可能保留原强度，恢复全局默认时可在空闲后 `/new`。字段合法不保证所选模型支持该等级，不支持时应调整此字段，不会自动换模型或静默降级。
 
@@ -114,3 +114,7 @@ P2 的 P1 网关检查恢复命令沿用 `approvalUsers`、`approvalChat` 和现
 ## 审批卡片
 
 卡片沿用 `approvalUsers`、`approvalChat`、租户 / allowlist 和原生超时，不增加配置开关。仅已知同一私聊且提交者为指定审批人时使用按钮；路由到其他审批聊天、群聊和超长动作使用整理后的完整命令预览。应用需额外订阅 `card.action.trigger` 回调，见 [飞书应用设置](feishu-setup.md#审批卡片回调)。两份示例配置无需新增权限或字段。
+
+## Optional owner-native permissions
+
+The private handoff entry may opt into [nativePermissions](native-permissions.md#configuration-and-authority). Omission preserves prior behavior; both bridge installation JSON examples retain their existing defaults. Only enrolled owner-private execution is affected. The configured sandbox/reviewer override is explicit for those generations; model, effort and subscription credentials are unchanged. Persisted command prefixes remain native user-wide rules and can affect other clients using that CODEX_HOME; review that scope before choosing Remember.

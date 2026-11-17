@@ -1,5 +1,5 @@
 export interface Mention { id: string; name: string }
-export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation; taskView?: import('./task-card.js').TaskPresentation }
+export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation; taskView?: import('./task-card.js').TaskPresentation; reviewCard?: import('./review-card.js').ReviewPresentation }
 
 export interface NativeActivity {
   task: string; thread: string; turn: string; generation: string; stage: string;

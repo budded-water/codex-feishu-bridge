@@ -1,3 +1,4 @@
+import { nativePermissions } from '../permissions.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { loadConfig } from '../config.js';
@@ -52,7 +53,7 @@ async function main(): Promise<void> {
       }
     } catch { /* Ordinary tasks need no new budget source; repair goals fail closed without the actual launch budget. */ }
     runtime = new NativeExecutions(gateway, config, () => new CodexClient(config.codexExecutable, prefix as string[], 30_000, config.codexReasoningEffort),
-      verificationProfiles(value.verificationProfiles), { outerDeadline });
+      verificationProfiles(value.verificationProfiles), { outerDeadline, nativePermissions: nativePermissions(value.nativePermissions) });
     await runtime.recover();
     const grant = await outbox.claimContext(run, turn.cwd, JSON.parse(readFileSync(contextFile, 'utf8')));
     let report: NativeReport | undefined;
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
     clearInterval(progress);
     await runtime?.stop();
     process.removeListener('SIGTERM', stop); process.removeListener('SIGINT', stop);
+    runtime?.closePermissions();
     gateway.close();
   }
 }

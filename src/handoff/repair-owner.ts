@@ -1,3 +1,4 @@
+import type { PermissionSession } from '../permission-state.js';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,7 +34,7 @@ export class RepairOwner {
 
   constructor(private gateway: PilotAdmission, private config: Config, private request: RequestRecord, private permit: Permit,
     private folder: string, private binding: string, private factory: () => ManagedCodex, private profiles: VerificationProfiles,
-    private outerDeadline?: number) {}
+    private outerDeadline?: number, private permissions?: PermissionSession) {}
 
   private goal() { return this.gateway.store.repairs.get(this.permit.execution)!; }
   private attemptFolder(a: RepairAttempt) { return join(this.folder, 'attempts', a.id); }
@@ -145,7 +146,7 @@ export class RepairOwner {
       const session = this.state.select(this.request.message, this.gateway.scope.pilot, this.gateway.directory);
       const thread = previous?.native?.outcome.thread ?? this.gateway.store.conversationThread(this.request.conversation);
       if (thread) this.state.setThread(session.id, thread);
-      this.bridge = new Bridge(config, this.state, this.codex);
+      this.bridge = new Bridge(config, this.state, this.codex, undefined, this.permissions);
       const { id, chatType, createTime, parentId } = this.request.message;
       const source = { id, chatType, createTime, parentId };
       if (previous) {

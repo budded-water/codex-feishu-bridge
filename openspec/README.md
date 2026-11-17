@@ -67,3 +67,7 @@ openspec validate --all --strict --no-interactive
 ```
 
 The tool setup used OpenSpec 2.0.0, schema spec-driven and tools=none. It installed no repository runtime dependency or assistant configuration. Inspect supported commands before upgrading. Markdown artifacts remain reviewable without installing the CLI.
+
+## Active owner-native permission change
+
+[enable-owner-native-permissions](changes/enable-owner-native-permissions/proposal.md) implements explicit owner sandbox/Auto-review, native proposal Remember, owned-rule inspection/revocation and evidence-bound fresh denied-action retry. It remains an active change until its bounded source/delivery/owner-acceptance tasks complete. It does not alter or complete P3 business acceptance or deferred host exercises.

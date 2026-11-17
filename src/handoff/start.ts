@@ -1,3 +1,4 @@
+import { nativePermissions } from '../permissions.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import type { Config } from '../config.js';
@@ -37,6 +38,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     feishu.close();
     await opening?.catch(() => {});
     await interactions?.close();
+    native?.closePermissions();
     admission?.close();
     await control?.close(true);
     await lease.release();
@@ -53,7 +55,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       if (stopping) return;
       verifyImportedState(directory, readFence(lease.root)!.operation);
       admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope, config.projectRouting);
-      native = new NativeExecutions(admission, config, undefined, profiles);
+      native = new NativeExecutions(admission, config, undefined, profiles, { nativePermissions: nativePermissions(value.nativePermissions) });
       const source = new SourceOutbox(admission, new AutoloopSource(hubUrl, sourceKey));
       interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu, profiles);
       admission.store.bindChannel('feishu', await feishu.botIdentity());
@@ -64,7 +66,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     if (compromised) throw new Error('Consumer ownership unavailable');
     lease.assertHeld();
     await feishu.start(message => { interactions!.receive(message); void interactions!.flush().catch(() => {}); },
-      click => interactions!.cardAction(click), click => interactions!.taskRefresh(click));
+      click => interactions!.cardAction(click), click => interactions!.taskRefresh(click), click => interactions!.reviewAction(click));
     console.log('Pilot gateway connected under managed ownership');
   } catch (error) {
     const intentionalStop = stopping;
