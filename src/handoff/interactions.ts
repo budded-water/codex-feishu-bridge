@@ -104,6 +104,18 @@ export class PilotInteractions {
     if (previous) return { status: 'duplicate' as const, control: previous };
     const held = this.admission.store.unsettled();
     const execution = held.length === 1 ? held[0] : undefined;
+    let rememberTarget: NativeControlTarget | undefined;
+    if (/^\/approve-save(?:\s|$)/.test(message.text.trim())) {
+      const token = /^\/approve-save\s+([a-f0-9]{8})(?:\s|$)/.exec(message.text.trim())?.[1];
+      rememberTarget = execution && token ? this.transport.state.rememberApprovalTarget(execution.id, token, message) : undefined;
+      if (!rememberTarget) {
+        this.transport.state.transaction(() => {
+          if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
+            '当前没有已确认投递且完整展示长期规则的有效审批卡片；没有保存规则。可使用原请求的批准本次或拒绝，或稍后重新核对。', { replyTo: message.id });
+        });
+        return { status: 'rejected' as const };
+      }
+    }
     const reference = message.parentId ? this.transport.state.referencedTask(message.parentId, ownerKey(message)) : undefined;
     const repair = execution && this.admission.store.repairs.get(execution.id);
     if (repair && operator && (!message.parentId || reference === execution!.id) &&
@@ -144,7 +156,7 @@ export class PilotInteractions {
       });
       return { status: 'rejected' as const };
     }
-    const control = this.admission.store.acceptControl(execution.id, message);
+    const control = this.admission.store.acceptControl(execution.id, message, rememberTarget);
     if (message.text.trim() === '/stop' || natural === 'stop') void this.relay(control).catch(() => console.error('Stop relay unavailable; retained dispatch will be inspected'));
     void this.flushControls().catch(() => console.error('Control relay unavailable; retained dispatch will be inspected'));
     return { status: 'control' as const, control };

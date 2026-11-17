@@ -352,3 +352,41 @@ test('explicit revocation works after restart when native save observation was l
   assert.equal(readFileSync(ledger.defaultFile, 'utf8'), original); assert.equal(ledger.grant(grant.id)!.status, 'submitted');
   assert.equal(await ledger.changeRule('owner-revoke', scope.user, grant.id, true), 'applied'); assert.equal(readFileSync(ledger.defaultFile, 'utf8'), original);
 });
+
+test('transport-redacted prefixes cannot be saved by owner text or a confirmed-card selector while once approval remains available', async t => {
+  const secret = 'GATEWAY_SECRET"token', h = setup(t, true, [secret]), task = await h.start();
+  const sensitive = [...prefix, '--jq', secret];
+  task.c.ask('approval', 'item/commandExecution/requestApproval', { ...task.current, command: 'gh pr view 1 --jq ' + secret,
+    proposedExecpolicyAmendment: sensitive, availableDecisions: ['accept', 'decline', { acceptWithExecpolicyAmendment: { execpolicy_amendment: sensitive } }] });
+  await h.drain(); const d = h.sent.find(s => s.options?.approval)!, p = d.options!.approval!;
+  assert.equal(p.remember, undefined); assert.ok(!JSON.stringify(d).includes('GATEWAY_SECRET')); assert.ok(!d.body.includes('/approve-save'));
+  assert.ok(!JSON.stringify(approvalCard(p)).includes('approve_save'));
+  const action: ApprovalClick = { event: randomUUID(), tenant: 'tenant', user: 'ou_owner', chat: 'chat', message: 'om_' + d.id, id: p.id, decision: 'approve_save' };
+  assert.equal(h.interactions.cardAction(action), 'rejected');
+  assert.equal(h.interactions.receive(message('/approve-save ' + p.prompt, { chatType: 'p2p' })).status, 'rejected'); await h.drain();
+  assert.equal(task.c.replies.length, 0); assert.equal(h.native.permissions!.grants('submitted').length, 0); assert.equal(h.admission.store.controls().length, 0);
+  assert.equal(h.interactions.cardAction({ ...action, event: randomUUID(), decision: 'approve' }), 'accepted'); await h.drain();
+  assert.deepEqual(task.c.replies.at(-1)!.result, { decision: 'accept' }); assert.equal(existsSync(join(h.home, 'rules/default.rules')), false);
+  task.complete(); await task.running;
+});
+
+test('text Remember uses the complete confirmed card and its exact native target', async t => {
+  const h = setup(t), task = await h.start(); task.c.ask('approval', 'item/commandExecution/requestApproval', { ...task.current, ...proposal }); await h.drain();
+  const p = h.sent.find(s => s.options?.approval)!.options!.approval!, request = message('/approve-save ' + p.prompt, { chatType: 'p2p' });
+  assert.equal(h.interactions.receive(request).status, 'control'); await h.drain();
+  assert.deepEqual(h.admission.store.control(request)!.target, p.target);
+  assert.deepEqual(task.c.replies.at(-1)!.result, { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: prefix } } });
+  task.complete(); await task.running;
+});
+
+test('oversized approval fallback does not advertise or accept a Remember decision without a complete confirmed card', async t => {
+  const h = setup(t), task = await h.start();
+  task.c.ask('approval', 'item/commandExecution/requestApproval', { ...task.current, ...proposal, command: proposal.command + ' --jq ' + 'long-expression'.repeat(2400) });
+  for (let i = 0; i < 30; i++) await h.interactions.flush();
+  assert.equal(h.sent.filter(s => s.options?.approval).length, 0); assert.ok(h.sent.every(s => !s.body.includes('/approve-save')));
+  const token = (await h.native.projection(task.request.execution)).prompts[0]!.id;
+  assert.equal(h.interactions.receive(message('/approve-save ' + token, { chatType: 'p2p' })).status, 'rejected'); await h.drain();
+  assert.equal(task.c.replies.length, 0); assert.equal(h.native.permissions!.grants('submitted').length, 0);
+  h.interactions.receive(message('/approve ' + token, { chatType: 'p2p' })); await h.drain(); assert.deepEqual(task.c.replies.at(-1)!.result, { decision: 'accept' });
+  task.complete(); await task.running;
+});

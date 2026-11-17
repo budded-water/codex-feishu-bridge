@@ -6,7 +6,7 @@ import { openPrivateDatabase } from './private-database.js';
 import { OWNER_WITHDRAWN, type RequestRecord, type ControlRecord } from './handoff/store.js';
 import type { JournalProjection } from './handoff/journal.js';
 import { splitReply } from './reply.js';
-import { approvalCard, parseApproval, cardMessage, approvalReplyTarget, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
+import { approvalCard, approvalText, parseApproval, cardMessage, approvalReplyTarget, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
 import { parseTaskPresentation, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
 import { ownerKey, type IncomingMessage, type Session, type Task, type DeliveryOptions, type NativeControlTarget, type ControlDisposition } from './types.js';
 
@@ -171,6 +171,7 @@ export class State {
         if (row.approval) {
           const p = this.redactApproval(row.approval);
           this.db.prepare('UPDATE outbox SET approval=? WHERE id=?').run(JSON.stringify(p), row.id);
+          if (row.approval.remember && !p.remember) this.db.prepare('UPDATE outbox SET body=? WHERE id=?').run(approvalText(p), row.id);
           this.db.prepare('INSERT OR IGNORE INTO approval_cards(id,prompt,delivery,payload) VALUES (?,?,?,?)')
             .run(p.id, request.execution + ':' + p.prompt, row.id, JSON.stringify(p));
         }
@@ -484,6 +485,7 @@ export class State {
     }
     if (options.approval) {
       const p = this.redactApproval(options.approval);
+      if (options.approval.remember && !p.remember) body = approvalText(p);
       if (Buffer.byteLength(JSON.stringify(approvalCard(p))) <= APPROVAL_CARD_BYTES) {
         parseApproval(p);
         this.transaction(() => {
@@ -494,6 +496,7 @@ export class State {
         });
         return;
       }
+      if (p.remember) { p.remember = undefined; body = approvalText(p); }
     }
     // Split before persistence so each part retains its UUID across delivery retries.
     for (const part of splitReply(this.redact(body))) {
@@ -643,12 +646,23 @@ export class State {
     }
   }
 
+  rememberApprovalTarget(task: string, token: string, message: IncomingMessage): NativeControlTarget | undefined {
+    if (message.chatType !== 'p2p') return;
+    const row = this.db.prepare(`SELECT c.payload,c.prompt FROM approval_cards c JOIN approvals a ON a.id=c.prompt
+      JOIN tasks t ON t.id=a.task JOIN sessions s ON s.id=t.session
+      WHERE a.task=? AND a.id=? AND s.owner=? AND c.message IS NOT NULL ORDER BY c.rowid DESC LIMIT 1`)
+      .get(task, task + ':' + token, ownerKey(message)) as { payload: string; prompt: string } | undefined;
+    if (!row || this.cardView(row.prompt, Date.now()) !== 'pending') return;
+    const p = parseApproval(JSON.parse(row.payload));
+    return p.remember && p.tenant === message.tenant && p.chat === message.chat ? p.target : undefined;
+  }
+
   approvalClick(click: ApprovalClick) {
     const row = this.db.prepare('SELECT approval_cards.*,approvals.task FROM approval_cards JOIN approvals ON approvals.id=approval_cards.prompt WHERE approval_cards.id=?').get(click.id) as
       { payload: string; prompt: string; task: string; message: string | null } | undefined;
     if (!row || row.message !== click.message || this.cardView(row.prompt, Date.now()) !== 'pending') return;
     const p = parseApproval(JSON.parse(row.payload));
-    if (p.tenant !== click.tenant || p.chat !== click.chat) return;
+    if (p.tenant !== click.tenant || p.chat !== click.chat || click.decision === 'approve_save' && !p.remember) return;
     return { task: row.task, target: p.target, message: cardMessage(click, p), prompt: p.prompt };
   }
 

@@ -682,7 +682,7 @@ export class Bridge {
       const sameChat = prompt.replyChat === active.session.chat;
       const context = (this.config.projectRouting === 'workspace' ? '通用工作区' : active.session.project === '$chat' ? '讨论' : '项目：' + active.session.project) +
         (!sameChat ? ' · 来自：' + (identity?.name ?? '提交者未核实') : '');
-      if (sameChat && active.task.source?.chatType === 'p2p') {
+      if (sameChat && active.task.source?.chatType === 'p2p' && this.config.approvalUsers.includes(active.session.user)) {
         try { prompt.remember = this.permissions?.proposal(rpc, active.session, token, active.generation, this.state); } catch { /* Ordinary one-time approval remains available when rule evidence cannot be prepared. */ }
       }
       const presentation = approvalPresentation({ ...(prompt.remember && { remember: prompt.remember }), prompt: token, task: active.task.id, tenant: active.session.tenant, chat: prompt.replyChat,

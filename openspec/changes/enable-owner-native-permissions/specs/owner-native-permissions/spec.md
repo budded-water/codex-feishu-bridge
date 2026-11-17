@@ -8,7 +8,7 @@ The optional P1 permission policy SHALL be limited to the enrolled private maint
 - **THEN** its configured policy is reapplied without inheriting a stale broader task override or changing unrelated native clients
 
 ### Requirement: Exact persistent command decision
-Remember SHALL require a concrete supported native proposal, matching offered decision, genuine explicit owner text response or confirmed platform card, and current request identity. Only the enrolled private owner SHALL grant it. The UI SHALL disclose the complete prefix and native user-level effect. Callback input SHALL NOT supply arbitrary rules. Single approval, rejection, expiry and unavailable proposals SHALL NOT persist a rule.
+Remember SHALL require a concrete supported native proposal, matching offered decision, genuine explicit owner text response or callback bound to a confirmed, fully disclosed Remember card, and current request identity. Only the enrolled private owner SHALL grant it. The UI SHALL disclose the complete prefix and native user-level effect. Callback input SHALL NOT supply arbitrary rules. Single approval, rejection, expiry and unavailable proposals SHALL NOT persist a rule.
 
 #### Scenario: Remember acknowledgement is lost
 - **WHEN** a submitted decision or native rule write cannot be confirmed
