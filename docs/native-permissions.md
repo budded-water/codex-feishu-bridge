@@ -72,3 +72,7 @@ Closed backups and supported rollback archive the permission ledger, retry bindi
 Run `npm run check` and `npm run smoke:codex`. `npm run verify:permissions` additionally exercises the installed native parser, owned prompt overlay and a scripted denied-action RPC without inference or command execution. `npm run verify:permissions -- --native` consumes model usage for one isolated Auto-review-approved file write. Scripted denial/RPC success does not prove an actual denied-then-approved model retry, nor a genuine Feishu owner interaction. Keep those acceptance limits explicit.
 
 Native contracts: [app-server](https://learn.chatgpt.com/docs/app-server.md), [rules](https://learn.chatgpt.com/docs/agent-configuration/rules.md), [Auto-review](https://learn.chatgpt.com/docs/sandboxing/auto-review.md). Experimental interfaces are pinned to [the generated compatibility authority](../src/codex/generated/version.ts); regenerate and verify before upgrading.
+
+## Browser permissions are separate
+
+Browser Use site gates are not managed by command prefixes or Guardian retry. The [browser handoff](browser-access.md) records structured saved-denial observations and offers provider-owned local remediation plus an explicit source-linked ordinary continuation. It does not grant access, write native/browser rules, invoke Guardian authorization or infer delivery from a chat reply.

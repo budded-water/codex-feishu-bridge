@@ -1,5 +1,13 @@
 # Live acceptance evidence
 
+## 2026-11-18 browser access handoff source evidence
+
+The earlier owner task and verbal allow follow-up were inspected through read-only native item history: native reviews approved while Browser Use returned structured `persisted_user_denied` for the same site. No native human approval or unsupported-interaction bridge rejection explained that block. A separate runtime variable loss preceded reconnection in the follow-up. This identifies an independent browser-origin gate, not a native command-policy denial. No new blocked-site navigation, policy change or business message was performed for this investigation. Private identities/transcripts remain local; the checked-in fixture retains only a sanitized metadata shape.
+
+The installed browser capability inventory exposes viewport/organization controls, not a site-policy mutation API; the plugin-permission tool explicitly excludes Chrome/code plugins. Source now retains minimal optional observations, shows owner-private remediation, keeps verbal allow as guidance, and admits one owner-attested linked ordinary request with transaction and pre-start source/conversation checks. Automated coverage includes privacy/metadata boundaries, live/sealed views, legacy unchanged reads, duplicate/restart receipts, conflicting work, stale/unknown/changed source, verification/repair exclusion and renewed denial without another scheduled request.
+
+Local `npm run check` passes with 365 tests, typecheck and build; all 14 strict OpenSpec items, the installed Codex metadata smoke and the isolated actual pinned Hub/Worker assigned-native campaign pass without inference. These are source/provider-history/simulated lifecycle facts. Managed activation and actual owner interaction are separate records. Genuine continuation after an actual locally handled browser permission change remains pending. The two original sealed tasks predate this observation schema and are not backfilled by queries. Native policy, unresolved native-denial/retry, business and deferred host gates remain separate.
+
 ## 2026-11-17 mobile approval layout source and official preview
 
 A real owner iPhone screenshot showed the three-column Remember label truncated and secondary details crowding the decision. The updated renderer uses a two-column once/reject row and a separate large full-width Remember button below the complete literal prefix and user-wide scope. Request metadata/manual commands fold; pending authority-bearing details remain expanded. Settled cards lead with their submitted/expired state and retain historical details without controls.

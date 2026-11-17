@@ -1,3 +1,4 @@
+import { browserAccessText, browserRetryCommand } from '../browser-access.js';
 import { randomUUID } from 'node:crypto';
 import { message as present, section, copyBlock } from '../presentation.js';
 import { duration, taskTitle } from '../ux.js';
@@ -33,7 +34,7 @@ export class OwnerTasks {
     if (!isMaintenanceOwner(this.admission.scope, this.config, message) || message.unsupported || message.text.length > 30_000) return { status: 'rejected' as const };
     this.enqueue(message, async () => {
       const text = message.text.trim(), list = /^\/tasks(?:\s+([1-9][0-9]{0,5}))?$/.exec(text);
-      if (list) return { body: list[1] ? this.list(message, Number(list[1])) : this.overview(message) };
+      if (list) return { body: list[1] ? await this.list(message, Number(list[1])) : await this.overview(message) };
       const selected = new RegExp('^/task\\s+(' + uuid + ')$', 'i').exec(text);
       const request = selected && this.owned(message, selected[1]!.toLowerCase());
       if (!request) return { body: usage };
@@ -97,24 +98,24 @@ export class OwnerTasks {
     return escape(taskTitle(this.state.redact(request.message.text).replace(/^\/verify(?:-repair)?\s+\S+\s+/, '')));
   }
 
-  private overview(message: IncomingMessage): string {
+  private async overview(message: IncomingMessage): Promise<string> {
     const { counts, current, recent } = this.admission.store.taskOverview(ownerKey(message), this.admission.project);
-    const row = (r: RequestRecord) => `${this.title(r)}\n${this.facts(r).status}\n${copyBlock('/task ' + r.execution)}`;
+    const row = async (r: RequestRecord) => `${this.title(r)}\n${this.facts(r).status}${await this.accessSummary(r)}\n${copyBlock('/task ' + r.execution)}`;
     return present('任务概览', `执行中：${counts.active} · 未开始（含阻断）：${counts.unstarted} · 待检查：${counts.unknown}。`,
-      section('当前任务', current.length ? current.map(row) : ['当前没有执行、排队或仍受保护的未确认任务。']),
-      section('最近结果 · 历史记录', recent.map(row)),
+      section('当前任务', current.length ? await Promise.all(current.map(row)) : ['当前没有执行、排队或仍受保护的未确认任务。']),
+      section('最近结果 · 历史记录', await Promise.all(recent.map(row))),
       section('完整记录', [`已接收请求共 ${counts.total} 条，包含已结束、撤回和历史未确认记录；历史数量不代表当前待办。`,
         ...(current.length === 10 ? ['当前任务最多展示 10 条，完整记录可继续查看。'] : []), copyBlock('/tasks 1')]));
   }
 
-  private list(message: IncomingMessage, page: number): string {
+  private async list(message: IncomingMessage, page: number): Promise<string> {
     const { requests, total } = this.admission.store.taskPage(ownerKey(message), this.admission.project, page), pages = Math.max(1, Math.ceil(total / 10));
     if (page > pages) return `页码超出范围，共 ${pages} 页。\n\n${usage}`;
     const groups = new Map<string, string[]>();
     for (const request of requests) {
       const facts = this.facts(request), lines = groups.get(facts.group) ?? [];
       const verification = facts.verification?.observation?.status;
-      lines.push(`${this.title(request)}\n${facts.status}${verification ? ` · 验证观测：${labels[verification]}` : ''}\n${copyBlock('/task ' + request.execution)}`);
+      lines.push(`${this.title(request)}\n${facts.status}${await this.accessSummary(request)}${verification ? ` · 验证观测：${labels[verification]}` : ''}\n${copyBlock('/task ' + request.execution)}`);
       groups.set(facts.group, lines);
     }
     return present('任务列表', `共 ${total} 个任务 · 第 ${page}/${pages} 页 · 每页最多 10 个。`,
@@ -122,6 +123,13 @@ export class OwnerTasks {
       section('查看与翻页', ['本人当前工作区；执行/仍受保护的未确认在前，其次未开始任务，再列历史记录。状态取自记录，详情可核对当前活动与证据。',
         ...(page < pages ? [copyBlock('/tasks ' + (page + 1))] : []), ...(page > 1 ? [copyBlock('/tasks ' + (page - 1))] : []),
         '列表随任务状态变化；历史任务仍可按完整编号查询。']));
+  }
+
+  private async accessSummary(request: RequestRecord): Promise<string> {
+    const execution = this.admission.store.execution(request.execution);
+    if (!execution || execution.status === 'unknown') return '';
+    try { return (await this.native.progress(request.execution)).accessBlocks?.length ? '\n浏览器站点权限拒绝（本轮观测；交付仍需核对）' : ''; }
+    catch { return ''; }
   }
 
   private async detail(request: RequestRecord): Promise<string> {
@@ -146,12 +154,23 @@ export class OwnerTasks {
       : facts.execution.status === 'active' ? ['引用此卡片发送 /steer 内容 或 /stop，绑定本任务；停止需等待实际收尾。'] : [];
     const verification = facts.verification;
     const applicability = verification?.observation ? await verificationApplicability(verification, this.profiles) : undefined;
+    const parent = this.admission.store.browserRetry(request.execution), followup = this.admission.store.browserRetryForSource(request.execution);
+    const blocks = progress?.accessBlocks;
     const details = [`任务编号：${request.execution}`, `查询快照：${new Date().toISOString()}（UTC）`];
     const timestamp = Number(request.message.createTime);
     if (timestamp > 0 && Number.isFinite(new Date(timestamp).getTime())) details.push(`原消息时间：${new Date(timestamp).toISOString()}`);
     return present(this.title(request), section('进度', lines), section('需要你处理', [...prompts, ...actions]),
       verification ? section('项目验证', [`Profile：${verification.profile}`, `观测：${labels[verification.observation?.status ?? verification.phase] ?? '尚无结论'}`,
         ...(applicability ? [applicability] : []), copyBlock('/verification ' + request.execution)]) : undefined,
-      section('详情', [copyBlock(details.join('\n')), '这是查询时快照；事件时间不证明模型网络健康。原生结束、验证、独立 review 与发布授权分别判断。']));
+      blocks?.length ? section('浏览器访问', [browserAccessText(blocks),
+        ...(followup ? ['已登记过一个关联续接请求。', copyBlock('/task ' + followup.execution)] :
+          facts.execution?.status === 'completed' && !facts.goal && !verification ? [
+            '仅在本机处理设置并核对原任务副作用后，才发送下面的明确续接命令。它创建一个关联的新普通请求，不修改浏览器权限、不证明已放行或交付。会话已变化或有执行保护时会拒绝。',
+            copyBlock(browserRetryCommand(request.execution)),
+          ] : ['此阶段仅查看观测；验证/修复仍从原专用入口交办。'])]) : undefined,
+      parent ? section('续接来源', [copyBlock('/task ' + parent.sourceExecution), '原任务与历史证据保持原记录。']) : undefined,
+      section('详情', [copyBlock(details.join('\n')),
+        ...(progress && progress.accessBlocks === undefined ? ['旧记录未采集结构化浏览器权限观测。'] : []),
+        '这是查询时快照；事件时间不证明模型网络健康。原生结束、验证、独立 review 与发布授权分别判断。']));
   }
 }

@@ -1,3 +1,4 @@
+import { readBrowserAccessBlocks, type BrowserAccessBlock } from './browser-access.js';
 import { parseReviewPresentation, type ReviewPresentation, type ReviewClick } from './review-card.js';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -77,6 +78,7 @@ export class State {
         CREATE TABLE IF NOT EXISTS review_cards (id TEXT PRIMARY KEY, delivery TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, message TEXT);
         CREATE TABLE IF NOT EXISTS review_notices (review TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS native_permission_reviews (id TEXT NOT NULL, generation TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(id,generation));
+        CREATE TABLE IF NOT EXISTS browser_access_blocks(task TEXT NOT NULL, generation TEXT NOT NULL, item TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(task,generation,item));
         CREATE TABLE IF NOT EXISTS approvals (
           id TEXT PRIMARY KEY, task TEXT, method TEXT, status TEXT, created INTEGER
         );
@@ -153,7 +155,7 @@ export class State {
     });
   }
 
-  projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }, verification?: string): void {
+  projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }, verification?: string, browserNotice?: string): void {
     this.transaction(() => {
       for (const prompt of projection.prompts) {
         this.db.prepare(`INSERT INTO approvals(id,task,method,status,created,expires,actor) VALUES (?,?,'native-projection',?,?,?,?)
@@ -180,6 +182,10 @@ export class State {
         if (verification && !this.verificationNoticeProjected(request.execution)) {
           this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run('verification/' + request.execution, 'observed', randomUUID());
           this.send(request.message.chat, verification, { taskId: request.execution, replyTo: request.message.id, final: true });
+        }
+        if (browserNotice && this.db.prepare('INSERT OR IGNORE INTO projected_control_notices VALUES (?,?,?)')
+          .run('browser-access/' + request.execution, 'observed', randomUUID()).changes) {
+          this.send(request.message.chat, browserNotice, { taskId: request.execution, replyTo: this.replyTarget(request.execution) });
         }
         this.db.prepare('UPDATE projected_tasks SET checkpoint=? WHERE execution=?').run(projection.checkpoint, request.execution);
       }
@@ -693,6 +699,20 @@ export class State {
       this.db.prepare('INSERT INTO outbox(id,chat,body,review_card,update_message) VALUES(?,?,?,?,?)').run(randomUUID(), p.chat, '', JSON.stringify(p), row.message);
     };
     if (this.db.isTransaction) update(); else this.transaction(update);
+  }
+
+  recordBrowserAccessBlock(task: string, generation: string, denial: Omit<BrowserAccessBlock, 'task' | 'generation' | 'observedAt'>): void {
+    const previous = this.db.prepare('SELECT body FROM browser_access_blocks WHERE task=? AND generation=? AND item=?').get(task, generation, denial.item) as { body: string } | undefined;
+    if (previous) {
+      const old = JSON.parse(previous.body) as BrowserAccessBlock;
+      if (old.origin !== denial.origin || old.browser !== denial.browser || old.code !== denial.code) throw Error('Browser access observation changed');
+      return;
+    }
+    const observation: BrowserAccessBlock = { task, generation, ...denial, observedAt: Date.now() };
+    this.db.prepare('INSERT INTO browser_access_blocks VALUES(?,?,?,?)').run(task, generation, denial.item, JSON.stringify(observation));
+  }
+  browserAccessBlocks(task: string, generation: string): BrowserAccessBlock[] {
+    return readBrowserAccessBlocks(this.db, task, generation)!;
   }
 
   recordNativeReview(generation: string, review: import('./permissions.js').NativeReview): void {

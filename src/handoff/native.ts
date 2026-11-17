@@ -1,3 +1,4 @@
+import { readBrowserAccessBlocks, parseBrowserAccessBlock, type BrowserAccessBlock } from '../browser-access.js';
 import { PermissionSession, PermissionState } from '../permission-state.js';
 import type { NativePermissions } from '../permissions.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -197,6 +198,13 @@ export class NativeExecutions {
           if (source.checkpoint !== retry.checkpoint || source.outcome.thread !== retry.review.thread || source.outcome.turn !== retry.review.turn || source.outcome.generation !== retry.generation ||
             !projection.reviews?.some(x => x.generation === retry.generation && x.body === JSON.stringify(retry.review))) throw Error('Native denial evidence differs');
         }
+        const browserRetry = this.gateway.store.browserRetry(request.execution);
+        if (browserRetry) {
+          this.gateway.store.assertBrowserRetryCurrent(request.execution);
+          const source = this.evidence(browserRetry.sourceExecution), projection = await this.projection(browserRetry.sourceExecution);
+          if (source.checkpoint !== browserRetry.checkpoint || source.outcome.generation !== browserRetry.generation || source.outcome.thread !== browserRetry.thread ||
+            source.outcome.turn !== browserRetry.turn || JSON.stringify(projection.accessBlocks) !== JSON.stringify(browserRetry.blocks)) throw Error('Browser source evidence differs');
+        }
         const permissions = this.permissions && request.message.chatType === 'p2p' ? new PermissionSession(this.options.nativePermissions!, this.permissions, request.execution, retry?.review) : undefined;
         this.active = this.gateway.store.repairs.get(request.execution)
           ? new RepairOwner(this.gateway, this.config, request, permit, folder, binding(this.gateway, request), factory, this.profiles, this.options.outerDeadline, permissions)
@@ -269,6 +277,7 @@ export class NativeExecutions {
         p.chat !== row.chat || row.prompt_id !== p.prompt || prompt?.expires !== p.expires ||
         p.target.thread !== outcome.thread || p.target.turn !== outcome.turn || p.target.generation !== outcome.generation) throw new Error('Approval presentation binding changed');
     }
+    if (projection.accessBlocks?.some(b => b.task !== task.id || b.generation !== outcome.generation)) throw Error('Browser observation binding differs');
     const goal = this.gateway.store.repairs.get(execution);
     const priorPrompts = goal ? goal.attempts.slice(0, -1).flatMap(a => {
       const path = join(this.folder(execution), 'attempts', a.id, 'bridge.db');
@@ -287,7 +296,7 @@ export class NativeExecutions {
     return value.ready === true;
   }
 
-  async progress(execution: string): Promise<{ live: boolean; activity?: NativeActivity; startedAt?: number; finishedAt?: number }> {
+  async progress(execution: string): Promise<{ live: boolean; activity?: NativeActivity; startedAt?: number; finishedAt?: number; accessBlocks?: BrowserAccessBlock[] }> {
     const row = this.gateway.store.execution(execution);
     if (!row || row.status === 'unknown') throw new Error('Progress cannot confirm this execution');
     const owner = this.owner(execution);
@@ -298,9 +307,10 @@ export class NativeExecutions {
       const timing = readJournal(this.journalPath(execution), db => {
         const columns = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name);
         const fields = ['execution_at', 'finished_at'].map(name => columns.includes(name) ? name : `NULL AS ${name}`);
-        return db.prepare(`SELECT ${fields.join(',')} FROM tasks WHERE id=?`).get(report.outcome.task!) as { execution_at: number | null; finished_at: number | null } | undefined;
+        const row = db.prepare(`SELECT ${fields.join(',')} FROM tasks WHERE id=?`).get(report.outcome.task!) as { execution_at: number | null; finished_at: number | null } | undefined;
+        return { ...row, accessBlocks: readBrowserAccessBlocks(db, report.outcome.task!, report.outcome.generation) };
       });
-      return { live: false, ...(timing?.execution_at && { startedAt: timing.execution_at }), ...(timing?.finished_at && { finishedAt: timing.finished_at }) };
+      return { live: false, accessBlocks: timing.accessBlocks, ...(timing?.execution_at && { startedAt: timing.execution_at }), ...(timing?.finished_at && { finishedAt: timing.finished_at }) };
     }
     const attempt = this.gateway.store.repairs.get(execution)?.attempts.at(-1)?.id;
     const value = await requestOwner(owner.socket, owner.permit.token, execution, { op: 'progress' });
@@ -318,7 +328,13 @@ export class NativeExecutions {
       { owner: string; trigger: string; directory: string; thread: string | null; turn: string | null } | undefined);
     if (!task || a.generation !== value.generation || task.owner !== ownerKey(request.message) || task.trigger !== request.message.id ||
       task.directory !== this.gateway.directory || (a.thread && task.thread !== a.thread) || (a.turn && task.turn !== a.turn)) throw new Error('Activity identity differs');
-    return { live: true, activity: a as unknown as NativeActivity };
+    let accessBlocks: BrowserAccessBlock[] | undefined;
+    if (a.accessBlocks !== undefined) {
+      if (!Array.isArray(a.accessBlocks) || a.accessBlocks.length > 10) throw Error('Invalid browser observations');
+      accessBlocks = a.accessBlocks.map(parseBrowserAccessBlock);
+    }
+    if (accessBlocks?.some(b => b.task !== a.task || b.generation !== a.generation)) throw Error('Browser activity binding differs');
+    return { live: true, activity: { ...a, accessBlocks } as unknown as NativeActivity, accessBlocks };
   }
 
   async inspect(execution: string): Promise<Record<string, unknown>> {

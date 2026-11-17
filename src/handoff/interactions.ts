@@ -1,3 +1,4 @@
+import { OwnerBrowserAccess, browserAllowIntent } from './browser-access.js';
 import { message as present, section, copyBlock } from '../presentation.js';
 import type { Config } from '../config.js';
 import type { Sender } from '../outbox.js';
@@ -28,6 +29,7 @@ export class PilotInteractions {
   private queue: OwnerQueue;
   private tasks: OwnerTasks;
   private permissions: OwnerPermissions;
+  private browserAccess: OwnerBrowserAccess;
   private work?: Promise<void>;
   private timer?: NodeJS.Timeout;
   private closing?: Promise<void>;
@@ -44,6 +46,7 @@ export class PilotInteractions {
     this.queue = new OwnerQueue(admission, config, this.transport.state);
     this.tasks = new OwnerTasks(admission, config, native, this.transport.state, profiles);
     this.permissions = new OwnerPermissions(admission, config, native, this.transport.state);
+    this.browserAccess = new OwnerBrowserAccess(admission, config, native, this.transport.state);
   }
 
   receive(message: IncomingMessage) {
@@ -56,6 +59,7 @@ export class PilotInteractions {
       });
       return { status: 'rejected' as const };
     }
+    if (/^\/browser-retry(?:\s|$)/.test(message.text.trim()) || browserAllowIntent(message.text)) return this.browserAccess.receive(message);
     if (/^\/(?:tasks|task)(?:\s|$)/.test(message.text.trim())) return this.tasks.receive(message);
     if (/^\/(?:rules|reviews|review|review-retry)(?:\s|$)/.test(message.text.trim())) return this.permissions.receive(message);
     if (/^\/findings(?:\s|$)/.test(message.text.trim())) return this.findingsCommand(message);
@@ -93,7 +97,7 @@ export class PilotInteractions {
         present('使用帮助',
           section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
-          section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/rules` 原生规则 · `/reviews` 非通过审查记录', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
+          section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/rules` 原生规则 · `/reviews` 非通过审查记录', '- `/browser-retry 编号 local-change-confirmed` 本机处理后检查并续接普通任务', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
           Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',
             ...(Object.values(this.profiles).some(p => p.repair) ? ['- `/verify-repair profile 任务内容` 显式允许一轮修复'] : []),
             '- `/verification 任务编号` 查看历史观测', '- `/findings` 汇总待核对验证线索（只读）']) : undefined,
@@ -337,6 +341,7 @@ export class PilotInteractions {
     await this.viewWork;
     await this.tasks.idle();
     await this.permissions.idle();
+    await this.browserAccess.idle();
     await this.recovery.idle();
     this.recovery.sync();
     this.queue.sync();
@@ -376,6 +381,7 @@ export class PilotInteractions {
       await this.viewWork;
       await this.tasks.idle();
       await this.permissions.idle();
+      await this.browserAccess.idle();
       await this.recovery.idle();
       this.recovery.sync();
       this.queue.sync();
