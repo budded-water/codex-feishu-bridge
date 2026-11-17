@@ -10,7 +10,8 @@
 
 - [x] Push a coherent PR; pass exact-head CI/preflight and independent correctness/test-quality review.
 - [x] Merge, prepare a locked artifact and perform the authorized drained coordinated rollout with retained evidence/policy.
-- [ ] Verify genuine owner policy/approval/persistence/reuse/revocation and review/retry interactions within the bounded fixture scope.
+- [x] Verify genuine owner queries and a real read-only network task through native Auto-review without human approval.
+- [ ] Verify genuine owner persistence/reuse/revocation and actual denied/re-reviewed/retry interactions within the bounded fixture scope.
 - [x] Record delivered and unverified families separately; retain P3 business and deferred host gates.
 
 ## Candidate evidence
@@ -28,4 +29,8 @@
 
 PR #33 is merged and its reviewed artifact is active on the managed owner-private pilot. Both service references, native policy/home binding, runtime fingerprint, retained closed state/evidence/policy inventory and open/drained readiness were verified. Existing profiles, scheduler policy, native model/authentication/effort and platform subscription were retained. No native user allow rule was created by activation. Genuine owner and actual model-denial/re-review gates remain open; this change is not archived.
 
-Genuine owner /rules and /reviews queries are accepted with clear formatting. Official reads verify both replies; baseline task/policy/native/project facts stayed unchanged and no task was created. Native-task and permission-effect acceptance remain open.
+Genuine owner /rules and /reviews queries are accepted with clear formatting. Official reads verify both replies; baseline task/policy/native/project facts stayed unchanged and no task was created. The real native task is accepted below; remaining persistent-rule and denial/retry effects stay open.
+
+## Genuine native task acceptance
+
+One genuine owner request produced one actual Hub/Worker run and one command. Exact native review/item/generation/thread/turn bindings and sealed journal hash match; the command completed with exit code 0 and the expected read-only GitHub result. There were zero human prompts/controls, zero grants/revocations, one confirmed final reply and no change to native user rules or prior native/project evidence. The task/transport drained. Runtime source/configuration is unchanged. This accepts the bounded native Auto-review path, not persistent-rule or denial-retry effects; the change remains active.

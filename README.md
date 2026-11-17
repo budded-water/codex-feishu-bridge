@@ -1,6 +1,6 @@
 # Codex Feishu Bridge
 
-The opt-in [owner native-permissions feature](docs/native-permissions.md) is merged and deployed on the managed owner-private pilot with native Auto-review policy, proposal-bound Remember, rule inspection/revocation and explicit denied-command retry. Its [change](openspec/changes/enable-owner-native-permissions/tasks.md) remains active for genuine owner permission interactions and additional model-denial acceptance; activation alone does not establish them.
+The opt-in [owner native-permissions feature](docs/native-permissions.md) is merged and deployed on the managed owner-private pilot with native Auto-review policy, proposal-bound Remember, rule inspection/revocation and explicit denied-command retry. Owner-private rule/review queries and one real read-only network command approved by native Auto-review without human intervention are accepted. Its [change](openspec/changes/enable-owner-native-permissions/tasks.md) remains active for persistent-rule effects and genuine denial/retry acceptance.
 
 把安装在你电脑上的 Codex 接到飞书，让你或同事通过私聊、群内 `@机器人` 提交工作。
 
