@@ -56,8 +56,8 @@ export function message(text: string, overrides: Partial<IncomingMessage> = {}):
   return { tenant: 'tenant', user: 'ou_owner', chat: 'chat', id: randomUUID(), text, ...overrides };
 }
 
-export async function until(check: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2000;
+export async function until(check: () => boolean, timeout = 2000): Promise<void> {
+  const deadline = Date.now() + timeout;
   while (!check()) {
     if (Date.now() > deadline) throw new Error('Condition did not become true');
     await new Promise(resolve => setTimeout(resolve, 5));

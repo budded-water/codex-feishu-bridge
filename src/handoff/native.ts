@@ -1,3 +1,5 @@
+import { PermissionSession, PermissionState } from '../permission-state.js';
+import type { NativePermissions } from '../permissions.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, lstatSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
@@ -60,12 +62,14 @@ export class NativeExecutions {
   private root: string;
   private active?: NativeOwner | RepairOwner;
   private stopping = false;
+  readonly permissions?: PermissionState;
 
   constructor(private gateway: PilotAdmission, private config: Config, private createCodex?: () => ManagedCodex,
-    private profiles: VerificationProfiles = {}, private options: { outerDeadline?: number } = {}) {
+    private profiles: VerificationProfiles = {}, private options: { outerDeadline?: number; nativePermissions?: NativePermissions; codexHome?: string } = {}) {
     if ((config.allowedTenant && config.allowedTenant !== gateway.scope.tenant) ||
       (config.accessMode === 'allowlist' && !config.allowedUsers.includes(gateway.scope.operator)) ||
       config.projects[gateway.scope.pilot] !== gateway.directory) throw new Error('Native configuration does not admit the pilot');
+    if (options.nativePermissions) this.permissions = new PermissionState(gateway.stateDirectory, { tenant: gateway.scope.tenant, user: gateway.scope.operator, chat: gateway.scope.chat }, config.codexExecutable, options.codexHome);
     this.root = join(gateway.stateDirectory, 'executions');
     privateFolder(this.root);
   }
@@ -186,9 +190,17 @@ export class NativeExecutions {
         if (request.message.chatType === 'group' && !this.config.enableGroups) throw new Error('Native configuration does not admit the pilot chat');
         if (request.message.chatType === 'group' && !this.gateway.store.reference(request.execution, request.message)?.context) throw new Error('Missing retained group references');
         const factory = () => this.createCodex?.() ?? new CodexClient(this.config.codexExecutable, [], 30_000, this.config.codexReasoningEffort);
+        const retry = this.gateway.store.permissionRetry(request.execution);
+        if (retry) {
+          if (!this.permissions) throw Error('Native retry policy unavailable');
+          const source = this.evidence(retry.sourceExecution), projection = await this.projection(retry.sourceExecution);
+          if (source.checkpoint !== retry.checkpoint || source.outcome.thread !== retry.review.thread || source.outcome.turn !== retry.review.turn || source.outcome.generation !== retry.generation ||
+            !projection.reviews?.some(x => x.generation === retry.generation && x.body === JSON.stringify(retry.review))) throw Error('Native denial evidence differs');
+        }
+        const permissions = this.permissions && request.message.chatType === 'p2p' ? new PermissionSession(this.options.nativePermissions!, this.permissions, request.execution, retry?.review) : undefined;
         this.active = this.gateway.store.repairs.get(request.execution)
-          ? new RepairOwner(this.gateway, this.config, request, permit, folder, binding(this.gateway, request), factory, this.profiles, this.options.outerDeadline)
-          : new NativeOwner(this.gateway, this.config, request, permit, folder, factory(), this.profiles);
+          ? new RepairOwner(this.gateway, this.config, request, permit, folder, binding(this.gateway, request), factory, this.profiles, this.options.outerDeadline, permissions)
+          : new NativeOwner(this.gateway, this.config, request, permit, folder, factory(), this.profiles, permissions);
         if (this.stopping) await this.active.stop();
         try { await this.active.run(); }
         catch (failure) {
@@ -375,6 +387,7 @@ export class NativeExecutions {
   }
 
   stop(): Promise<void> { this.stopping = true; return this.active?.stop() ?? Promise.resolve(); }
+  closePermissions(): void { this.permissions?.close(); }
 }
 
 class NativeOwner {
@@ -389,7 +402,7 @@ class NativeOwner {
   private verificationAbort = new AbortController();
 
   constructor(private gateway: PilotAdmission, private config: Config, private request: RequestRecord,
-    private permit: Permit, private folder: string, private codex: ManagedCodex, private profiles: VerificationProfiles) {
+    private permit: Permit, private folder: string, private codex: ManagedCodex, private profiles: VerificationProfiles, private permissions?: PermissionSession) {
     this.outcome = { task: null, thread: null, turn: null, status: 'interrupted', generation: '' };
   }
 
@@ -416,7 +429,7 @@ class NativeOwner {
         const message = record(incoming.message), target = record(incoming.target);
         if (['tenant', 'user', 'chat', 'id', 'text'].some(field => typeof message[field] !== 'string') ||
           ['generation', 'thread', 'turn'].some(field => typeof target[field] !== 'string' || !target[field]) ||
-          !/^\/(?:status(?:\s|$)|stop(?:\s|$)|steer\s|approve\s|reject\s|answer\s)/.test(String(message.text).trimStart()) || !this.bridge || !this.state || this.stopping) throw new Error('Invalid live control');
+          !/^\/(?:status(?:\s|$)|stop(?:\s|$)|steer\s|approve(?:-save)?\s|reject\s|answer\s)/.test(String(message.text).trimStart()) || !this.bridge || !this.state || this.stopping) throw new Error('Invalid live control');
         const control = message as unknown as IncomingMessage;
         const nativeTarget = target as unknown as NativeControlTarget;
         const saved = this.state.beginRelayedControl(control, nativeTarget);
@@ -457,7 +470,7 @@ class NativeOwner {
           if (!saved?.context) throw new Error('Missing retained group references');
           return saved.context;
         },
-      });
+      }, this.permissions);
       this.state.transaction(() => {
         if (!this.state!.remember(this.request.message)) throw new Error('Assigned request already exists');
         const { id, chatType, createTime, parentId } = this.request.message;

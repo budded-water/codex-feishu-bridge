@@ -19,12 +19,15 @@ import { verificationApplicability, verificationText } from './verification-view
 import { verificationFindings } from './findings.js';
 import { OwnerTasks } from './tasks.js';
 import type { TaskRefreshClick } from '../task-card.js';
+import { OwnerPermissions } from './permissions.js';
+import type { ReviewClick } from '../review-card.js';
 
 export class PilotInteractions {
   readonly transport: HandoffTransport;
   private recovery: FeishuRecovery;
   private queue: OwnerQueue;
   private tasks: OwnerTasks;
+  private permissions: OwnerPermissions;
   private work?: Promise<void>;
   private timer?: NodeJS.Timeout;
   private closing?: Promise<void>;
@@ -40,6 +43,7 @@ export class PilotInteractions {
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
     this.queue = new OwnerQueue(admission, config, this.transport.state);
     this.tasks = new OwnerTasks(admission, config, native, this.transport.state, profiles);
+    this.permissions = new OwnerPermissions(admission, config, native, this.transport.state);
   }
 
   receive(message: IncomingMessage) {
@@ -48,23 +52,24 @@ export class PilotInteractions {
     if (message.unsupported === 'post' && isMaintenanceOwner(this.admission.scope, this.config, message)) {
       this.transport.state.transaction(() => {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
-          '暂不支持这类消息。请用纯文本交办任务；进度查询可发送 /tasks 或 /task 完整编号，也支持仅包含这条查询的文字富文本。', { replyTo: message.id });
+          '暂不支持这类消息。请用纯文本交办任务；进度查询可发送 /tasks 或 /task 完整编号，也支持仅包含进度或权限只读查询的文字富文本。', { replyTo: message.id });
       });
       return { status: 'rejected' as const };
     }
     if (/^\/(?:tasks|task)(?:\s|$)/.test(message.text.trim())) return this.tasks.receive(message);
+    if (/^\/(?:rules|reviews|review|review-retry)(?:\s|$)/.test(message.text.trim())) return this.permissions.receive(message);
     if (/^\/findings(?:\s|$)/.test(message.text.trim())) return this.findingsCommand(message);
     if (/^\/(?:verify|verify-repair|verification)(?:\s|$)/.test(message.text.trim())) return this.verificationCommand(message);
     if (/^\/recover(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
     if (/^\/(?:queue|withdraw)(?:\s|$)/.test(message.text.trim())) return this.queue.receive(message);
     const operator = message.tenant === this.admission.scope.tenant && message.user === this.admission.scope.operator && message.chat === this.admission.scope.chat;
-    const approval = /^\/(?:approve|reject|answer)(?:\s|$)/.test(message.text.trim());
+    const approval = /^\/(?:approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
     const admin = approval && message.tenant === this.admission.scope.tenant && this.config.approvalUsers.includes(message.user) &&
       message.chat === (this.config.approvalChat ?? this.admission.scope.chat) &&
       (this.config.accessMode !== 'allowlist' || this.config.allowedUsers.includes(message.user));
     if (!operator && !admin) return { status: 'ignored' as const };
     const natural = naturalControl(message.text.trim());
-    const command = /^\/(?:help|status|stop|steer|approve|reject|answer)(?:\s|$)/.test(message.text.trim());
+    const command = /^\/(?:help|status|stop|steer|approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
     if (!command && !natural) {
       const result = this.admission.receive(message);
       if ('request' in result) this.transport.admit(result.request);
@@ -88,7 +93,7 @@ export class PilotInteractions {
         present('使用帮助',
           section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
-          section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
+          section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/rules` 原生规则 · `/reviews` 非通过审查记录', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
           Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',
             ...(Object.values(this.profiles).some(p => p.repair) ? ['- `/verify-repair profile 任务内容` 显式允许一轮修复'] : []),
             '- `/verification 任务编号` 查看历史观测', '- `/findings` 汇总待核对验证线索（只读）']) : undefined,
@@ -99,6 +104,18 @@ export class PilotInteractions {
     if (previous) return { status: 'duplicate' as const, control: previous };
     const held = this.admission.store.unsettled();
     const execution = held.length === 1 ? held[0] : undefined;
+    let rememberTarget: NativeControlTarget | undefined;
+    if (/^\/approve-save(?:\s|$)/.test(message.text.trim())) {
+      const token = /^\/approve-save\s+([a-f0-9]{8})(?:\s|$)/.exec(message.text.trim())?.[1];
+      rememberTarget = execution && token ? this.transport.state.rememberApprovalTarget(execution.id, token, message) : undefined;
+      if (!rememberTarget) {
+        this.transport.state.transaction(() => {
+          if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
+            '当前没有已确认投递且完整展示长期规则的有效审批卡片；没有保存规则。可使用原请求的批准本次或拒绝，或稍后重新核对。', { replyTo: message.id });
+        });
+        return { status: 'rejected' as const };
+      }
+    }
     const reference = message.parentId ? this.transport.state.referencedTask(message.parentId, ownerKey(message)) : undefined;
     const repair = execution && this.admission.store.repairs.get(execution.id);
     if (repair && operator && (!message.parentId || reference === execution!.id) &&
@@ -139,7 +156,7 @@ export class PilotInteractions {
       });
       return { status: 'rejected' as const };
     }
-    const control = this.admission.store.acceptControl(execution.id, message);
+    const control = this.admission.store.acceptControl(execution.id, message, rememberTarget);
     if (message.text.trim() === '/stop' || natural === 'stop') void this.relay(control).catch(() => console.error('Stop relay unavailable; retained dispatch will be inspected'));
     void this.flushControls().catch(() => console.error('Control relay unavailable; retained dispatch will be inspected'));
     return { status: 'control' as const, control };
@@ -237,6 +254,7 @@ export class PilotInteractions {
   }
 
   taskRefresh(click: TaskRefreshClick): CardResult { return this.closing ? 'rejected' : this.tasks.refresh(click); }
+  reviewAction(click: ReviewClick): CardResult { return this.closing ? 'rejected' : this.permissions.click(click); }
 
   private async relay(control: ControlRecord): Promise<void> {
     const message = this.dispatchMessage(control);
@@ -318,6 +336,7 @@ export class PilotInteractions {
   private async synchronize(): Promise<void> {
     await this.viewWork;
     await this.tasks.idle();
+    await this.permissions.idle();
     await this.recovery.idle();
     this.recovery.sync();
     this.queue.sync();
@@ -325,6 +344,7 @@ export class PilotInteractions {
       .catch(() => console.error('Source publication unavailable; retained intent will be retried'))
       .finally(() => { this.publication = undefined; });
     await this.native.poll();
+    await this.permissions.publish();
     await this.transport.sync();
     await this.flushControls();
     await this.transport.sync();
@@ -355,6 +375,7 @@ export class PilotInteractions {
       await this.controlWork;
       await this.viewWork;
       await this.tasks.idle();
+      await this.permissions.idle();
       await this.recovery.idle();
       this.recovery.sync();
       this.queue.sync();

@@ -16,9 +16,12 @@ const seeds = [
   'v2/CommandExecutionRequestApprovalResponse', 'v2/FileChangeRequestApprovalResponse',
   'v2/ToolRequestUserInputParams', 'v2/ToolRequestUserInputResponse',
   'v2/PermissionsRequestApprovalResponse',
+  'v2/CommandExecutionRequestApprovalParams', 'v2/ItemGuardianApprovalReviewStartedNotification',
+  'v2/ItemGuardianApprovalReviewCompletedNotification', 'v2/ThreadApproveGuardianDeniedActionParams',
+  'v2/ThreadApproveGuardianDeniedActionResponse',
 ];
 try {
-  const generated = spawnSync(executable, ['app-server', 'generate-ts', '--out', temporary], { encoding: 'utf8' });
+  const generated = spawnSync(executable, ['app-server', 'generate-ts', '--experimental', '--out', temporary], { encoding: 'utf8' });
   if (generated.status !== 0) throw new Error('Cannot generate app-server bindings');
   rmSync(destination, { recursive: true, force: true });
   const copied = new Set();

@@ -9,6 +9,7 @@ export interface JournalMessage {
 export interface JournalProjection {
   task?: { id: string; owner: string; trigger: string; directory: string; thread: string | null; turn: string | null };
   messages: JournalMessage[];
+  reviews?: { generation: string; body: string }[];
   prompts: { id: string; status: string; expires: number | null; actor?: string | null }[];
 }
 
@@ -22,6 +23,8 @@ export function journalProjection(path: string): JournalProjection {
   return readJournal(path, db => ({
     task: db.prepare(`SELECT tasks.id,sessions.owner,trigger_message AS trigger,directory,thread,turn
       FROM tasks JOIN sessions ON sessions.id=tasks.session LIMIT 1`).get() as JournalProjection['task'],
+    reviews: db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_permission_reviews'").get()
+      ? db.prepare('SELECT generation,body FROM native_permission_reviews ORDER BY rowid').all() as JournalProjection['reviews'] : [],
     messages: (db.prepare(`SELECT id,chat,body,reply_to,mentions,final,prompt_id,task IS NOT NULL AS transient,
       ${(db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[]).some(row => row.name === 'approval') ? 'approval' : 'NULL AS approval'}
       FROM outbox ORDER BY sequence`).all() as (Omit<JournalMessage, 'approval'> & { approval: string | null })[])

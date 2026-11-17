@@ -15,6 +15,7 @@
     "check": "npm run typecheck && npm test && npm run build",
     "doctor": "node --env-file-if-exists=.env --import tsx src/index.ts doctor",
     "identify": "node --env-file-if-exists=.env --import tsx src/identify.ts",
+    "verify:permissions": "node --import tsx scripts/verify-permissions.ts",
     "smoke:codex": "node --import tsx scripts/smoke-codex.ts",
     "protocol:generate": "node scripts/generate-protocol.mjs",
     "service:print": "node scripts/launchd.mjs",

@@ -392,6 +392,12 @@ export function inspectLegacy(plan: MigrationPlan) {
 // Archive only closed, admission-bound native artifacts; UI-eval report assets remain project-owned.
 export function archiveNativeEvidence(pilotDirectory: string, archive: string): Record<string, string> {
   const nativeFiles: Record<string, string> = {};
+  const permissions = join(pilotDirectory, 'permissions');
+  if (existsSync(permissions)) {
+    if (!lstatSync(permissions).isDirectory() || lstatSync(permissions).isSymbolicLink() || readdirSync(permissions).some(n => n !== 'bridge.db')) throw Error('Unsettled permission audit state');
+    mkdirSync(join(archive, 'permissions'), { mode: 0o700 });
+    nativeFiles['permissions/bridge.db'] = copyClosed(join(permissions, 'bridge.db'), join(archive, 'permissions/bridge.db'));
+  }
   const executions = join(pilotDirectory, 'executions');
   if (existsSync(executions)) for (const execution of readdirSync(executions)) {
     if (/^[0-9a-f-]{36}\.lock$/.test(execution) && lstatSync(join(executions, execution)).isDirectory()) continue;

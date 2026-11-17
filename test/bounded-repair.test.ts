@@ -29,7 +29,7 @@ class ManagedFake extends FakeCodex implements ManagedCodex {
   }
 }
 
-function setup(t: TestContext, mode = 'normal', budget = 30_000, outerBudget = 600_000) {
+function setup(t: TestContext, mode = 'normal', budget = 30_000, outerBudget = 600_000, nativePermissions?: import('../src/permissions.js').NativePermissions) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'bounded-repair-'))), project = join(root, 'project'), engine = join(root, 'engine'), workspace = join(root, 'workspace');
   for (const path of [project, workspace, join(engine, 'dist'), join(project, 'ui-eval/integrations')]) mkdirSync(path, { recursive: true });
   writeFileSync(join(engine, 'package.json'), '{"type":"module"}'); writeFileSync(join(engine, '.gitignore'), 'revision\n');
@@ -58,7 +58,7 @@ function setup(t: TestContext, mode = 'normal', budget = 30_000, outerBudget = 6
     groupContextMessages: 0, groupContextImages: 0, approvalUsers: [scope.operator], approvalChat: null, approvalTimeoutSeconds: 300,
     codexExecutable: 'codex', stateDirectory: join(root, 'state'), projects: scope.projects, projectRouting: 'workspace' };
   const admission = new PilotAdmission(config.stateDirectory, scope, 'workspace'), codexes: ManagedFake[] = [];
-  const native = new NativeExecutions(admission, config, () => { const c = new ManagedFake(mode); codexes.push(c); return c; }, profiles, { outerDeadline: Date.now() + outerBudget });
+  const native = new NativeExecutions(admission, config, () => { const c = new ManagedFake(mode); codexes.push(c); return c; }, profiles, { outerDeadline: Date.now() + outerBudget, nativePermissions, codexHome: join(root, 'codex') });
   const sent: { text: string; id: string; replyTo?: string; options?: DeliveryOptions }[] = [];
   const cardUpdates: { message: string; view: string }[] = [];
   const sender = { send: async (_chat: string, text: string, id: string, options?: DeliveryOptions) => { sent.push({ text, id, replyTo: options?.replyTo, options }); return id; },
@@ -80,7 +80,7 @@ function setup(t: TestContext, mode = 'normal', budget = 30_000, outerBudget = 6
   };
   const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config,
     { flush: async () => {}, diagnose: async () => ({ status: 'missing' }) }, native, sender, reactions, [], undefined, profiles); await interactions.start(); };
-  t.after(async () => { await native.stop(); await pending?.catch(() => {}); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
+  t.after(async () => { await native.stop(); await pending?.catch(() => {}); await interactions.close(); native.closePermissions(); admission.close(); rmSync(root, { recursive: true, force: true }); });
   return { root, project, profiles, config, scope, admission, native, codexes, sent, cardUpdates, admit, start, turn, restart, get interactions() { return interactions; } };
 }
 
@@ -249,7 +249,7 @@ test('actual owner loss in either native attempt or verifier retains its guard a
     let output = '', error = ''; child.stdout.on('data', data => { output += String(data); }); child.stderr.on('data', data => { error += String(data); });
     const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
     try {
-      await until(() => { if (child.exitCode !== null) throw Error(error); return output.includes('READY'); });
+      await until(() => { if (child.exitCode !== null) throw Error(error); return output.includes('READY'); }, 10_000);
       child.kill('SIGKILL'); await exited;
       if (phase === 'verifier') {
         const pid = Number(readFileSync(join(h.project, '.ready'), 'utf8'));
@@ -309,4 +309,17 @@ test('repair approval cards bind the active attempt and reject an old card after
   writeFileSync(join(h.project, 'page.txt'), 'fixed'); second.codex.complete(second.thread, second.turn); await task.running;
   for (let i = 0; i < 3; i++) await h.interactions.flush();
   assert.deepEqual(h.cardUpdates.map(u => u.view), ['approved', 'approved']);
+});
+
+
+test('explicit native permissions remain on both bounded-repair generations', async t => {
+  const h = setup(t, 'normal', 30_000, 600_000, { sandbox: 'workspace-write', reviewer: 'auto_review', rememberCommands: true });
+  const task = await h.start(), first = await h.turn(0);
+  first.codex.complete(first.thread, first.turn);
+  const second = await h.turn(1);
+  for (const attempt of [first, second]) for (const call of attempt.codex.calls.filter(c => ['thread/start', 'thread/resume', 'turn/start'].includes(c.method))) {
+    assert.equal(call.params.approvalsReviewer, 'auto_review'); assert.equal(call.params.approvalPolicy, 'on-request');
+    if (call.method === 'turn/start') assert.equal((call.params.sandboxPolicy as { type: string }).type, 'workspaceWrite');
+  }
+  writeFileSync(join(h.project, 'page.txt'), 'fixed'); second.codex.complete(second.thread, second.turn); await task.running;
 });

@@ -1,3 +1,4 @@
+import type { NativeReview } from '../permissions.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { Maintenance } from '../maintenance.js';
@@ -11,6 +12,7 @@ export interface VerificationRecord {
   execution: string; profile: string; digest: string; definition: VerificationProfile;
   phase: 'planned' | 'running' | 'observed' | 'skipped' | 'unknown'; observation: VerificationObservation | null;
 }
+export interface PermissionRetry { sourceExecution: string; generation: string; checkpoint: string; review: NativeReview }
 export type VerificationSelection = { profile: string; definition: VerificationProfile; repair?: true };
 
 export type RequestRecord = {
@@ -52,6 +54,7 @@ export class AdmissionStore {
           id TEXT PRIMARY KEY, execution TEXT NOT NULL UNIQUE, conversation TEXT NOT NULL REFERENCES conversations(id),
           project TEXT NOT NULL, origin TEXT NOT NULL UNIQUE, message TEXT NOT NULL, input TEXT NOT NULL, blocked TEXT
         );
+        CREATE TABLE IF NOT EXISTS permission_retries (execution TEXT PRIMARY KEY REFERENCES requests(execution), source_execution TEXT NOT NULL, review_id TEXT NOT NULL, body TEXT NOT NULL, UNIQUE(source_execution,review_id));
         CREATE TABLE IF NOT EXISTS submissions (
           request TEXT PRIMARY KEY REFERENCES requests(id), event INTEGER, status TEXT NOT NULL,
           attempts INTEGER NOT NULL DEFAULT 0, next INTEGER NOT NULL DEFAULT 0, problem TEXT
@@ -110,6 +113,7 @@ export class AdmissionStore {
   }
 
   private transaction<T>(work: () => T): T {
+    if (this.db.isTransaction) return work();
     this.db.exec('BEGIN IMMEDIATE');
     try { const result = work(); this.db.exec('COMMIT'); return result; }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
@@ -151,6 +155,36 @@ export class AdmissionStore {
         .run(request.execution, verification.profile, profileDigest(verification.definition), JSON.stringify(verification.definition), request.blocked ? 'skipped' : 'planned');
       if (!request.blocked) this.db.prepare("INSERT INTO submissions(request,status) VALUES (?,'pending')").run(request.id);
       return { duplicate: false, request };
+    });
+  }
+
+  permissionRetry(execution: string): PermissionRetry | undefined {
+    const row = this.db.prepare('SELECT body FROM permission_retries WHERE execution=?').get(execution) as { body: string } | undefined;
+    return row && JSON.parse(row.body) as PermissionRetry;
+  }
+  retryForReview(sourceExecution: string, reviewId: string): RequestRecord | undefined {
+    const row = this.db.prepare('SELECT execution FROM permission_retries WHERE source_execution=? AND review_id=?').get(sourceExecution, reviewId) as { execution: string } | undefined;
+    return row && this.requests().find(r => r.execution === row.execution);
+  }
+
+  acceptPermissionRetry(message: IncomingMessage, source: RequestRecord, retry: PermissionRetry, input: string) {
+    return this.transaction(() => {
+      if (message.chatType !== 'p2p' || ownerKey(message) !== ownerKey(source.message)) throw Error('Retry actor differs');
+      const prior = this.db.prepare('SELECT execution FROM permission_retries WHERE source_execution=? AND review_id=?').get(source.execution, retry.review.id) as { execution: string } | undefined;
+      if (prior) return { duplicate: true, request: this.requests().find(x => x.execution === prior.execution)! };
+      const conversation = this.db.prepare('SELECT thread,last_execution FROM conversations WHERE id=?').get(source.conversation) as { thread: string; last_execution: string } | undefined;
+      const latest = this.db.prepare('SELECT id FROM requests WHERE conversation=? ORDER BY rowid DESC LIMIT 1').get(source.conversation) as { id: string } | undefined;
+      const execution = this.execution(source.execution);
+      if (retry.sourceExecution !== source.execution ||
+        retry.review.status !== 'denied' || !retry.review.action || !execution || !['completed', 'interrupted'].includes(execution.status) ||
+        execution.evidence !== 'native-checkpoint/' + retry.checkpoint || latest?.id !== source.id ||
+        conversation?.last_execution !== source.execution || conversation.thread !== retry.review.thread ||
+        this.db.prepare('SELECT 1 FROM guards WHERE project=?').get(source.project)) throw Error('Source denial or conversation is stale or protected');
+      const result = this.accept(message, input, source.project);
+      if ('paused' in result) return result;
+      if (result.request.conversation !== source.conversation || result.request.blocked || result.duplicate) throw Error('Retry admission identity differs');
+      this.db.prepare('INSERT INTO permission_retries VALUES(?,?,?,?)').run(result.request.execution, source.execution, retry.review.id, JSON.stringify(retry));
+      return result;
     });
   }
 

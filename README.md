@@ -1,5 +1,7 @@
 # Codex Feishu Bridge
 
+The opt-in [owner native-permissions candidate](docs/native-permissions.md) adds native Auto-review policy, proposal-bound Remember, rule inspection/revocation and explicit denied-command retry. Its [implementation/acceptance change](openspec/changes/enable-owner-native-permissions/tasks.md) remains active; deployment and genuine owner acceptance are not implied by source implementation.
+
 把安装在你电脑上的 Codex 接到飞书，让你或同事通过私聊、群内 `@机器人` 提交工作。
 
 它可以作为本地 Codex 的工作分身入口：在已登记的项目中分析问题、实现功能、修复 Bug、review 代码；GitHub、资料搜索、飞书工具等工作由本机 Codex 已配置的工具完成。模型推理仍使用 Codex 的模型服务，可通过 `codexReasoningEffort` 单独设置 bot 的推理强度，本地文件操作在运行桥接程序的电脑上执行。

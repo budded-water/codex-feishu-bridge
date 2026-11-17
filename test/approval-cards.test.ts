@@ -132,3 +132,10 @@ test('legacy sealed journals remain readable without migrating or modifying thei
   assert.equal(projection.messages[0]!.approval, null); assert.equal(projection.prompts[0]!.actor, null);
   assert.deepEqual(readFileSync(path), before);
 });
+
+test('a directory cannot make a malformed command into an actionable approval', async t => {
+  const h = setup(); t.after(h.close); h.deliveries(); h.bridge.receive(message('Inspect task', { chatType: 'p2p' })); await until(() => h.turns().length === 1);
+  h.codex.ask('malformed', 'item/commandExecution/requestApproval', { ...h.current(), cwd: h.config.projects.alpha, command: { invalid: true } });
+  await until(() => h.codex.replies.length === 1);
+  assert.deepEqual(h.codex.replies[0], { id: 'malformed', result: { decision: 'decline' } }); assert.ok(h.state.pending().every(d => !d.approval));
+});
