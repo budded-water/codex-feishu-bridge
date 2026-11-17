@@ -13,6 +13,8 @@ The private same-chat approval SHALL show purpose, complete redacted action, con
 
 - **WHEN** the owner receives an eligible approval
 - **THEN** the action and single-request authorization scope SHALL precede the decision controls without duplicated request text or internal workspace labels
+- **AND** once/reject controls SHALL remain distinct from a full-width optional native Remember control, whose complete literal prefix and user-wide scope SHALL precede that control
+- **AND** pending action, prefix and authorization scope SHALL remain expanded; only secondary request metadata/manual commands MAY collapse
 
 ### Requirement: Exact authenticated callback
 
@@ -30,7 +32,7 @@ Only a verified SDK callback for an acknowledged card message, matching tenant/c
 
 ### Requirement: Prompt callback response and durable UI
 
-Callback response SHALL require only local validation/admission and SHALL NOT wait for model, native or platform I/O. Acknowledged cards SHALL update through durable transport after decision submission, expiry or invalidation. Update retries SHALL NOT repeat execution or approve requests.
+Callback response SHALL require only local validation/admission and SHALL NOT wait for model, native or platform I/O. Acknowledged cards SHALL update through durable transport after decision submission, expiry or invalidation. Settled cards SHALL lead with the submission/expiry outcome, retain inspectable historical details and expose no decision controls. Update retries SHALL NOT repeat execution or approve requests.
 
 #### Scenario: Competing or duplicate clicks
 

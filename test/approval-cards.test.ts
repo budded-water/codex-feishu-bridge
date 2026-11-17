@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as lark from '@larksuiteoapi/node-sdk';
-import { approvalCard, normalizeApprovalClick, type ApprovalClick } from '../src/approval.js';
+import { approvalCard, normalizeApprovalClick, type ApprovalClick, type ApprovalView } from '../src/approval.js';
 import { Outbox } from '../src/outbox.js';
 import { State } from '../src/state.js';
 import { Feishu } from '../src/feishu.js';
@@ -26,12 +26,49 @@ async function pending(t: import('node:test').TestContext, command = 'printf "li
 }
 
 test('card has an exact fenced action and one-request controls without duplicated task text, internal alias or self mention', async t => {
-  const h = await pending(t); const card = JSON.stringify(approvalCard(h.p));
+  const h = await pending(t); const rendered = approvalCard(h.p), card = JSON.stringify(rendered);
   assert.ok(card.includes('操作确认') && card.includes('批准本次') && card.includes('拒绝') && card.includes('通用工作区'));
   assert.ok(card.includes(JSON.stringify(h.p.action).slice(1, -1))); assert.ok(card.includes('仅授权本次动作'));
   assert.ok(!card.includes('duplicate /private/project/path') && !card.includes('[[notify:') && !card.includes('项目：alpha'));
   assert.ok(h.delivery.body.includes('/approve ' + h.p.prompt) && h.delivery.body.includes('/reject ' + h.p.prompt));
+  const row = rendered.body.elements.map(record).find(e => e.tag === 'column_set')!;
+  const buttons = (row.columns as unknown[]).flatMap(c => record(c).elements as unknown[]).map(record);
+  assert.deepEqual(buttons.map(b => record(b.text).content), ['批准本次', '拒绝']);
+  assert.ok(buttons.every(b => b.width === 'fill' && b.size === 'large'));
+  assert.ok(!card.includes('approve_save'));
   assert.ok(!JSON.stringify(approvalCard(h.p, 'approved')).includes('behaviors')); assert.ok(JSON.stringify(approvalCard(h.p, 'approved')).includes('执行结果以任务回复为准'));
+});
+
+test('mobile Remember has its own full-width decision after exact visible rule and user-wide scope; only fallback details collapse', async t => {
+  const h = await pending(t), prefix = ['gh', 'pr', 'view', '--repo', 'team/project`literal'],
+    p = { ...h.p, remember: { id: randomUUID(), prefix, scope: 'codex-user' as const } };
+  const elements = approvalCard(p).body.elements.map(record);
+  const actionIndex = elements.findIndex(e => String(e.content).includes(h.p.action));
+  const onceIndex = elements.findIndex(e => e.tag === 'column_set');
+  const prefixIndex = elements.findIndex(e => e.tag === 'div' && record(e.text).content === JSON.stringify(prefix));
+  const scopeIndex = elements.findIndex(e => String(e.content).includes('不限定本任务或单个仓库'));
+  const saveIndex = elements.findIndex(e => e.tag === 'button');
+  assert.ok(actionIndex >= 0 && actionIndex < onceIndex && onceIndex < prefixIndex && prefixIndex < scopeIndex && scopeIndex < saveIndex);
+  const save = elements[saveIndex]!;
+  assert.equal(save.width, 'fill'); assert.equal(save.size, 'large'); assert.equal(record(save.text).content, '批准并记住');
+  assert.deepEqual(record((save.behaviors as unknown[])[0]).value, { kind: 'codex_approval', id: p.id, decision: 'approve_save' });
+  const details = elements.filter(e => e.tag === 'collapsible_panel'); assert.equal(details.length, 1); assert.equal(details[0]!.expanded, false);
+  const secondary = JSON.stringify(details[0]);
+  for (const command of ['approve', 'reject', 'approve-save']) assert.ok(secondary.includes('/' + command + ' ' + p.prompt));
+  assert.ok(!secondary.includes(JSON.stringify(p.action).slice(1, -1)) && !secondary.includes('本机 Codex 用户级'));
+});
+
+test('settled cards lead with submission or expiry outcome, retain inspectable action/rule and expose no live decisions', async t => {
+  const h = await pending(t), p = { ...h.p, remember: { id: randomUUID(), prefix: ['gh', 'pr', 'view'], scope: 'codex-user' as const } };
+  for (const view of ['approved', 'remembered', 'rejected', 'expired', 'unavailable'] as const satisfies readonly ApprovalView[]) {
+    const card = approvalCard(p, view), text = JSON.stringify(card), elements = card.body.elements.map(record);
+    assert.ok(!text.includes('behaviors') && !text.includes('/approve '));
+    const detailsIndex = elements.findIndex(e => e.tag === 'collapsible_panel'); assert.ok(detailsIndex > 0);
+    assert.equal(elements[detailsIndex]!.expanded, false);
+    assert.ok(JSON.stringify(elements.slice(0, detailsIndex)).includes(view === 'approved' || view === 'remembered' || view === 'rejected' ? '已提交' : '不再接受操作'));
+    assert.ok(text.includes(JSON.stringify(p.action).slice(1, -1)) && text.includes(JSON.stringify(p.remember.prefix).replace(/"/g, '\\"')));
+    if (view === 'remembered') { assert.equal(card.header.template, 'green'); assert.ok(text.includes('/rules') && !text.includes('已保存')); }
+  }
 });
 
 test('only an acknowledged matching card and authorized actor can decide the exact live native prompt once', async t => {
@@ -111,9 +148,12 @@ test('Feishu sends interactive JSON and updates by message ID without creating r
   const h = await pending(t); const f = new Feishu({ appId: 'cli_fixture', appSecret: 'fixture' }); t.after(() => f.close()); const calls: unknown[] = [];
   Object.assign(f, { client: { im: { v1: { message: { reply: async (x: unknown) => { calls.push(x); return { code: 0, data: { message_id: 'om_card' } }; },
     patch: async (x: unknown) => { calls.push(x); return { code: 0 }; }, create: async () => { throw Error('replacement forbidden'); } } } } } });
-  await f.send('chat', h.delivery.body, h.delivery.id, { replyTo: 'om_origin', approval: h.p }); assert.equal(record(record(calls[0]).data).msg_type, 'interactive');
+  const p = { ...h.p, remember: { id: randomUUID(), prefix: ['gh', 'pr', 'view'], scope: 'codex-user' as const } };
+  await f.send('chat', h.delivery.body, h.delivery.id, { replyTo: 'om_origin', approval: p }); assert.equal(record(record(calls[0]).data).msg_type, 'interactive');
   const card = JSON.parse(String(record(record(calls[0]).data).content)); assert.equal(card.schema, '2.0');
-  await f.updateApproval('om_card', h.p, 'expired'); assert.deepEqual(record(calls[1]).path, { message_id: 'om_card' });
+  const save = card.body.elements.find((e: { tag: string }) => e.tag === 'button');
+  assert.equal(save.width, 'fill'); assert.equal(save.text.content, '批准并记住'); assert.equal(save.behaviors[0].value.id, p.id);
+  await f.updateApproval('om_card', p, 'expired'); assert.deepEqual(record(calls[1]).path, { message_id: 'om_card' });
   Object.assign(f, { client: { im: { v1: { message: { patch: async () => { throw Error('uncertain update'); } } } } } });
   await assert.rejects(f.updateApproval('om_card', h.p, 'approved'), /uncertain update/);
 });
