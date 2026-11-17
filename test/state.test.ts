@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import lockfile from 'proper-lockfile';
 import { State } from '../src/state.js';
 import { Outbox } from '../src/outbox.js';
+import { escapeTaskMarkdown, taskCard, taskText, type TaskPresentation } from '../src/task-card.js';
 import { message } from './helpers.js';
 
 test('routing clarification and diagnostics survive reopen without replaying handed-off work', t => {
@@ -220,4 +222,31 @@ test('recovery invalidates interrupted classification authority but preserves id
   assert.equal(state.routing(session.owner)!.pending,null); assert.equal(state.routing(session.owner)!.source,undefined);
   assert.equal(state.routing(idle.owner)!.pending,'Idle request'); assert.deepEqual(state.routing(idle.owner)!.source,source);
   assert.equal(state.queued(directory),undefined); state.close();
+});
+
+test('retained task layouts are redacted with current secrets on initial send and same-card patch after restart', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'task-layout-redaction-')), secret = 'fixture_secret', escaped = escapeTaskMarkdown(secret);
+  let state = new State(directory);
+  t.after(() => { state.close(); rmSync(directory, { recursive: true, force: true }); });
+  const session = state.select(message('Work'), 'project', directory), task = state.enqueue(session.id, 'Work'); state.taskStatus(task.id, 'completed');
+  const layout = { title: secret, heading: secret, tone: 'grey' as const, summary: secret, updated: secret, action: secret,
+    facts: [{ label: secret, value: secret }], panels: [{ title: secret, text: escaped }] };
+  const p: TaskPresentation = { id: randomUUID(), execution: task.id, tenant: 'tenant', user: 'owner', chat: 'chat', layout, text: taskText(layout) };
+  state.send('chat', p.text, { taskId: task.id, taskView: p }); state.close(); state = new State(directory, [secret]);
+  const sent: TaskPresentation[] = [], updated: TaskPresentation[] = [];
+  const inspect = (value: TaskPresentation) => {
+    const rendered = JSON.stringify(taskCard(value));
+    assert.equal(value.text, taskText(value.layout!));
+    for (const text of [value.text, rendered]) { assert.ok(!text.includes(secret)); assert.ok(!text.includes(escaped)); assert.ok(text.includes('[redacted]')); }
+  };
+  const outbox = new Outbox(state, {
+    async send(_chat, body, _id, options) { const value = options!.taskView!; assert.equal(body, value.text); inspect(value); sent.push(value); return 'om_retained'; },
+    async updateTask(message, value) { assert.equal(message, 'om_retained'); inspect(value); updated.push(value); },
+  }, [secret]);
+  await outbox.flush(); assert.equal(sent.length, 1); assert.equal(state.pending().length, 0);
+  state.refreshTaskView(p, 'om_retained'); state.close(); state = new State(directory, [secret]);
+  const retainedPatch = new Outbox(state, { async send() { assert.fail('Patch must not send a new card'); },
+    async updateTask(message, value) { assert.equal(message, 'om_retained'); inspect(value); updated.push(value); } }, [secret]);
+  await retainedPatch.flush(); assert.equal(updated.length, 1); assert.equal(updated[0]!.id, sent[0]!.id);
+  assert.equal(state.pending().length, 0); assert.deepEqual(state.status(session.id).map(row => ({ ...row })), [{ status: 'completed', count: 1 }]);
 });

@@ -475,3 +475,19 @@ test('a URL inside a request is not mistaken for a topic delimiter', async t => 
   assert.ok(l.panels[0]!.text.includes('https://github.com/example/project'));
   assert.equal(h.codexes.length, 0);
 });
+
+test('task detail redacts Markdown-sensitive secrets in browser origins before persistence and on refresh', async t => {
+  const secret = 'fixture_secret', h = setup(t, [secret]), task = await h.start(), item = browserDenial();
+  item.result._meta.browser_use.url = 'https://' + secret + '.example.com/private';
+  task.c.notify('item/completed', { ...task.current, item }); task.complete(); await task.running; await h.drain();
+  const owner = h.views(); owner.receive(message('/task ' + task.request.execution, { chatType: 'p2p' })); await owner.idle();
+  const stored = h.interactions.transport.state.pending().find(d => d.taskView)!.taskView!;
+  const inspect = (p: TaskPresentation) => {
+    for (const text of [JSON.stringify(p), JSON.stringify(taskCard(p))]) { assert.ok(!text.includes(secret)); assert.ok(!text.includes('fixture\\_secret')); }
+    assert.ok(p.layout!.panels.find(p => p.title.includes('浏览器'))!.text.includes('redacted'));
+  };
+  inspect(stored); await h.interactions.transport.flush();
+  const card = h.sent.find(s => s.options?.taskView)!; inspect(card.options!.taskView!);
+  owner.refresh(click(card)); await owner.idle(); await h.interactions.transport.flush(); inspect(h.updates.at(-1)!.p);
+  assert.equal(h.admission.store.requests().length, 1); assert.equal(h.codexes.length, 1);
+});

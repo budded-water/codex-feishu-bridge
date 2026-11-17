@@ -25,7 +25,7 @@ Fresh detail/refresh renders a short complete topic label, native-state header, 
 
 A terminal native record is labelled “本轮已结束”, not business completion. Uncertainty, active owner loss, waits and non-pass observations retain visible warnings. Historical browser denials with a registered continuation show that relationship and keep the old observation; they do not repeat local-settings instructions in the first screen. Request text, browser records, execution/verification details and task metadata expand separately. Query time remains a snapshot and refresh updates the same confirmed message.
 
-The optional structured layout is transport presentation data. Every nested rendered string is redacted, and its plain-text fallback is regenerated from that same layout. Legacy text-only payloads remain readable; a new refresh can modernize an existing card. Drain pending updates and use a compatible consumer before downgrade; old consumers do not implement structured-layout updates. Presentation changes never modify native/admission outcomes, guards or authority.
+The optional structured layout is transport presentation data. Every nested rendered string is redacted, and its plain-text fallback is regenerated from that same layout. Browser origins are redacted before Markdown escaping; retained sends and patches reapply current-secret redaction to raw and escaped text at delivery. Legacy text-only payloads remain readable; a new refresh can modernize an existing card. Drain pending updates and use a compatible consumer before downgrade; old consumers do not implement structured-layout updates. Presentation changes never modify native/admission outcomes, guards or authority.
 
 ## Refresh and interaction
 

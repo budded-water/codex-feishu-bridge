@@ -6,7 +6,7 @@ import { ownerKey, type IncomingMessage } from '../types.js';
 import type { State } from '../state.js';
 import type { Config } from '../config.js';
 import type { CardResult } from '../approval.js';
-import { taskText, type TaskLayout, type TaskPresentation, type TaskRefreshClick } from '../task-card.js';
+import { escapeTaskMarkdown as escape, taskText, type TaskLayout, type TaskPresentation, type TaskRefreshClick } from '../task-card.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
 import { OWNER_WITHDRAWN, type RequestRecord, type VerificationRecord } from './store.js';
@@ -18,7 +18,6 @@ const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const usage = '发送 /tasks [页码] 查看任务，或 /task 完整任务编号 查看进度。查询不会执行或重跑任务。';
 const labels: Record<string, string> = { pass: '通过', fail: '未通过', 'needs-review': '待人工复核', inconclusive: '无法得出结论',
   interrupted: '已中断', unverified: '未核实', planned: '尚未开始', running: '验证阶段', skipped: '已跳过', unknown: '结果未确认' };
-const escape = (text: string) => text.replace(/[\\`*_{}\[\]()<>!|]/g, '\\$&');
 
 export class OwnerTasks {
   private work: Promise<void> = Promise.resolve();
@@ -200,7 +199,7 @@ export class OwnerTasks {
     const panels: TaskLayout['panels'] = [{ title: original.length > limit ? '原始需求（前 2000 字）' : '原始需求（展开全文）',
       text: escape(original.slice(0, limit).join('')) + (original.length > limit ? '\n\n需求较长，以上已明确省略；完整内容请查看飞书原任务消息。' : '') }];
     if (blocks?.length) panels.push({ title: followup ? '历史访问记录与关联续接' : '浏览器访问记录与处理', text: [
-      '这些是本轮历史工具观测，不代表当前仍被拦截或业务交付失败；当前设置及任务交付结果仍需核对。', ...[...new Set(blocks.map(b => b.origin))].map(o => escape(o)),
+      '这些是本轮历史工具观测，不代表当前仍被拦截或业务交付失败；当前设置及任务交付结果仍需核对。', ...[...new Set(blocks.map(b => b.origin))].map(o => escape(this.state.redact(o))),
       ...(followup ? ['已登记过一个关联续接请求；原记录保持不变。', copyBlock('/task ' + followup.execution)] : [
         '在本机 Settings → Computer Use → 浏览器 Manage 核对站点设置；飞书文字允许和命令规则不会修改浏览器授权。',
         ...(completed && !facts.goal && !verification ? ['仅在处理设置并核对副作用后，明确请求一次检查与续接；此命令不证明已放行或交付。', copyBlock(browserRetryCommand(request.execution))] : ['验证/修复仍从其专用入口交办。']),

@@ -2,7 +2,7 @@ import type { ReviewPresentation } from './review-card.js';
 import type { DeliveryOptions } from './types.js';
 import { State, type Delivery } from './state.js';
 import type { ApprovalPresentation, ApprovalView } from './approval.js';
-import type { TaskPresentation } from './task-card.js';
+import { escapeTaskMarkdown, redactTaskPresentation, type TaskPresentation } from './task-card.js';
 
 export interface Sender {
   send(chat: string, text: string, idempotencyKey: string, options?: DeliveryOptions): Promise<void | string>;
@@ -42,8 +42,12 @@ export class Outbox {
       if (!this.state.deliveryReady(delivery.id)) continue;
       let text = delivery.body;
       for (const secret of this.secrets) text = text.split(secret).join('[redacted]');
-      const taskView = delivery.taskView && { ...delivery.taskView };
-      if (taskView) for (const secret of this.secrets) taskView.text = taskView.text.split(secret).join('[redacted]');
+      const taskView = delivery.taskView && redactTaskPresentation(delivery.taskView, value => {
+        // Retained Markdown may predate the current secret set.
+        for (const secret of this.secrets) for (const variant of [secret, escapeTaskMarkdown(secret)]) value = value.split(variant).join('[redacted]');
+        return value;
+      });
+      if (taskView) text = taskView.text;
       try {
         if (delivery.updateMessage && delivery.reviewCard) {
           if (!this.sender.updateReview) throw Error('Review card update transport unavailable');

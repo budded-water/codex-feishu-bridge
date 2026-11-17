@@ -11,11 +11,11 @@ export interface TaskPresentation { id: string; execution: string; tenant: strin
 export interface TaskRefreshClick { kind: 'task-refresh'; event: string; tenant: string; user: string; chat: string; message: string; id: string }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bounded = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
-const escape = (text: string) => text.replace(/[\\`*_{}\[\]()<>!|]/g, '\\$&');
+export const escapeTaskMarkdown = (text: string) => text.replace(/[\\`*_{}\[\]()<>!|]/g, '\\$&');
 
 export function taskText(layout: TaskLayout): string {
-  return message(escape(layout.title), `**${escape(layout.heading)}**\n${layout.summary}`,
-    ...layout.facts.map(f => `${escape(f.label)}：${escape(f.value)}`), section('需要你处理', layout.action ? [layout.action] : []),
+  return message(escapeTaskMarkdown(layout.title), `**${escapeTaskMarkdown(layout.heading)}**\n${layout.summary}`,
+    ...layout.facts.map(f => `${escapeTaskMarkdown(f.label)}：${escapeTaskMarkdown(f.value)}`), section('需要你处理', layout.action ? [layout.action] : []),
     ...layout.panels.map(p => section(p.title, [p.text])), layout.updated);
 }
 
@@ -50,9 +50,9 @@ export function taskCard(p: TaskPresentation) {
   if (l) {
     const markdown = (content: string) => ({ tag: 'markdown', content });
     return { schema: '2.0', config: { update_multi: true }, header: { title: { tag: 'plain_text', content: l.heading }, template: l.tone },
-      body: { padding: '12px', vertical_spacing: '8px', elements: [markdown(`**${escape(l.title)}**`), markdown(l.summary),
+      body: { padding: '12px', vertical_spacing: '8px', elements: [markdown(`**${escapeTaskMarkdown(l.title)}**`), markdown(l.summary),
         ...(l.facts.length ? [{ tag: 'column_set', horizontal_spacing: '8px', columns: l.facts.map(f => ({ tag: 'column', width: 'weighted', weight: 1,
-          elements: [markdown(`${escape(f.label)}\n**${escape(f.value)}**`)] })) }] : []),
+          elements: [markdown(`${escapeTaskMarkdown(f.label)}\n**${escapeTaskMarkdown(f.value)}**`)] })) }] : []),
         ...(l.action ? [markdown(`**需要你处理**\n${l.action}`)] : []),
         { ...markdown(l.updated), text_size: 'notation' },
         { tag: 'button', type: 'default', width: 'fill', size: 'large', text: { tag: 'plain_text', content: '刷新进度' },
