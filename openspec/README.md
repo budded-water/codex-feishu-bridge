@@ -79,3 +79,5 @@ Genuine owner /rules and /reviews plus one actual Hub/Worker read-only network c
 ## Active browser access handoff
 
 [add-browser-access-handoff](changes/add-browser-access-handoff/proposal.md) separates Browser Use saved-origin denial from native review. It specifies minimal observations, owner-private remediation and one owner-attested linked ordinary continuation with source/conversation revalidation. No supported remote site-policy mutation is present. Source, deployment and genuine owner local-change/continuation acceptance remain separately tracked; the change is not archived by automated checks or an unchanged-policy browser retry.
+
+Browser source is merged through [PR #38](https://github.com/budded-water/codex-feishu-bridge/pull/38), with current-head CI/independent review and managed M6 activation/readiness verified. Genuine owner local-change/continuation acceptance remains open, so this change stays active; historical sealed tasks were not backfilled. See the dated deployment record.
