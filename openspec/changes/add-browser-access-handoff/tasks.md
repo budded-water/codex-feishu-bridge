@@ -10,6 +10,7 @@
 - [x] Push a coherent PR and pass current-head CI/preflight plus independent correctness/test-quality review.
 - [x] Merge and perform an authorized drained managed upgrade with retained state/policy evidence.
 - [x] Record source, simulation, actual provider evidence, deployment and genuine owner acceptance separately.
+- [ ] Apply the owner's explicitly selected persistent website-access mode through official controls, record its shared scope as an owner-reported choice, and separately observe bounded harmless access. Follow the [deployment runbook](../../../docs/browser-access.md#persistent-access-for-an-unattended-installation); this is external setup, not a new bridge permission feature.
 - [ ] Verify genuine owner views/blocked guidance and continuation after an actual locally handled permission change. An unchanged saved denial is not a test authorization to bypass or repeatedly revisit the blocked site.
 
 ## Source candidate evidence

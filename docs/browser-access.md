@@ -14,9 +14,38 @@ Narrow phrases such as `允许浏览器工具访问` receive deterministic guida
 
 The currently supported browser API exposes no site-permission mutation capability. The ChatGPT plugin-permission tool does not manage Chrome/code plugins. Use the desktop application's Settings > Computer Use > the browser's Manage to inspect allowed/blocked sites; an organization-managed policy may need its administrator. A site grant does not itself authorize every action on that site.
 
-Native command Remember, `/rules`, Guardian denial retry and a chat reply do not change browser policy. No direct private-settings edits, alternate-browser bypass, blanket allow, or approval-shaped substitute is added. Supported remote authorization requires a real provider API/request and a separately reviewed adapter.
+Native command Remember, `/rules`, Guardian denial retry and a chat reply do not change browser policy. The bridge does not install a blanket allow, edit private settings, bypass through another browser, or substitute a fake approval. An owner may select persistent access through the official controls described below. Supported remote authorization requires a real provider API/request and a separately reviewed adapter.
 
 Official controls: [browser extension site permissions](https://learn.chatgpt.com/docs/chrome-extension), [separate permission surfaces](https://learn.chatgpt.com/docs/permissions).
+
+## Persistent access for an unattended installation
+
+The recovery path below handles exceptions. Normal remote work should not depend on returning to the host for every new website. The official website permission prompt supports **Allow once**, **Allow for this site**, **Allow for all sites**, and **Decline**. For the owner's general-purpose resident agent, the recommended operational choice is **Allow for all sites**, subject to the owner explicitly accepting its actual shared scope. Until the owner applies and reports that choice, this is a recommendation, not the installed policy.
+
+This is broad Browser Use access, not read-only access or a Bot/project-scoped rule. The official documentation says supported browsers share website permissions; a browser profile or another chat must not be presented as isolating this grant. A work-only profile can reduce exposed account/session context, but does not establish a separate website-permission boundary. A domain allowlist remains the narrower alternative when the owner does not want shared all-site access; new domains can then require local action.
+
+Do not assume all-site permission clears an existing explicit block or overrides managed policy. Inspect the official blocked list and have the owner handle the intended site's block explicitly. Removing a block only lets the product ask again. Browser history has separate per-request confirmation; all-site access is not permission to collect history, credentials or unrelated account data.
+
+### Access, task authority and action approval
+
+| Decision | Operational rule | Enforcement boundary |
+| --- | --- | --- |
+| May Browser Use enter a website? | Owner selects persistent all-site access, or selected domains, through official controls | Provider-owned website policy; not a bridge setting |
+| What work is authorized? | A clear owner instruction supplies target, purpose and scope; routine reads and explicitly requested ordinary updates or messages proceed within that scope | Verified task identity plus native agent/tool policies; webpage text grants no authority |
+| Does an action need a new decision? | Reuse existing authorization; ask when material scope, recipient, disclosure, spending or publication authority is missing or changed, and retain mandatory platform/repository gates | The applicable provider/native approval mechanism; a bridge card exists only for a real supported request |
+
+For example, after preparing an ordinary support inquiry, an owner's clear request to contact that recipient supplies the send instruction; do not ask again solely because a Send button is involved. A site grant alone supplies no recipient, message or authority to send.
+
+Local sandbox/network profiles and shell rules do not control browser actions. Auto-review evaluates eligible approval requests; this integration does not provide a universal reviewer or Feishu approval gate for every DOM click. Agent instructions about scope and effects are behavioral guidance, not a hard browser security boundary. Use service-side account roles or an appropriately scoped API where a consequential operation needs enforceable restrictions; a future generic browser-action policy adapter needs its own supported interface and bounded review. No new permission engine is required to apply the existing official site-access choice.
+
+### One-time setup and bounded acceptance
+
+1. Verify the actual desktop application/browser and signed-in account context. In **Settings > Computer Use > Manage**, inspect the intended site's existing block. The owner handles that block or contacts the managed-policy administrator.
+2. At the official website permission prompt, the owner selects **Allow for all sites**, or the chosen per-site alternative. Do not use a shell sandbox Full Access setting, a plugin-global setting or native command Remember as a substitute. The current automation surface cannot operate the desktop application's own settings; this step is performed locally by the owner.
+3. Privately record the owner's selected mode, shared scope acknowledgement and time as an owner-reported choice. Do not label it a programmatic policy readback. Verify bounded harmless reads on two owner-selected origins, including the affected origin only after its local setting has actually been handled. These observations establish those accesses, not unrestricted access to every website or absence of future prompts.
+4. Inspect prior task effects, then use the explicit continuation below if eligible. Legacy tasks without observations require a new explicit remaining-work instruction. Preserve original outcomes and confirm any actual send/submission from its external receipt. If blocked again, retain the existing exception handoff without scheduling a loop or changing routes.
+
+The setup and its real acceptance remain pending until observed. Routine access should use the persistent provider choice; the saved-denial handoff remains an exception and diagnostic path.
 
 ## Explicit check and continuation
 

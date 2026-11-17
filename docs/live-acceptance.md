@@ -1,5 +1,11 @@
 # Live acceptance evidence
 
+## 2026-11-18 persistent browser access preparation
+
+Current official browser-extension documentation explicitly offers **Allow for all sites** and states that supported browsers share website permissions. The operational design now distinguishes that one-time owner-selected persistent access from the saved-denial exception path, task authority and actual action approvals. The current surface exposes no site-policy mutation API, and a read-only attempt to inspect the desktop app's settings was refused by the computer-use tool's app restriction. No alternate route or private policy store was used.
+
+The runbook is prepared; all-site or per-domain setup, current effective access and genuine remaining-work continuation are not verified by this documentation change. No browser site grant, native policy change, task admission, blocked-site revisit or business inquiry was performed. A work profile is not claimed to isolate the shared website permission, and shell Auto-review is not claimed to intercept every browser click.
+
 ## 2026-11-18 browser access handoff managed deployment
 
 [PR #38](https://github.com/budded-water/codex-feishu-bridge/pull/38) merged after current-head CI, successful preflight and independent complete-diff correctness/test-quality review. The 365-test local check, 14 strict OpenSpec items, no-inference Codex metadata smoke and isolated actual pinned Hub/Worker scripted campaign passed. The reviewed head was built as a locked private artifact, with its runtime fingerprint verified.
