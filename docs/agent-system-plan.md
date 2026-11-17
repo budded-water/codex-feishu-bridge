@@ -155,3 +155,7 @@ The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-v
 ## Native permission strategy
 
 The active [permission slice](native-permissions.md) reuses Codex sandbox, native rules and native Auto-review to reduce human waits without introducing a second policy model. Bridge owns exact human identity, immutable review/proposal provenance, fresh retry admission and transport. Persistent rules explicitly retain native user-wide scope; denied-action retry admits one request and does not create a persistent allow rule. Permission behavior is experimental/version-pinned, with source, native fixtures and genuine owner acceptance kept separate in the bounded change.
+
+## Browser access dependency
+
+The bounded [browser access handoff](browser-access.md) addresses a real independent saved-site denial despite successful native Auto-review. It adds minimal native observations, owner-private remediation and one explicit linked continuation, preserving normal browser/native enforcement. Current supported APIs do not expose remote site-policy mutation. Historical tool denial, round completion and verified business delivery remain separate; browser settings and prior side effects require real inspection. This extends the existing executor/transport rather than adding a scheduler or another model.

@@ -212,11 +212,11 @@ test('unreachable active owner stays unverified without changing grants or relau
 test('sealed legacy task timing remains absent and the progress read does not migrate its journal', async t => {
   const h = setup(t), task = await h.start(); task.complete(); await task.running;
   const folder = join(h.config.stateDirectory, 'executions', task.request.execution), path = join(folder, 'bridge.db');
-  // Construct a sealed legacy fixture with the original identity but without later timing columns.
-  const d = new DatabaseSync(path); d.exec('ALTER TABLE tasks DROP COLUMN execution_at; ALTER TABLE tasks DROP COLUMN finished_at'); d.close();
+  // Construct a sealed legacy fixture with the original identity but without later timing columns or browser observations.
+  const d = new DatabaseSync(path); d.exec('ALTER TABLE tasks DROP COLUMN execution_at; ALTER TABLE tasks DROP COLUMN finished_at; DROP TABLE browser_access_blocks'); d.close();
   const bytes = readFileSync(path), reportPath = join(folder, 'native-result.json'), report = JSON.parse(readFileSync(reportPath, 'utf8'));
   report.databaseHash = createHash('sha256').update(bytes).digest('hex'); writeFileSync(reportPath, JSON.stringify(report));
-  const value = await h.native.progress(task.request.execution); assert.equal(value.live, false); assert.equal(value.startedAt, undefined); assert.equal(value.finishedAt, undefined);
+  const value = await h.native.progress(task.request.execution); assert.equal(value.live, false); assert.equal(value.accessBlocks, undefined); assert.equal(value.startedAt, undefined); assert.equal(value.finishedAt, undefined);
   assert.deepEqual(readFileSync(path), bytes);
 });
 
@@ -252,4 +252,165 @@ test('default task overview separates current work from at most three recent his
   assert.equal((body.match(/\/task [0-9a-f-]{36}/g) ?? []).length, 3); assert.ok(body.includes('共 8 条') && body.includes('历史数量不代表当前待办'));
   const queued = h.admit('Current work'); owner.receive(message('/tasks', { chatType: 'p2p' })); await owner.idle(); await h.interactions.transport.flush();
   assert.ok(h.sent.at(-1)!.body.includes(queued.execution)); assert.ok(h.sent.at(-1)!.body.includes('未开始（含阻断）：1'));
+});
+
+const browserDenial = () => JSON.parse(readFileSync(new URL('./fixtures/browser-saved-denial.json', import.meta.url), 'utf8'));
+const browserContinue = (execution: string) => `/browser-retry ${execution} local-change-confirmed`;
+const journalBytes = (h: ReturnType<typeof setup>, execution: string) => readFileSync(join(h.config.stateDirectory, 'executions', execution, 'bridge.db'));
+async function blockedBrowserTask(t: TestContext, text = 'Contact support about the pending review') {
+  const h = setup(t), task = await h.start(h.admit(text));
+  task.c.notify('item/completed', { ...task.current, item: browserDenial() });
+  return { h, task };
+}
+
+test('browser observations survive settlement/restart, keep native completion distinct and publish one non-authorizing notice', async t => {
+  const { h, task } = await blockedBrowserTask(t);
+  const before = await h.native.progress(task.request.execution); assert.equal(before.accessBlocks?.length, 1);
+  task.c.notify('item/completed', { ...task.current, item: browserDenial() });
+  const live = await h.native.progress(task.request.execution); assert.deepEqual(live.accessBlocks, before.accessBlocks);
+  assert.equal(task.c.replies.length, 0);
+  task.complete(); await task.running; const bytes = journalBytes(h, task.request.execution); await h.drain();
+  assert.equal(h.admission.store.execution(task.request.execution)!.status, 'completed');
+  const notices = () => h.sent.filter(s => s.body.includes('浏览器站点权限观测'));
+  assert.equal(notices().length, 1); assert.ok(notices()[0]!.body.includes('https://console.example.com'));
+  assert.ok(notices()[0]!.body.includes(browserContinue(task.request.execution))); assert.equal(notices()[0]!.options?.approval, undefined);
+  assert.ok(!notices()[0]!.body.includes('fixture-secret') && !notices()[0]!.body.includes('/private'));
+  h.interactions.receive(message('/task ' + task.request.execution, { chatType: 'p2p' })); await h.drain();
+  const card = h.sent.filter(s => s.options?.taskView).at(-1)!;
+  assert.ok(card.body.includes('原生本轮已完成') && card.body.includes('当前设置及任务交付结果仍需核对'));
+  h.interactions.receive(message('/tasks', { chatType: 'p2p' })); await h.drain(); assert.ok(h.sent.at(-1)!.body.includes('浏览器站点权限拒绝'));
+  await h.restart(); await h.drain(); assert.equal(notices().filter(s => !s.options?.taskView).length, 1);
+  assert.deepEqual(journalBytes(h, task.request.execution), bytes); assert.equal(h.codexes.length, 1); assert.equal(h.admission.store.requests().length, 1);
+});
+
+test('verbal browser consent is scoped guidance and cannot mutate policy or create a model task', async t => {
+  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running; await h.drain();
+  const count = h.admission.store.requests().length, bytes = journalBytes(h, task.request.execution);
+  for (const fields of [{ user: 'other' }, { tenant: 'other' }, { chat: 'other' }, { chatType: 'group' as const }]) {
+    assert.equal(h.interactions.receive(message('允许浏览器工具访问', { chatType: 'p2p', ...fields })).status, 'rejected');
+  }
+  const allow = message('允许浏览器工具访问', { chatType: 'p2p' });
+  h.interactions.receive(allow); await h.drain(); const replies = h.sent.filter(s => s.options?.replyTo === allow.id);
+  assert.equal(replies.length, 1); assert.ok(replies[0]!.body.includes('这条消息没有保存授权，也没有启动任务'));
+  h.interactions.receive(allow); await h.drain(); assert.equal(h.sent.filter(s => s.options?.replyTo === allow.id).length, 1);
+  assert.equal(h.admission.store.requests().length, count); assert.equal(h.codexes.length, 1); assert.equal(task.c.replies.length, 0); assert.deepEqual(journalBytes(h, task.request.execution), bytes);
+});
+
+test('owner-attested browser continuation admits one linked fresh ordinary request under normal native policy', async t => {
+  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running; await h.drain(); const bytes = journalBytes(h, task.request.execution);
+  h.interactions.receive(message('/browser-retry ' + task.request.execution, { chatType: 'p2p' })); await h.drain(); assert.equal(h.admission.store.requests().length, 1);
+  h.interactions.receive(message(browserContinue(task.request.execution), { user: 'other', chatType: 'p2p' })); await h.drain(); assert.equal(h.admission.store.requests().length, 1);
+  const intent = message(browserContinue(task.request.execution), { chatType: 'p2p' }); h.interactions.receive(intent); await h.drain();
+  const request = h.admission.store.browserRetryForSource(task.request.execution)!; assert.ok(request); assert.equal(h.admission.store.requests().length, 2);
+  assert.equal(request.conversation, task.request.conversation); assert.ok(request.input.includes('Contact support') && request.input.includes('禁止重复提交'));
+  assert.equal(h.admission.store.browserRetry(request.execution)!.sourceExecution, task.request.execution); assert.equal(h.admission.store.permissionRetry(request.execution), undefined);
+  await h.restart(); h.interactions.receive(intent); h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain();
+  assert.equal(h.admission.store.requests().length, 2); assert.equal(h.codexes.length, 1);
+  const next = await h.start(request); assert.equal(next.c.calls.find(c => c.method === 'thread/resume')!.params.threadId, task.current.threadId);
+  assert.ok(!next.c.calls.some(c => c.method === 'thread/approveGuardianDeniedAction')); assert.equal(next.c.replies.length, 0);
+  next.c.notify('item/completed', { ...next.current, item: browserDenial() });
+  next.complete(); await next.running; await h.drain();
+  assert.equal(h.admission.store.requests().length, 2); assert.equal(h.codexes.length, 2);
+  assert.equal((await h.native.progress(next.request.execution)).accessBlocks?.length, 1);
+  h.interactions.receive(message('/task ' + request.execution, { chatType: 'p2p' })); await h.drain();
+  assert.ok(h.sent.filter(s => s.options?.taskView).at(-1)!.body.includes('/task ' + task.request.execution));
+  assert.deepEqual(journalBytes(h, task.request.execution), bytes); assert.equal(h.admission.store.execution(task.request.execution)!.status, 'completed');
+});
+
+test('stale conversation, resource guard, maintenance and unknown source refuse browser continuation', async t => {
+  for (const mode of ['stale', 'guarded', 'paused', 'unknown'] as const) await t.test(mode, async st => {
+    const { h, task } = await blockedBrowserTask(st); task.complete(); await task.running; await h.drain();
+    if (mode === 'stale') h.admit('A newer task');
+    if (mode === 'guarded') {
+      const newer = h.admission.store.accept(message('Held task', { user: 'other', chatType: 'p2p' }), 'Held task', h.admission.project);
+      assert.ok('request' in newer); h.admission.store.reserve(newer.request.id, 90);
+    }
+    if (mode === 'paused') h.admission.store.maintenance.quiesce();
+    if (mode === 'unknown') {
+      const c = new DatabaseSync(join(h.config.stateDirectory, 'handoff.db')); c.prepare("UPDATE executions SET status='unknown' WHERE id=?").run(task.request.execution); c.close();
+    }
+    const before = h.admission.store.requests().length;
+    h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain();
+    assert.equal(h.admission.store.requests().length, before); assert.equal(h.admission.store.browserRetryForSource(task.request.execution), undefined); assert.equal(h.codexes.length, 1);
+  });
+});
+
+test('admitted browser continuation revalidates sealed bytes before native startup', async t => {
+  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running; await h.drain();
+  h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain(); const request = h.admission.store.browserRetryForSource(task.request.execution)!;
+  const path = join(h.config.stateDirectory, 'executions', task.request.execution, 'native-result.json'), before = readFileSync(path);
+  const report = JSON.parse(before.toString()); report.checkpoint = randomUUID(); writeFileSync(path, JSON.stringify(report));
+  const grant = h.admission.store.reserve(request.id, 90); assert.equal(grant.kind, 'start'); if (grant.kind !== 'start') throw Error('No grant');
+  await assert.rejects(h.native.run(grant.permit)); assert.equal(h.codexes.length, 1); writeFileSync(path, before);
+});
+
+test('out-of-order execution cannot resume a browser source after its conversation advanced', async t => {
+  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running; await h.drain();
+  h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain(); const request = h.admission.store.browserRetryForSource(task.request.execution)!;
+  const newer = await h.start(h.admit('Newer independent work')); newer.complete(); await newer.running;
+  const grant = h.admission.store.reserve(request.id, 90); assert.equal(grant.kind, 'start'); if (grant.kind !== 'start') throw Error('No grant');
+  await assert.rejects(h.native.run(grant.permit), /conversation advanced/); assert.equal(h.codexes.length, 2);
+});
+
+test('lost browser continuation receipt stays lookup-only across restart', async t => {
+  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running; await h.drain();
+  const failure = t.mock.method(h.interactions.transport.state, 'send', () => { throw Error('Storage unavailable after admission'); });
+  h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain();
+  assert.ok(h.admission.store.browserRetryForSource(task.request.execution)); assert.equal(h.admission.store.requests().length, 2);
+  failure.mock.restore(); await h.restart(); h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain();
+  assert.equal(h.admission.store.requests().length, 2); assert.equal(h.codexes.length, 1); assert.ok(h.sent.at(-1)!.body.includes('没有再次创建'));
+});
+
+test('a source changing during asynchronous browser evidence inspection cannot admit a continuation', async t => {
+  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running; await h.drain();
+  const projection = h.native.projection.bind(h.native); let resume!: () => void, waiting = false;
+  const gate = new Promise<void>(resolve => { resume = resolve; });
+  const mocked = t.mock.method(h.native, 'projection', async (execution: string) => {
+    const result = await projection(execution); if (execution === task.request.execution && !waiting) { waiting = true; await gate; } return result;
+  });
+  h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await until(() => waiting);
+  h.admit('Newer task during source inspection'); resume(); await h.drain(); mocked.mock.restore();
+  assert.equal(h.admission.store.requests().length, 2); assert.equal(h.admission.store.browserRetryForSource(task.request.execution), undefined);
+  assert.ok(h.sent.some(s => s.body.includes('不满足续接条件，没有新建任务'))); assert.equal(h.codexes.length, 1);
+});
+
+test('browser notice and its receipt roll back together on storage failure and retry only delivery', async t => {
+  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running;
+  const state = h.interactions.transport.state, send = state.send.bind(state);
+  const failed = t.mock.method(state, 'send', (...args: Parameters<typeof state.send>) => { if (args[1].includes('浏览器站点权限观测')) throw Error('Notice storage unavailable'); return send(...args); });
+  await h.drain();
+  const db = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'), { readOnly: true });
+  assert.equal(db.prepare("SELECT count(*) n FROM projected_control_notices WHERE origin LIKE 'browser-access/%'").get()!.n, 0); db.close();
+  assert.equal(h.sent.filter(s => s.body.includes('浏览器站点权限观测')).length, 0);
+  failed.mock.restore(); await h.drain(); await h.restart(); await h.drain();
+  assert.equal(h.sent.filter(s => s.body.includes('浏览器站点权限观测')).length, 1); assert.equal(h.codexes.length, 1); assert.equal(h.admission.store.requests().length, 1);
+});
+
+test('the admission transaction excludes verification and repair sources while admitting otherwise identical ordinary continuation', async t => {
+  for (const kind of ['ordinary', 'verification', 'repair'] as const) await t.test(kind, async st => {
+    const h = setup(st), profile = { projectRoot: h.admission.directory, engineRoot: h.admission.directory, projectId: 'fixture', suite: 'fixture',
+      engineRevision: 'a'.repeat(40), cliHash: 'b'.repeat(64), libraryHash: 'c'.repeat(64), timeoutMs: 1000, policyFiles: {},
+      ...(kind === 'repair' ? { repair: { scenarios: ['fixture'], timeoutMs: 1000 } } : {}) };
+    const selected = h.admission.store.accept(message('Source work', { chatType: 'p2p' }), 'Source work', h.admission.project,
+      kind === 'ordinary' ? undefined : { profile: 'fixture', definition: profile, ...(kind === 'repair' ? { repair: true as const } : {}) });
+    assert.ok('request' in selected); const request = selected.request, grant = h.admission.store.reserve(request.id, 90);
+    assert.equal(grant.kind, 'start'); if (grant.kind !== 'start') throw Error('No source grant');
+    const attempt = kind === 'repair' ? h.admission.store.repairs.launch(grant.permit, 'native') : undefined;
+    h.admission.store.nativeSnapshot(grant.permit, { thread: 'thread', turn: 'turn', generation: 'generation' }, attempt?.id);
+    h.admission.store.terminal(grant.permit, 'completed', 'native-checkpoint/checkpoint');
+    const result = h.admission.store.acceptBrowserRetry(message(browserContinue(request.execution), { chatType: 'p2p' }), request,
+      { sourceExecution: request.execution, checkpoint: 'checkpoint', thread: 'thread', turn: 'turn', generation: 'generation',
+        blocks: [{ task: 'task', item: 'item', generation: 'generation', browser: 'chrome', origin: 'https://console.example.com', code: 'persisted_user_denied', observedAt: Date.now() }] }, 'Check and continue unfinished work');
+    assert.equal('rejected' in result, kind !== 'ordinary'); assert.equal(h.admission.store.requests().length, kind === 'ordinary' ? 2 : 1);
+  });
+});
+
+test('browser progress is bounded and does not expose origin secrets or authorize hidden-target continuation', async t => {
+  const h = setup(t, ['console.example.com']), task = await h.start();
+  for (let i = 0; i < 12; i++) { const item = browserDenial(); item.id += '-' + i; task.c.notify('item/completed', { ...task.current, item }); }
+  assert.equal((await h.native.progress(task.request.execution)).accessBlocks!.length, 10);
+  task.complete(); await task.running; await h.drain();
+  assert.ok(h.sent.every(s => !s.body.includes('console.example.com') && !s.body.includes('fixture-secret')));
+  h.interactions.receive(message(browserContinue(task.request.execution), { chatType: 'p2p' })); await h.drain();
+  assert.equal(h.admission.store.requests().length, 1); assert.ok(h.sent.at(-1)!.body.includes('需脱敏内容'));
 });

@@ -5,6 +5,7 @@ export interface NativeActivity {
   task: string; thread: string; turn: string; generation: string; stage: string;
   startedAt: number; lastEventAt: number | null;
   prompts: { token: string; kind: 'approval' | 'question'; expires: number }[];
+  accessBlocks?: import('./browser-access.js').BrowserAccessBlock[];
 }
 
 export interface IncomingMessage {

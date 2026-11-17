@@ -1,0 +1,18 @@
+{
+  "type": "mcpToolCall",
+  "id": "browser-denial-item",
+  "server": "node_repl",
+  "tool": "js",
+  "status": "failed",
+  "error": null,
+  "result": {
+    "content": [{"type": "text", "text": "A saved permission or managed policy denies access."}],
+    "structuredContent": null,
+    "_meta": {
+      "browser_use": {"url": "https://console.example.com/private?token=fixture-secret#details"},
+      "codex/browserUse": true,
+      "codex/telemetry": {"error_code": "persisted_user_denied"},
+      "codex/toolSurface": {"backend": "chrome", "browserFamily": "chrome", "browserId": "1", "kind": "browserUse"}
+    }
+  }
+}

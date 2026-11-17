@@ -1,3 +1,4 @@
+import type { BrowserAccessBlock } from '../browser-access.js';
 import type { NativeReview } from '../permissions.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
@@ -12,6 +13,7 @@ export interface VerificationRecord {
   execution: string; profile: string; digest: string; definition: VerificationProfile;
   phase: 'planned' | 'running' | 'observed' | 'skipped' | 'unknown'; observation: VerificationObservation | null;
 }
+export interface BrowserRetry { sourceExecution: string; generation: string; checkpoint: string; thread: string; turn: string; blocks: BrowserAccessBlock[] }
 export interface PermissionRetry { sourceExecution: string; generation: string; checkpoint: string; review: NativeReview }
 export type VerificationSelection = { profile: string; definition: VerificationProfile; repair?: true };
 
@@ -54,6 +56,7 @@ export class AdmissionStore {
           id TEXT PRIMARY KEY, execution TEXT NOT NULL UNIQUE, conversation TEXT NOT NULL REFERENCES conversations(id),
           project TEXT NOT NULL, origin TEXT NOT NULL UNIQUE, message TEXT NOT NULL, input TEXT NOT NULL, blocked TEXT
         );
+        CREATE TABLE IF NOT EXISTS browser_retries (execution TEXT PRIMARY KEY REFERENCES requests(execution), source_execution TEXT NOT NULL UNIQUE, body TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS permission_retries (execution TEXT PRIMARY KEY REFERENCES requests(execution), source_execution TEXT NOT NULL, review_id TEXT NOT NULL, body TEXT NOT NULL, UNIQUE(source_execution,review_id));
         CREATE TABLE IF NOT EXISTS submissions (
           request TEXT PRIMARY KEY REFERENCES requests(id), event INTEGER, status TEXT NOT NULL,
@@ -188,6 +191,45 @@ export class AdmissionStore {
     });
   }
 
+  browserRetry(execution: string): BrowserRetry | undefined {
+    const row = this.db.prepare('SELECT body FROM browser_retries WHERE execution=?').get(execution) as { body: string } | undefined;
+    return row && JSON.parse(row.body) as BrowserRetry;
+  }
+  browserRetryForSource(source: string): RequestRecord | undefined {
+    const row = this.db.prepare('SELECT r.id FROM browser_retries b JOIN requests r ON r.execution=b.execution WHERE b.source_execution=?').get(source) as { id: string } | undefined;
+    return row && this.request(row.id);
+  }
+  assertBrowserRetryCurrent(execution: string): void {
+    const retry = this.browserRetry(execution);
+    if (!retry) return;
+    const request = this.request(this.execution(execution)!.request)!;
+    const conversation = this.db.prepare('SELECT thread,last_execution FROM conversations WHERE id=?').get(request.conversation) as { thread: string; last_execution: string } | undefined;
+    const source = this.execution(retry.sourceExecution);
+    if (conversation?.last_execution !== retry.sourceExecution || conversation.thread !== retry.thread || source?.status !== 'completed' ||
+      source.evidence !== 'native-checkpoint/' + retry.checkpoint) throw Error('Browser source conversation advanced before startup');
+  }
+  acceptBrowserRetry(message: IncomingMessage, source: RequestRecord, retry: BrowserRetry, input: string) {
+    return this.transaction(() => {
+      if (message.chatType !== 'p2p' || source.message.chatType !== 'p2p' || ownerKey(message) !== ownerKey(source.message)) throw Error('Browser continuation actor differs');
+      const previous = this.browserRetryForSource(source.execution);
+      if (previous) return { duplicate: true, request: previous };
+      const conversation = this.db.prepare('SELECT thread,last_execution FROM conversations WHERE id=?').get(source.conversation) as { thread: string; last_execution: string } | undefined;
+      const latest = this.db.prepare('SELECT id FROM requests WHERE conversation=? ORDER BY rowid DESC LIMIT 1').get(source.conversation) as { id: string } | undefined;
+      const execution = this.execution(source.execution);
+      if (input.length > 30_000 || retry.sourceExecution !== source.execution || !retry.blocks.length || retry.blocks.length > 10 ||
+        retry.blocks.some(b => b.generation !== retry.generation) || !execution || execution.status !== 'completed' ||
+        execution.evidence !== 'native-checkpoint/' + retry.checkpoint || latest?.id !== source.id ||
+        conversation?.last_execution !== source.execution || conversation.thread !== retry.thread ||
+        this.verification(source.execution) || this.repairs.get(source.execution) ||
+        this.db.prepare('SELECT 1 FROM guards WHERE project=?').get(source.project)) return { rejected: 'source-unavailable' as const };
+      const result = this.accept(message, input, source.project);
+      if ('paused' in result) return result;
+      if (result.request.conversation !== source.conversation || result.request.blocked || result.duplicate) throw Error('Browser continuation admission differs');
+      this.db.prepare('INSERT INTO browser_retries VALUES(?,?,?)').run(result.request.execution, source.execution, JSON.stringify(retry));
+      return result;
+    });
+  }
+
   retained(message: Pick<IncomingMessage, 'tenant' | 'id'>): boolean {
     return Boolean(this.db.prepare('SELECT 1 FROM retained_receipts WHERE tenant=? AND message=?').get(message.tenant, message.id));
   }
@@ -234,6 +276,12 @@ export class AdmissionStore {
       WHEN e.id IS NULL AND COALESCE(r.blocked,'')<>? THEN 1 ELSE 2 END,
       r.rowid DESC LIMIT 10 OFFSET ?`).all(owner, project, OWNER_WITHDRAWN, (page - 1) * 10) as { id: string }[];
     return { total, requests: rows.map(row => this.request(row.id)!) };
+  }
+
+  latestTask(owner: string, project: string): RequestRecord | undefined {
+    const row = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
+      WHERE c.owner=? AND r.project=? ORDER BY r.rowid DESC LIMIT 1`).get(owner, project) as { id: string } | undefined;
+    return row && this.request(row.id);
   }
 
   ownedTask(execution: string, owner: string, project: string): RequestRecord | undefined {

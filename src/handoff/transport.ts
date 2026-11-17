@@ -1,3 +1,5 @@
+import { browserAccessText, browserRetryCommand } from '../browser-access.js';
+import { section, copyBlock } from '../presentation.js';
 import { join } from 'node:path';
 import { State } from '../state.js';
 import { Outbox, type Sender } from '../outbox.js';
@@ -49,7 +51,14 @@ export class HandoffTransport {
           projection.sealed ? String(projection.outcome.status) : this.gateway.store.execution(request.execution)!.status === 'unknown' ? 'unknown' : 'running');
         const verification = projection.sealed && this.gateway.store.verification(request.execution);
         const repair = projection.sealed && this.gateway.store.repairs.get(request.execution);
-        this.state.projectNativeMessages(request, projection, repair ? repairText(repair) : verification ? verificationText(verification) : undefined);
+        const blocks = projection.sealed && request.message.chatType === 'p2p' && request.message.tenant === this.gateway.scope.tenant &&
+          request.message.user === this.gateway.scope.operator && request.message.chat === this.gateway.scope.chat ? projection.accessBlocks : undefined;
+        const browserNotice = blocks?.length ? browserAccessText(blocks) + '\n\n' + section('后续', [
+          '核对本机站点设置与原任务副作用后，可明确请求检查并续接；回执不会证明权限或交付成功。',
+          copyBlock('/task ' + request.execution),
+          ...(!repair && !verification && String(projection.outcome.status) === 'completed' ? [copyBlock(browserRetryCommand(request.execution))] : []),
+        ]) : undefined;
+        this.state.projectNativeMessages(request, projection, repair ? repairText(repair) : verification ? verificationText(verification) : undefined, browserNotice);
         if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.gateway.store.retireReferences(request.execution);
         if (projection.sealed && !projection.task) this.state.projectAdmissionNotice(request, '任务在开始执行前已取消，没有启动模型任务。');
       } catch {

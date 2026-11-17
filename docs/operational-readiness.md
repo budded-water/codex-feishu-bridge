@@ -79,3 +79,7 @@ Record configuration, simulation, protocol, actual restart, owner interaction an
 ## Native permission policy dependency
 
 When owner-native permissions are enabled, capture the closed `permissions/bridge.db` with handoff/transport/native state and retain its ownership binding. Separately inventory current CODEX_HOME/rules/default.rules, the bridge-owned revocation overlay and other loaded user rule files by private path/hash. They are native external policy authority, not reconstructed from Bot audit history. Runtime rollback retains policy changes; do not restore old files over newer user grants or copy host authentication. Drain review-card updates and use compatible migration tooling before downgrade. See [permission storage and upgrades](native-permissions.md#storage-upgrades-and-evidence).
+
+## Browser access evidence dependency
+
+Capture the optional native browser-observation table, handoff continuation links and transport notice receipts with their owning databases. Preserve all later accepted source/follow-up identities during rollback and drain affected work before a compatible consumer conversion. Browser site policy is external platform state; runtime restore neither reconstructs it from observations nor confirms current access. Do not copy browser credentials/private policy stores. See [browser handoff](browser-access.md).
