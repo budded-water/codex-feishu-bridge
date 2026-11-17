@@ -65,8 +65,8 @@ export function deniedActionEvent(review: NativeReview) {
   return { id: review.id, target_item_id: review.item, turn_id: review.turn, started_at_ms: review.started, completed_at_ms: review.completed,
     status: 'denied', risk_level: review.risk, user_authorization: review.authorization, rationale: review.rationale, action: review.action };
 }
-export function reviewCommand(review: NativeReview): string {
-  if (review.action?.type === 'command') return review.action.command;
-  if (review.action?.type === 'execve') return JSON.stringify({ program: review.action.program, argv: review.action.argv, cwd: review.action.cwd });
+export function reviewCommand(review: NativeReview, redact = (s: string) => s): string {
+  if (review.action?.type === 'command') return `cwd: ${JSON.stringify(redact(review.action.cwd))}\n${redact(review.action.command)}`;
+  if (review.action?.type === 'execve') return JSON.stringify({ program: redact(review.action.program), argv: review.action.argv.map(redact), cwd: redact(review.action.cwd) });
   return '此动作类型暂不支持远程重试';
 }

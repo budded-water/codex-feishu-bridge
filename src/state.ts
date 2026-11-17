@@ -665,9 +665,9 @@ export class State {
     const p = parseReviewPresentation(JSON.parse(row.payload));
     return p.tenant === click.tenant && p.user === click.user && p.chat === click.chat && p.expires > Date.now() ? p : undefined;
   }
-  publishReview(p: ReviewPresentation, replyTo: string): void {
+  publishReview(p: ReviewPresentation, replyTo: string, interactive = true): void {
     this.transaction(() => {
-      if (this.db.prepare('INSERT OR IGNORE INTO review_notices VALUES(?)').run(p.review).changes) this.send(p.chat, p.text, { replyTo, reviewCard: p });
+      if (this.db.prepare('INSERT OR IGNORE INTO review_notices VALUES(?)').run(p.review).changes) this.send(p.chat, p.text, { replyTo, reviewCard: interactive ? p : undefined });
     });
   }
   finishReviewCard(id: string, text: string): void {

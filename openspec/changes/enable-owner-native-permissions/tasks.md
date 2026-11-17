@@ -15,9 +15,11 @@
 
 ## Candidate evidence
 
-- Complete local `npm run check`: 330 passing tests, typecheck and build.
+- Complete local `npm run check`: 333 passing tests, typecheck and build.
 - All 13 strict OpenSpec items pass; real `smoke:codex` passes without inference.
 - Actual pinned Hub/Worker scripted assignment/control/withdrawal/recovery regressions pass with synthetic transport.
 - Installed native rule parsing/owned overlay and turn-free denied-action RPC pass. The RPC denial is scripted.
 - One real model/tool fixture passes native Auto-review and exact isolated file-content checks without a human approval request.
 - Genuine owner Remember/save/reuse/revoke and actual denied-then-re-reviewed task remain distinct pending acceptance; no actual user policy was changed by fixtures.
+
+- Independent first review found missing cwd disclosure and oversized-review fallback. Both are corrected with relative-directory and ASCII/UTF-8 boundary regressions; final-head review remains a gate.

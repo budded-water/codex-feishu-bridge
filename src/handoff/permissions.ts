@@ -5,7 +5,7 @@ import { ownerKey, type IncomingMessage } from '../types.js';
 import { message as present, section, copyBlock } from '../presentation.js';
 import { reviewCommand } from '../permissions.js';
 import type { ReviewFact } from '../permission-state.js';
-import { reviewRetryMessage, type ReviewClick, type ReviewPresentation } from '../review-card.js';
+import { parseReviewPresentation, reviewRetryMessage, type ReviewClick, type ReviewPresentation } from '../review-card.js';
 import type { CardResult } from '../approval.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
@@ -47,7 +47,7 @@ export class OwnerPermissions {
           '这次规则变更结果未确认，不会自动重复。请发送 /rules 核对实际文件状态；未确认时不能假定授权已撤销或恢复。' };
       }
       if (text === '/reviews') {
-        const facts = ledger.reviews().filter(f => f.review.status !== 'approved').slice(0, 10);
+        const facts = ledger.reviews('nonapproved').slice(0, 10);
         return { body: present('原生权限审查记录', section('最近非通过审查 · 最多 10 条', facts.length ? facts.map(f => `${labels[f.review.status]}\n${copyBlock('/review ' + f.id)}`) : ['暂无已记录的非通过审查。']),
           '审查结果针对单个动作；不代表整个任务失败。查询不会执行、重试或授权。') };
       }
@@ -56,7 +56,7 @@ export class OwnerPermissions {
       if (!fact) return { body: '请用 /rules、/reviews 或 /review 完整编号 查看记录。没有新建任务。' };
       if (retry) return { body: await this.retry(message, fact) };
       const card = await this.presentation(fact);
-      return { body: card.text, card };
+      return { body: card.text, card: this.cardFits(card) ? card : undefined };
     });
     return { status: 'permission-control' as const };
   }
@@ -108,6 +108,7 @@ export class OwnerPermissions {
     if (fact.review.status !== 'denied' || !action) return false;
     const fields = [fact.review.rationale, action.cwd, ...(action.type === 'command' ? [action.command] : [action.program, ...action.argv])];
     if (fields.some(s => this.state.redact(s) !== s)) return false;
+    if (!this.cardFits(this.card(fact, true))) return false;
     try {
       const { request } = await this.source(fact), execution = this.admission.store.execution(request.execution);
       return !this.admission.store.maintenance.paused && ['completed', 'interrupted'].includes(execution?.status ?? '') &&
@@ -116,17 +117,20 @@ export class OwnerPermissions {
     } catch { return false; }
   }
   private async presentation(fact: ReviewFact): Promise<ReviewPresentation> {
-    const retry = await this.retryable(fact), r = fact.review;
-    const text = present(`原生审查：${labels[r.status]}`, section('原因', [escape(this.state.redact(r.rationale))]), section('原动作', [copyBlock(this.redactedCommand(fact))]),
+    const card = this.card(fact, await this.retryable(fact));
+    if (!this.cardFits(card)) card.text += '\n\n本记录超过单张卡片限制，将以完整分段文本发送；不提供该记录的授权重试。请核对目录与动作后另行交办范围明确的新任务。';
+    return card;
+  }
+  private cardFits(card: ReviewPresentation): boolean {
+    try { parseReviewPresentation(card); return true; } catch { return false; }
+  }
+  private card(fact: ReviewFact, retry: boolean): ReviewPresentation {
+    const r = fact.review;
+    const text = present(`原生审查：${labels[r.status]}`, section('原因', [escape(this.state.redact(r.rationale))]), section('原动作', [copyBlock(reviewCommand(r, s => this.state.redact(s)))]),
       section('后续', [retry ? '你可以明确授权此动作并发起一次新任务。Codex 会重新审查，仍可能拒绝；不会保存长期规则。' :
         '当前没有可直接授权的重试。原任务可能已采用其他方案；请查看任务结果。超时、中止、保护未解除或会话已变化时，不沿用拒绝授权。']),
-      section('详情', [copyBlock(`/task ${fact.execution}\n/review ${fact.id}`), '原任务与证据保持不变。按钮有效期 15 分钟，点击时重新核对。']));
+      section('详情', [copyBlock(`/task ${fact.execution}\n/review ${fact.id}`), '原任务与证据保持不变。如显示按钮，其有效期为 15 分钟，点击时重新核对。']));
     return { id: randomUUID(), review: fact.id, tenant: this.admission.scope.tenant, user: this.admission.scope.operator, chat: this.admission.scope.chat, text, retry, expires: Date.now() + 15 * 60_000 };
-  }
-  private redactedCommand(fact: ReviewFact): string {
-    const r = fact.review;
-    if (r.action?.type === 'execve') return JSON.stringify({ program: this.state.redact(r.action.program), argv: r.action.argv.map(s => this.state.redact(s)), cwd: this.state.redact(r.action.cwd) });
-    return this.state.redact(reviewCommand(r));
   }
   private async retry(message: IncomingMessage, fact: ReviewFact): Promise<string> {
     const previous = this.admission.store.retryForReview(fact.execution, fact.review.id);
@@ -142,14 +146,14 @@ export class OwnerPermissions {
   async publish(): Promise<void> {
     const ledger = this.native.permissions;
     if (!ledger) return;
-    for (const fact of ledger.reviews().filter(f => f.review.status !== 'approved' && !f.published)) {
+    for (const fact of ledger.reviews('unpublished')) {
       const execution = this.admission.store.execution(fact.execution);
       if (!execution || !['completed', 'interrupted', 'unknown'].includes(execution.status)) continue;
       try {
         const request = this.admission.store.requests().find(r => r.execution === fact.execution);
         if (!request || ownerKey(request.message) !== ownerKey({ tenant: ledger.scope.tenant, user: ledger.scope.user, chat: ledger.scope.chat })) continue;
         const card = await this.presentation(fact);
-        this.state.publishReview(card, request.message.id.startsWith('permission-retry/') ? request.message.parentId! : request.message.id);
+        this.state.publishReview(card, request.message.id.startsWith('permission-retry/') ? request.message.parentId! : request.message.id, this.cardFits(card));
         ledger.published(fact.id);
       } catch { /* Retry publication by immutable identity, never retry execution. */ }
     }

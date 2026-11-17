@@ -42,3 +42,11 @@ The adapter SHALL recheck retained source evidence, resume its bound thread and 
 #### Scenario: Authorization is submitted without a turn
 - **WHEN** the native denied-action authorization RPC succeeds
 - **THEN** it is only an authorization marker and does not prove command execution, completion or a persistent allow rule
+
+
+### Requirement: Complete native review presentation
+Owner review views SHALL disclose the exact working directory, action and reason. Oversized records SHALL fall back to complete durable split text without a shortcut retry.
+
+#### Scenario: Long or multibyte review presentation
+- **WHEN** a valid native review exceeds one interactive card's character or byte budget
+- **THEN** complete directory, command and reason are delivered as durable split text without admitting a retry, duplicating publication or changing source evidence

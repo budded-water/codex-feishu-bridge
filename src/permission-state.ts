@@ -131,7 +131,11 @@ export class PermissionState {
     const id = randomUUID(); this.db.prepare('INSERT INTO reviews(id,execution,generation,body,review_id) VALUES(?,?,?,?,?)').run(id, execution, generation, JSON.stringify(review), review.id);
     return { id, execution, generation, review, published: false };
   }
-  reviews(): ReviewFact[] { return (this.db.prepare('SELECT id,execution,generation,body,published FROM reviews ORDER BY rowid DESC LIMIT 100').all() as { id: string; execution: string; generation: string; body: string; published: number }[]).map(x => ({ ...x, review: JSON.parse(x.body) as NativeReview, published: Boolean(x.published) })); }
+  reviews(kind: 'recent' | 'nonapproved' | 'unpublished' = 'recent'): ReviewFact[] {
+    const where = kind === 'unpublished' ? " WHERE published=0 AND json_extract(body,'$.status')!='approved'" : kind === 'nonapproved' ? " WHERE json_extract(body,'$.status')!='approved'" : '';
+    return (this.db.prepare('SELECT id,execution,generation,body,published FROM reviews' + where + ' ORDER BY rowid ' + (kind === 'unpublished' ? 'ASC' : 'DESC') + ' LIMIT 100').all() as
+      { id: string; execution: string; generation: string; body: string; published: number }[]).map(x => ({ ...x, review: JSON.parse(x.body) as NativeReview, published: Boolean(x.published) }));
+  }
   review(id: string): ReviewFact | undefined {
     const row = this.db.prepare('SELECT id,execution,generation,body,published FROM reviews WHERE id=?').get(id) as { id: string; execution: string; generation: string; body: string; published: number } | undefined;
     return row && { ...row, review: JSON.parse(row.body) as NativeReview, published: Boolean(row.published) };

@@ -18,7 +18,7 @@ Rule inspection reports native facts and owned grant provenance. Revocation must
 
 ## Auto-review and explicit retry
 
-Use version-matched experimental item/autoApprovalReview notifications and distinguish approved, denied, timedOut and aborted. Ordinary approved reviews stay quiet. Retain exact action, source task/thread/turn/generation, review identity, time and rationale. Do not infer that every denial means the whole task failed or automatically replay after timeout.
+Use version-matched experimental item/autoApprovalReview notifications and distinguish approved, denied, timedOut and aborted. Ordinary approved reviews stay quiet. Retain source task/thread/turn/generation, review identity, time and rationale. Retain the exact action for supported command types; other types do not receive executable override data. Do not infer that every denial means the whole task failed or automatically replay after timeout.
 
 The installed protocol provides thread/approveGuardianDeniedAction. Source inspection confirms it injects the original action's authorization marker without starting a turn; it is not a command-approval reply. A genuine owner click may create one fresh ordinary request only after the source execution is sealed/settled, protection is absent and its conversation has not advanced or acquired conflicting work. Bind the request transactionally to the recorded denial and original evidence. The native adapter resumes that same thread, injects the exact retained denied event, then starts the explicitly requested retry turn. Re-review remains native. The old task/result stays immutable; this is not an automatic repair continuation or a new verification run.
 

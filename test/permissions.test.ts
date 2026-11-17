@@ -99,9 +99,10 @@ test('remember is limited to the exact offered native read proposal and never br
 });
 
 test('only owner clicking a confirmed current Remember card submits native persistence, with truthful file confirmation', async t => {
-  const h = setup(t), task = await h.start(); task.c.ask('approval', 'item/commandExecution/requestApproval', { ...task.current, ...proposal }); await h.drain();
+  const h = setup(t), task = await h.start(); task.c.ask('approval', 'item/commandExecution/requestApproval', { ...task.current, ...proposal, cwd: h.config.projects.pilot }); await h.drain();
   const d = h.sent.find(s => s.options?.approval)!, p = d.options!.approval!; assert.ok(p.remember);
   const cardText = JSON.stringify(approvalCard(p)); assert.ok(cardText.includes('不限定本任务或单个仓库')); assert.equal((cardText.match(/可记住的规则/g) ?? []).length, 1);
+  assert.ok(p.action.includes(h.config.projects.pilot!));
   const action: ApprovalClick = { event: randomUUID(), tenant: 'tenant', user: 'ou_owner', chat: 'chat', message: 'om_' + d.id, id: p.id, decision: 'approve_save' };
   for (const changes of [{ user: 'ou_other' }, { chat: 'other' }, { message: 'om_unconfirmed' }]) assert.equal(h.interactions.cardAction({ ...action, ...changes }), 'rejected');
   assert.equal(h.interactions.cardAction(action), 'accepted'); await h.drain();
@@ -253,4 +254,46 @@ test('redacted actions and expired review cards cannot authorize a retry', async
   const payload = { ...card.options!.reviewCard!, expires: Date.now() - 1, retry: true };
   db.prepare('UPDATE review_cards SET payload=? WHERE id=?').run(JSON.stringify(payload), payload.id); db.close();
   assert.equal(h.interactions.reviewAction(click(card)), 'rejected'); assert.equal(h.admission.store.requests().length, 1);
+});
+
+test('relative denied commands disclose their exact directory in the owner view and fresh retry input', async t => {
+  for (const name of ['project-a', 'project-b']) {
+    const h = setup(t), task = await h.start(), cwd = join(h.root, name); mkdirSync(cwd);
+    const event = reviewEvent(task.current, { action: { type: 'command', source: 'unifiedExec', command: 'ls ./output', cwd } });
+    task.c.notify('item/autoApprovalReview/completed', event); task.complete(); await task.running; await h.drain();
+    const card = h.sent.find(s => s.options?.reviewCard)!; assert.ok(card.body.includes(cwd)); assert.ok(card.body.includes('ls ./output'));
+    h.interactions.reviewAction(click(card)); await h.drain(); const retry = h.admission.store.requests().at(-1)!;
+    assert.ok(retry.input.includes(cwd)); assert.ok(retry.input.includes('ls ./output'));
+    const next = await h.start(retry), auth = next.c.calls.find(c => c.method === 'thread/approveGuardianDeniedAction')!;
+    assert.equal(((auth.params.event as { action: { cwd: string } }).action).cwd, cwd); next.complete(); await next.running;
+  }
+});
+
+test('oversized and multibyte native reviews deliver complete text once without authorizing a retry', async t => {
+  for (const [command, rationale] of [['printf ' + 'long-command-'.repeat(1500), 'ASCII oversized action'], ['只读'.repeat(3500), '说明'.repeat(2000)]]) {
+    const h = setup(t), task = await h.start();
+    task.c.notify('item/autoApprovalReview/completed', reviewEvent(task.current, { action: { type: 'command', source: 'unifiedExec', command, cwd: '/tmp/known-directory' }, review: { status: 'denied', rationale } }));
+    task.complete(); await task.running; const path = join(h.config.stateDirectory, 'executions', task.request.execution, 'bridge.db'), before = readFileSync(path);
+    for (let i = 0; i < 25; i++) await h.interactions.flush();
+    const fact = h.native.permissions!.reviews()[0]!, published = h.sent.map(s => s.body).join('\n').replace(/^`{3,}[^\n]*$/gm, '').replace(/\s/g, '');
+    assert.equal(h.sent.filter(s => s.options?.reviewCard).length, 0); assert.ok(published.includes(command!.replace(/\s/g, ''))); assert.ok(published.includes(rationale!.replace(/\s/g, '')));
+    assert.ok(published.includes('/tmp/known-directory')); assert.ok(h.native.permissions!.review(fact.id)!.published); assert.equal(h.admission.store.requests().length, 1);
+    const count = h.sent.length; await h.drain(); assert.equal(h.sent.length, count);
+    const query = message('/review ' + fact.id, { chatType: 'p2p' }); h.interactions.receive(query); h.interactions.receive(query);
+    for (let i = 0; i < 25; i++) await h.interactions.flush();
+    const replies = h.sent.filter(s => s.options?.replyTo === query.id); assert.ok(replies.length > 0 && replies.every(s => !s.options?.reviewCard));
+    assert.ok(replies.map(s => s.body).join('\n').includes('不提供该记录的授权重试'));
+    h.interactions.receive(message('/review-retry ' + fact.id, { chatType: 'p2p' })); await h.drain();
+    assert.equal(h.admission.store.requests().length, 1); assert.deepEqual(readFileSync(path), before); assert.equal(h.codexes.length, 1);
+  }
+});
+
+test('later approved reviews cannot hide an unpublished denial or remove it from nonapproved history', async t => {
+  const h = setup(t), task = await h.start(); task.c.notify('item/autoApprovalReview/completed', reviewEvent(task.current));
+  const denied = h.native.permissions!.reviews()[0]!;
+  for (let i = 0; i < 105; i++) task.c.notify('item/autoApprovalReview/completed', reviewEvent(task.current, { review: { status: 'approved', rationale: 'Later approved action' } }));
+  task.complete(); await task.running; await h.drain();
+  assert.equal(h.sent.filter(s => s.options?.reviewCard?.review === denied.id).length, 1); assert.ok(h.native.permissions!.review(denied.id)!.published);
+  assert.equal(h.native.permissions!.reviews('unpublished').length, 0);
+  h.interactions.receive(message('/reviews', { chatType: 'p2p' })); await h.drain(); assert.ok(h.sent.some(s => s.body.includes('/review ' + denied.id)));
 });
