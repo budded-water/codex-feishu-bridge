@@ -15,7 +15,7 @@
 
 ## Candidate evidence
 
-- Complete local `npm run check`: 336 passing tests, typecheck and build.
+- Complete local `npm run check`: 338 passing tests, typecheck and build.
 - All 13 strict OpenSpec items pass; real `smoke:codex` passes without inference.
 - Actual pinned Hub/Worker scripted assignment/control/withdrawal/recovery regressions pass with synthetic transport.
 - Installed native rule parsing/owned overlay and turn-free denied-action RPC pass. The RPC denial is scripted.

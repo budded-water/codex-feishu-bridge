@@ -58,14 +58,17 @@ export class PermissionState {
     this.db.prepare('INSERT INTO grants VALUES(?,?,?,?,?)').run(grant.id, execution, prompt, generation, JSON.stringify(grant));
     return { id: grant.id, prefix: [...prefix], scope: 'codex-user' };
   }
-  grants(): RuleGrant[] { return (this.db.prepare('SELECT body FROM grants ORDER BY rowid DESC LIMIT 100').all() as { body: string }[]).map(x => JSON.parse(x.body) as RuleGrant); }
+  grants(kind: 'recent' | 'submitted' = 'recent'): RuleGrant[] {
+    const where = kind === 'submitted' ? " WHERE json_extract(body,'$.actor') IS NOT NULL" : '';
+    return (this.db.prepare('SELECT body FROM grants' + where + ' ORDER BY rowid DESC LIMIT 100').all() as { body: string }[]).map(x => JSON.parse(x.body) as RuleGrant);
+  }
   grant(id: string): RuleGrant | undefined { const row = this.db.prepare('SELECT body FROM grants WHERE id=?').get(id) as { body: string } | undefined; return row && JSON.parse(row.body) as RuleGrant; }
   submit(id: string, actor: string): void {
     const g = this.grant(id); if (!g || g.status !== 'proposed' || actor !== this.scope.user) throw Error('Invalid native persistent decision');
     g.actor = actor; g.status = 'submitted'; this.db.prepare('UPDATE grants SET body=? WHERE id=?').run(JSON.stringify(g), id);
   }
   observeSaves(execution?: string): void {
-    for (const g of this.grants()) {
+    for (const g of this.grants('submitted')) {
       if ((execution && execution !== g.execution) || !['submitted', 'unconfirmed'].includes(g.status)) continue;
       let status: RuleGrant['status'] = 'unconfirmed';
       try { if (this.file(this.defaultFile)?.split('\n').includes(lineFor(g.prefix, 'allow'))) status = 'present'; } catch { /* Presence cannot be inferred from a successful decision send. */ }

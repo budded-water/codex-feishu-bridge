@@ -27,7 +27,7 @@ export class OwnerPermissions {
       if (!ledger) return { body: '本实例尚未启用原生权限管理；当前没有改变任何规则或任务。' };
       if (text === '/rules') {
         const rows: string[] = [];
-        for (const g of ledger.grants().filter(g => g.actor).slice(0, 10)) {
+        for (const g of ledger.grants('submitted').slice(0, 10)) {
           let status = '当前规则文件无法核实';
           try { status = `${ledger.present(g.prefix) ? '默认文件中存在' : '默认文件中未见'} · ${ledger.revoked(g.prefix) ? '已设重新审查' : '未设 Bot 撤销'}`; } catch { /* Preserve uncertainty. */ }
           const decision = await ledger.userRuleDecision(g.prefix);

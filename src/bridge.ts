@@ -666,8 +666,9 @@ export class Bridge {
     this.state.recordApproval(token, active.task.id, rpc.method, expires);
     if (approval) {
       const network = record(rpc.params.networkApprovalContext);
+      const command = string(rpc.params.command), cwd = string(rpc.params.cwd);
       const description = rpc.method.includes('commandExecution')
-        ? [rpc.params.command && rpc.params.cwd ? `cwd: ${JSON.stringify(string(rpc.params.cwd))}` : '', string(rpc.params.command),network.host ? `网络访问：${string(network.protocol)} ${string(network.host)}` : ''].filter(Boolean).join('\n')
+        ? [command && cwd ? `cwd: ${JSON.stringify(cwd)}` : '', command,network.host ? `网络访问：${string(network.protocol)} ${string(network.host)}` : ''].filter(Boolean).join('\n')
         : `${active.changes.get(string(rpc.params.itemId)) ?? ''}${rpc.params.grantRoot ? `\n会话写入根目录：${string(rpc.params.grantRoot)}` : ''}`;
       const preview = fencedPreview(description);
       if (!description.trim() || !preview) {

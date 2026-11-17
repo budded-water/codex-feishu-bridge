@@ -329,3 +329,11 @@ test('a card expiring during asynchronous evidence inspection cannot authorize a
   db.prepare('UPDATE review_cards SET payload=? WHERE id=?').run(JSON.stringify({ ...card.options!.reviewCard!, expires: Date.now() - 1 }), card.options!.reviewCard!.id); db.close();
   release(); await h.drain(); assert.equal(h.admission.store.requests().length, 1); assert.equal(h.codexes.length, 1);
 });
+
+test('unaccepted proposals cannot hide an owned rule from inspection or save reconciliation', async t => {
+  const h = setup(t), ledger = h.native.permissions!, grant = ledger.propose('saved', 'prompt', 'generation', prefix); ledger.submit(grant.id, 'ou_owner');
+  for (let i = 0; i < 105; i++) ledger.propose('unaccepted-' + i, 'prompt', 'generation', prefix);
+  mkdirSync(join(h.home, 'rules')); writeFileSync(ledger.defaultFile, rule); ledger.observeSaves('saved'); assert.equal(ledger.grant(grant.id)!.status, 'present');
+  h.interactions.receive(message('/rules', { chatType: 'p2p' })); await h.drain();
+  assert.ok(h.sent.some(s => s.body.includes(grant.id) && s.body.includes('默认文件中存在'))); assert.equal(h.admission.store.requests().length, 0);
+});
