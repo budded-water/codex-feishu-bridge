@@ -16,7 +16,7 @@ For normal unattended operation, the [persistent-access runbook](browser-access.
 
 ## Task-card presentation refinement
 
-Source changes replace the single Markdown body with a native-state header, complete short topic, compact facts and folded original request/history/evidence. Explicit bounded disclosure replaces silent title cuts. Old text-only payloads stay readable, nested redaction and same-card refresh remain enforced, and business completion is not inferred from native termination. Source checks, official preview and managed/mobile acceptance are tracked separately in the dated record; no runtime deployment is claimed by this source note.
+Merged PR #41 replaces the single Markdown body with a native-state header, complete short topic, compact facts and folded original request/history/evidence. Explicit bounded disclosure replaces silent title cuts. Old text-only payloads stay readable, nested redaction and same-card refresh remain enforced, and business completion is not inferred from native termination. The reviewed artifact is deployed to the managed M6 gateway/Worker with closed backup, readiness and retained-evidence checks. Source checks, official preview and deployment are verified; genuine mobile expansion/refresh remains pending in the dated record.
 
 ## Owner task progress delivery
 
