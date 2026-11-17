@@ -1,5 +1,11 @@
 # Live acceptance evidence
 
+## 2026-11-17 mobile approval layout source and official preview
+
+A real owner iPhone screenshot showed the three-column Remember label truncated and secondary details crowding the decision. The updated renderer uses a two-column once/reject row and a separate large full-width Remember button below the complete literal prefix and user-wide scope. Request metadata/manual commands fold; pending authority-bearing details remain expanded. Settled cards lead with their submitted/expired state and retain historical details without controls.
+
+The actual generated payload, using fixture-only identities/paths, was imported through the signed-in official CardKit draft and its mobile preview. The displayed once/reject/Remember labels are complete, and the prefix/scope remain readable. No card was sent or published and no native permission was granted by that preview. CardKit's editor does not render collapsible panels, so the official preview establishes the main layout only; it does not establish real-client panel expansion or callback handling. The original payload retains those panels. Genuine iPhone layout/expansion acceptance remains pending; earlier owner callback/save/reuse evidence covers the earlier layout. Managed deployment/fingerprint records remain separate private evidence.
+
 ## 2026-11-16 — Task overview, copied detail and same-card refresh accepted
 
 After the reviewed PR #30 cutover, the genuine enrolled owner received the revised `/tasks` overview and copied a `/task` query that arrived as a pure rich post. Official message reads matched both queries and their delivered replies. The selected historical repair task's confirmed detail presentation retained the owned execution, chat and original-query association. The owner confirmed receiving the overview and detail card.

@@ -43,18 +43,35 @@ export function approvalText(p: Pick<ApprovalPresentation, 'context' | 'reason' 
 export function approvalCard(p: ApprovalPresentation, view: ApprovalView = 'pending') {
   const title = { pending: '操作确认', approved: '批准已提交', rejected: '拒绝已提交', expired: '确认已过期', unavailable: '请求已失效', remembered: '批准与保存已提交' }[view];
   const markdown = (content: string) => ({ tag: 'markdown', content });
-  const button = (decision: 'approve' | 'approve_save' | 'reject') => ({ tag: 'button', type: decision === 'approve' ? 'primary' : 'default',
-    text: { tag: 'plain_text', content: decision === 'approve' ? '批准本次' : decision === 'approve_save' ? '批准并记住规则' : '拒绝' },
+  const panel = (label: string, elements: unknown[]) => ({ tag: 'collapsible_panel', expanded: false,
+    header: { title: { tag: 'plain_text', content: label } }, elements });
+  const button = (decision: ApprovalClick['decision']) => ({ tag: 'button', width: 'fill', size: 'large',
+    type: decision === 'approve' ? 'primary_filled' : decision === 'reject' ? 'danger' : 'default',
+    text: { tag: 'plain_text', content: decision === 'approve' ? '批准本次' : decision === 'approve_save' ? '批准并记住' : '拒绝' },
     behaviors: [{ type: 'callback', value: { kind: 'codex_approval', id: p.id, decision } }] });
-  const elements: unknown[] = [markdown(`**用途**\n${escape(p.reason)}`), markdown(`**本次动作**\n${fencedPreview(p.action)}`),
-    markdown(`${escape(p.context)} · 请求 \`${p.prompt}\`\n截止 ${deadline(p.expires)}${p.sourceLink ? ` · [原任务](${p.sourceLink})` : ''}`), { tag: 'hr' }];
-  if (p.remember) elements.splice(2, 0, markdown(`**可记住的规则**\n${fencedPreview(JSON.stringify(p.remember.prefix))}\n本机 Codex 用户级，允许此前缀的参数变化，影响共用此配置的会话；不限定本任务或单个仓库。`));
-  if (view === 'pending') elements.push(markdown(p.remember ? '批准本次只授权当前动作；批准并记住会保存上述用户级前缀。' : '仅授权本次动作；后续操作另行确认。'), { tag: 'column_set', columns: (p.remember ? ['approve', 'approve_save', 'reject'] : ['approve', 'reject']).map(decision => ({
-    tag: 'column', width: 'weighted', weight: 1, elements: [button(decision as 'approve' | 'approve_save' | 'reject')],
-  })) }, markdown(`按钮不可用时：\`/approve ${p.prompt}\` 或 \`/reject ${p.prompt}\`${p.remember ? `；记住规则用 \`/approve-save ${p.prompt}\`` : ''}`));
-  else elements.push(markdown(view === 'remembered' ? '本次批准与规则保存请求已提交；发送 /rules 核对实际保存结果。执行结果以任务回复为准。' : view === 'approved' || view === 'rejected' ? '本次决定已提交。执行结果以任务回复为准。' : '此卡片不再接受操作，请查看任务状态或发起新的请求。'));
-  return { schema: '2.0', config: { update_multi: true }, header: { title: { tag: 'plain_text', content: title }, template: view === 'pending' ? 'orange' : view === 'approved' ? 'green' : 'grey' },
-    body: { padding: '12px', vertical_spacing: '12px', elements } };
+  const action = markdown(`**本次动作**\n${fencedPreview(p.action)}`);
+  const rule: unknown[] = p.remember ? [markdown('**可记住的规则**'),
+    { tag: 'div', text: { tag: 'plain_text', content: JSON.stringify(p.remember.prefix) } },
+    markdown('**本机 Codex 用户级** · 允许此前缀的参数变化\n影响共用此配置的会话；不限定本任务或单个仓库。')] : [];
+  const request = markdown(`请求编号：\`${p.prompt}\`${p.sourceLink ? `\n[查看原任务](${p.sourceLink})` : ''}`);
+  const elements: unknown[] = [markdown(`**用途**\n${escape(p.reason)}`),
+    { ...markdown(`${escape(p.context)} · 截止 ${deadline(p.expires)}`), text_size: 'notation' }];
+  if (view === 'pending') {
+    elements.push(action, markdown('仅授权本次动作；后续操作另行确认。'),
+      { tag: 'column_set', horizontal_spacing: '8px', columns: (['approve', 'reject'] as const).map(decision => ({
+        tag: 'column', width: 'weighted', weight: 1, elements: [button(decision)],
+      })) });
+    if (p.remember) elements.push({ tag: 'hr' }, ...rule,
+      markdown('将同时批准本次动作，并保存上述前缀规则。'), button('approve_save'));
+    elements.push(panel('备用命令与请求信息', [request,
+      markdown(`按钮不可用时，发送对应命令：\n\`/approve ${p.prompt}\`\n\`/reject ${p.prompt}\`${p.remember ? `\n\`/approve-save ${p.prompt}\`` : ''}`)]));
+  } else {
+    elements.push(markdown(view === 'remembered' ? '本次批准与规则保存请求已提交；发送 /rules 核对实际保存结果。执行结果以任务回复为准。' : view === 'approved' || view === 'rejected' ? '本次决定已提交。执行结果以任务回复为准。' : '此卡片不再接受操作，请查看任务状态或发起新的请求。'),
+      panel('查看本次动作与请求信息', [action, ...rule, request]));
+  }
+  return { schema: '2.0', config: { update_multi: true }, header: { title: { tag: 'plain_text', content: title },
+    template: view === 'pending' ? 'orange' : view === 'approved' || view === 'remembered' ? 'green' : 'grey' },
+    body: { padding: '12px', vertical_spacing: '8px', elements } };
 }
 
 // Called only on data produced by this app's authenticated SDK dispatcher.
