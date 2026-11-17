@@ -1,6 +1,6 @@
 # Browser access blockage and continuation
 
-Browser Use owns site permissions independently of Codex sandbox, command rules and native Auto-review. The bridge observes a supported saved denial; it does not grant site access. The bounded [change](../openspec/changes/add-browser-access-handoff/tasks.md) keeps source, deployment and genuine owner acceptance separate.
+Browser Use owns site permissions independently of Codex sandbox, command rules and native Auto-review. The bridge observes a supported saved denial; it does not grant site access. The delivered [specification](../openspec/specs/browser-access-handoff/spec.md) and [bounded acceptance record](../openspec/changes/archive/2026-11-18-add-browser-access-handoff/tasks.md) keep source, deployment and genuine owner acceptance separate.
 
 ## Observed workflow
 
@@ -12,7 +12,9 @@ Narrow phrases such as `允许浏览器工具访问` receive deterministic guida
 
 ## Actual permission authority
 
-The currently supported browser API exposes no site-permission mutation capability. The ChatGPT plugin-permission tool does not manage Chrome/code plugins. Use the desktop application's Settings > Computer Use > the browser's Manage to inspect allowed/blocked sites; an organization-managed policy may need its administrator. A site grant does not itself authorize every action on that site.
+The currently supported browser-control API exposes no saved-site-approval management capability. The ChatGPT plugin-permission tool does not manage Chrome/code plugins. Use the desktop application's Settings > Computer Use > the browser's Manage to inspect allowed/blocked sites; an organization-managed policy may need its administrator. A site grant does not itself authorize every action on that site.
+
+Codex has an additional restriction layer: the installed app-server's supported `config/read` and `configRequirements/read` APIs can inspect effective `browser_use` configuration and managed requirements. The documented `default_origin_policy` and origin entries constrain access separately from saved approvals. `access = "allow"` only lets normal approval/policy checks continue; it does not create an Always allow grant. Inspect the installed version's schema and relevant policy sources before diagnosing a refusal, and do not copy newer configuration fields into an older client. This diagnostic path does not read private browser approval stores or relax managed restrictions. See the [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
 Native command Remember, `/rules`, Guardian denial retry and a chat reply do not change browser policy. The bridge does not install a blanket allow, edit private settings, bypass through another browser, or substitute a fake approval. An owner may select persistent access through the official controls described below. Supported remote authorization requires a real provider API/request and a separately reviewed adapter.
 
@@ -40,12 +42,12 @@ Local sandbox/network profiles and shell rules do not control browser actions. A
 
 ### One-time setup and bounded acceptance
 
-1. Verify the actual desktop application/browser and signed-in account context. In **Settings > Computer Use > Manage**, inspect the intended site's existing block. The owner handles that block or contacts the managed-policy administrator.
+1. Verify the actual desktop application/browser and signed-in account context. Where needed, inspect version-supported effective CLI origin restrictions and managed requirements through their read-only APIs in the actual execution home/directory. In **Settings > Computer Use > Manage**, inspect the intended site's existing block. The owner handles that block or contacts the managed-policy administrator. An allow in configuration is not a saved-grant readback; preserve both observations if the UI and actual tool disagree.
 2. At the official website permission prompt, the owner selects **Allow for all sites**, or the chosen per-site alternative. Do not use a shell sandbox Full Access setting, a plugin-global setting or native command Remember as a substitute. The current automation surface cannot operate the desktop application's own settings; this step is performed locally by the owner.
 3. Privately record the owner's selected mode, shared scope acknowledgement and time as an owner-reported choice. Do not label it a programmatic policy readback. Verify bounded harmless reads on two owner-selected origins, including the affected origin only after its local setting has actually been handled. These observations establish those accesses, not unrestricted access to every website or absence of future prompts.
 4. Inspect prior task effects, then use the explicit continuation below if eligible. Legacy tasks without observations require a new explicit remaining-work instruction. Preserve original outcomes and confirm any actual send/submission from its external receipt. If blocked again, retain the existing exception handoff without scheduling a loop or changing routes.
 
-The setup and its real acceptance remain pending until observed. Routine access should use the persistent provider choice; the saved-denial handoff remains an exception and diagnostic path.
+Track the owner-selected setup and observed access separately in [dated evidence](live-acceptance.md); neither substitutes for the other. Routine access should use the persistent provider choice; the saved-denial handoff remains an exception and diagnostic path.
 
 ## Explicit check and continuation
 

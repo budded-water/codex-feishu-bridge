@@ -2,9 +2,9 @@
 
 OpenSpec records execution, orchestration, authorization, interaction, recovery and evidence contracts. It is a development workflow; pinned Autoloop remains the deployed pilot scheduler.
 
-## Current checkpoint — 2026-11-16
+## Current checkpoint — 2026-11-18
 
-Eleven completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
+Completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
 
 | Delivered capability | Main specification | Archived change |
 | --- | --- | --- |
@@ -19,6 +19,7 @@ Eleven completed bounded changes have been synchronized into delivered main spec
 | Bounded verification repair | [bounded-verification-repair](specs/bounded-verification-repair/spec.md) | [Repair](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) |
 | Read-only verification findings | [verification-findings](specs/verification-findings/spec.md) | [Findings](changes/archive/2026-11-16-add-verification-findings/tasks.md) |
 | Owner task progress | [owner-task-progress](specs/owner-task-progress/spec.md) | [Task progress](changes/archive/2026-11-16-add-owner-task-progress/tasks.md) |
+| Browser access handoff | [browser-access-handoff](specs/browser-access-handoff/spec.md) | [Browser handoff](changes/archive/2026-11-18-add-browser-access-handoff/tasks.md) |
 
 These are implemented contracts with bounded evidence, not universal live acceptance. Owner-private operation is observed on one M6 deployment. Other typed-English, colleague/group, host-login/wake/network and additional fault families retain the limits in [live acceptance](../docs/live-acceptance.md) and [operation](../docs/operation.md).
 
@@ -76,8 +77,8 @@ The permission feature's corrected source is merged through [PR #33](https://git
 
 Genuine owner /rules and /reviews plus one actual Hub/Worker read-only network command approved by native Auto-review are now accepted. The command completed without human approval, changed no native user rules and produced one verified final reply. Genuine owner native Remember/save of one disclosed GitHub read prefix and approval-free reuse under a temporary user reviewer are also accepted. Auto-review is restored; actual owned revocation/renewed review and Auto-review denial/retry remain open. The real save changed user-wide policy and is separate from the preceding unchanged-policy task; see the dated live record.
 
-## Active browser access handoff
+## Delivered browser access handoff
 
-[add-browser-access-handoff](changes/add-browser-access-handoff/proposal.md) separates Browser Use saved-origin denial from native review. It specifies minimal observations, owner-private remediation and one owner-attested linked ordinary continuation with source/conversation revalidation. No supported remote site-policy mutation is present. Source, deployment and genuine owner local-change/continuation acceptance remain separately tracked; the change is not archived by automated checks or an unchanged-policy browser retry.
+The [browser specification](specs/browser-access-handoff/spec.md) separates Browser Use saved-origin denial from native review and defines minimal observations, owner-private remediation and one owner-attested linked ordinary continuation with source/conversation revalidation. Its [archived bounded change](changes/archive/2026-11-18-add-browser-access-handoff/tasks.md) retains source, managed deployment and genuine acceptance evidence.
 
-Browser source is merged through [PR #38](https://github.com/budded-water/codex-feishu-bridge/pull/38), with current-head CI/independent review and managed M6 activation/readiness verified. Genuine owner local-change/continuation acceptance remains open, so this change stays active; historical sealed tasks were not backfilled. See the dated deployment record.
+After owner-selected persistent settings and a mixed initial read, an explicit origin setting and one source-linked continuation reached the affected service's login page. The other declared origin's prior read was reused. Actual final/denial-notice delivery, owner confirmation, authenticated historical detail and unchanged original/source evidence/native user rules are verified. These are bounded origin/continuation facts; universal website access, a signed-in service session, business delivery and other native-permission/business/host gates are not inferred. No runtime deployment accompanies this specification synchronization.
