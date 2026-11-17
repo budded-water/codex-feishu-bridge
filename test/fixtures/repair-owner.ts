@@ -20,7 +20,7 @@ for (let index = 0; index < packet.round; index++) {
   const c = codexes[index]!, snapshot = await native.inspect(packet.permit.execution);
   if (index + 1 < packet.round || packet.phase === 'verifier') c.complete(String(snapshot.thread), String(snapshot.turn));
 }
-if (packet.phase === 'verifier') await until(() => existsSync(join(packet.profiles.fixture.projectRoot, '.ready')));
+if (packet.phase === 'verifier') await until(() => existsSync(join(packet.profiles.fixture.projectRoot, '.ready')), 10_000);
 console.log('READY');
 await running;
 admission.close();

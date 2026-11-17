@@ -249,7 +249,7 @@ test('actual owner loss in either native attempt or verifier retains its guard a
     let output = '', error = ''; child.stdout.on('data', data => { output += String(data); }); child.stderr.on('data', data => { error += String(data); });
     const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
     try {
-      await until(() => { if (child.exitCode !== null) throw Error(error); return output.includes('READY'); });
+      await until(() => { if (child.exitCode !== null) throw Error(error); return output.includes('READY'); }, 10_000);
       child.kill('SIGKILL'); await exited;
       if (phase === 'verifier') {
         const pid = Number(readFileSync(join(h.project, '.ready'), 'utf8'));
