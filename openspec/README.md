@@ -71,3 +71,5 @@ The tool setup used OpenSpec 2.0.0, schema spec-driven and tools=none. It instal
 ## Active owner-native permission change
 
 [enable-owner-native-permissions](changes/enable-owner-native-permissions/proposal.md) implements explicit owner sandbox/Auto-review, native proposal Remember, owned-rule inspection/revocation and evidence-bound fresh denied-action retry. It remains an active change until its bounded source/delivery/owner-acceptance tasks complete. It does not alter or complete P3 business acceptance or deferred host exercises.
+
+The permission feature's corrected source is merged through [PR #33](https://github.com/budded-water/codex-feishu-bridge/pull/33), with exact-head CI and independent review. Managed pilot activation/readiness and retained-state/policy inventory are verified. The change stays active because genuine owner permission interactions and broader native denial acceptance are unfinished; it is not promoted to a completed main specification by activation.
