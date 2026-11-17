@@ -107,9 +107,12 @@ test('timeouts decline instead of authorizing; late replies have no effect', asy
   h.config.approvalTimeoutSeconds = 0.03;
   h.bridge.receive(message('Work'));
   await until(() => h.turns().length === 1);
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
   h.codex.ask(101, 'item/commandExecution/requestApproval', { ...h.current(), command: 'echo timeout' });
   const token = h.deliveries().join('\n').match(/请求 ([a-f0-9]{8})/)![1]!;
-  await until(() => h.codex.replies.length === 1);
+  t.mock.timers.tick(29);
+  assert.equal(h.codex.replies.length, 0);
+  t.mock.timers.tick(1);
   h.bridge.receive(message(`/approve ${token}`));
   assert.deepEqual(h.codex.replies, [{ id: 101, result: { decision: 'decline' } }]);
 });
