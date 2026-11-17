@@ -27,3 +27,5 @@
 ## Managed delivery
 
 PR #33 is merged and its reviewed artifact is active on the managed owner-private pilot. Both service references, native policy/home binding, runtime fingerprint, retained closed state/evidence/policy inventory and open/drained readiness were verified. Existing profiles, scheduler policy, native model/authentication/effort and platform subscription were retained. No native user allow rule was created by activation. Genuine owner and actual model-denial/re-review gates remain open; this change is not archived.
+
+Genuine owner /rules and /reviews queries are accepted with clear formatting. Official reads verify both replies; baseline task/policy/native/project facts stayed unchanged and no task was created. Native-task and permission-effect acceptance remain open.
