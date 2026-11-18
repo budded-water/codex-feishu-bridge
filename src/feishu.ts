@@ -69,7 +69,7 @@ export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMe
 
 function reactionGone(value: unknown): boolean {
   const error = record(value);
-  const code = error.code ?? record(record(error.response).data).code;
+  const code = record(record(error.response).data).code ?? error.code;
   return [230110, 231003, 231011].includes(Number(code));
 }
 
