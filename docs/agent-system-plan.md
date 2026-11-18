@@ -123,7 +123,7 @@ OpenSpec format validation does not establish implementation, protocol compatibi
 
 ## Primary references
 
-- [Autoloop protocol](https://github.com/KKKKhazix/agent-autoloop/blob/c9ec4a187cab49627947e7e33db265ec143db3b8/docs/protocol.md) and [state machines](https://github.com/KKKKhazix/agent-autoloop/blob/c9ec4a187cab49627947e7e33db265ec143db3b8/docs/state-machines.md).
+- [Autoloop protocol](https://github.com/KKKKhazix/agent-autoloop/blob/bfa6d79d09ab60c410337ffe579de8475edb721d/docs/protocol.md) and [state machines](https://github.com/KKKKhazix/agent-autoloop/blob/bfa6d79d09ab60c410337ffe579de8475edb721d/docs/state-machines.md).
 - [Codex app-server](https://learn.chatgpt.com/docs/app-server) and [interface maturity notice](https://learn.chatgpt.com/docs/mcp-server).
 - [Hatchet execution guarantees](https://docs.hatchet.run/v1/architecture-and-guarantees).
 - [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md).
