@@ -15,6 +15,14 @@ test('structured task card puts status and compact summary first, retains full d
   const elements = card.body.elements as Record<string, unknown>[];
   const panels = elements.filter(e => e.tag === 'collapsible_panel'); assert.equal(panels.length, 2);
   assert.ok(panels.every(e => e.expanded === false));
+  for (const panel of panels) {
+    const header = panel.header as { title: { tag: string; content: string }; icon: { tag: string; token: string; size: string }; icon_position: string; icon_expanded_angle: number; padding: string };
+    assert.equal(header.title.tag, 'markdown'); assert.ok(header.title.content.includes("<font color='blue'>"));
+    assert.equal(header.icon.tag, 'standard_icon'); assert.equal(header.icon.token, 'down-small-ccm_outlined'); assert.equal(header.icon.size, '20px 20px');
+    assert.equal(header.icon_position, 'right'); assert.equal(header.icon_expanded_angle, -180);
+    assert.ok(header.padding && panel.border);
+  }
+  assert.ok(JSON.stringify(elements).includes('点击下方条目展开 / 收起详情'));
   const visible = elements.filter(e => e.tag !== 'collapsible_panel');
   assert.ok(!JSON.stringify(visible).includes('https://appstoreconnect.apple.com/'));
   assert.ok(JSON.stringify(panels).includes(p.layout!.panels[0]!.text));

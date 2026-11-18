@@ -57,8 +57,11 @@ export function taskCard(p: TaskPresentation) {
         { ...markdown(l.updated), text_size: 'notation' },
         { tag: 'button', type: 'default', width: 'fill', size: 'large', text: { tag: 'plain_text', content: '刷新进度' },
           behaviors: [{ type: 'callback', value: { kind: 'task_progress', id: p.id } }] },
-        { tag: 'hr' }, ...l.panels.map(panel => ({ tag: 'collapsible_panel', expanded: false,
-          header: { title: { tag: 'plain_text', content: panel.title } }, elements: [markdown(panel.text)] })),
+        { tag: 'hr' }, { ...markdown('点击下方条目展开 / 收起详情'), text_size: 'notation' },
+        ...l.panels.map(panel => ({ tag: 'collapsible_panel', expanded: false,
+          header: { title: { tag: 'markdown', content: `<font color='blue'>**${escapeTaskMarkdown(panel.title)}**</font>` }, padding: '12px', vertical_align: 'center',
+            icon: { tag: 'standard_icon', token: 'down-small-ccm_outlined', color: 'blue', size: '20px 20px' }, icon_position: 'right', icon_expanded_angle: -180 },
+          border: { color: 'grey', corner_radius: '8px' }, padding: '12px', elements: [markdown(panel.text)] })),
       ] } };
   }
   return { schema: '2.0', config: { update_multi: true }, header: { title: { tag: 'plain_text', content: '任务进度' }, template: 'blue' },
