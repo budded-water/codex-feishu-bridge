@@ -25,6 +25,12 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 - **THEN** the gateway SHALL atomically consume the choice and admit the original message into the chosen conversation
 - **AND** duplicate deliveries and repeated choices SHALL NOT admit another request, change its destination or override a newer selection
 
+#### Scenario: Explicit matter addresses disagree
+
+- **WHEN** the confirmed matter card, exact title or registered PR resolves to different matters in a new message
+- **THEN** the gateway SHALL hold the message for a confirmed choice
+- **AND** a read-only request addressed to a confirmed matter card SHALL use the matter route, while a reply to an exact original task retains task-control behavior
+
 #### Scenario: A quoted reference is awaiting confirmation
 
 - **WHEN** the owner quotes an unconfirmed parent while named matters exist and supplies no other explicit matter address
@@ -33,7 +39,7 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 
 #### Scenario: An earlier refusal is replayed
 
-- **WHEN** Feishu redelivers a command or card action refused during maintenance, or a message that required resubmission
+- **WHEN** Feishu redelivers a command or card action refused during maintenance, or a message that was refused by project routing or required resubmission
 - **THEN** the gateway SHALL retain the refusal even if the selection or registered objects subsequently change
 
 #### Scenario: The transport acknowledgement is incomplete

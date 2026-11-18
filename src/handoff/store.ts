@@ -173,7 +173,7 @@ export class AdmissionStore {
       const held = this.matters.held(message, project);
       if (held && !held.chosen) throw new Error('Task is awaiting matter selection');
       if (this.maintenance.paused) {
-        this.db.prepare('INSERT OR IGNORE INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, 'maintenance');
+        this.retainRefusal(message, 'maintenance');
         return { paused: true };
       }
       return { duplicate: false, request: this.insertRequest(message, input, project, verification, conversation) };
@@ -355,6 +355,10 @@ export class AdmissionStore {
       this.db.prepare('INSERT INTO browser_retries VALUES(?,?,?)').run(result.request.execution, source.execution, JSON.stringify(retry));
       return result;
     });
+  }
+
+  retainRefusal(message: IncomingMessage, reason: 'maintenance' | 'outside_pilot'): void {
+    this.db.prepare('INSERT OR IGNORE INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, reason);
   }
 
   retained(message: Pick<IncomingMessage, 'tenant' | 'id'>): boolean {

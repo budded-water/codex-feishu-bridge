@@ -129,6 +129,15 @@ export class OwnerMatters {
     return matter && { matter: matter.id, input: match[2]! };
   }
 
+  routesReadRequest(message: IncomingMessage): boolean {
+    if (!this.owner(message)) return false;
+    if (this.state.matterReference(message)) return true;
+    const scope = this.scope(message), store = this.admission.store.matters;
+    if (!store.list(scope, 1).length) return false;
+    if (message.parentId && this.state.referencedTask(message.parentId, scope.owner)) return false;
+    return /^只(?:看|统计|查询|分析|读取)/.test(message.text.trim());
+  }
+
   route(message: IncomingMessage): Admission | { status: 'matter-choice' | 'duplicate' } {
     const submit = (selected?: string, input?: string) => this.admission.receive(message, selected && conversation(selected), input);
     if (!this.owner(message) || message.unsupported || message.text.length > 30_000 || !message.text.trim() ||
@@ -146,12 +155,9 @@ export class OwnerMatters {
     if (held) return this.clarify(held);
     if (this.admission.store.maintenance.paused) return submit();
 
-    // A verified card reply is an explicit choice of address. References
-    // inside a message can still describe related work for the model to read.
     const address = this.address(message), reference = this.state.matterReference(message);
-    if (reference) return submit(reference, address?.input);
     const linked = pullRequests(message.text).map(ref => store.bound(scope, ref));
-    const targets = [...new Set([address?.matter, ...linked].filter((id): id is string => Boolean(id)))];
+    const targets = [...new Set([reference, address?.matter, ...linked].filter((id): id is string => Boolean(id)))];
     if (targets.length === 1) return submit(targets[0], address?.input);
     if (targets.length > 1 && targets.length <= PAGE_SIZE) return this.clarify(store.hold(scope, message, targets, address?.input));
     if (targets.length > PAGE_SIZE) {

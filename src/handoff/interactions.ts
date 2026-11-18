@@ -84,7 +84,7 @@ export class PilotInteractions {
       const reply = this.admission.store.acceptTaskReply(message, this.admission.project);
       if (reply) return reply;
     }
-    if (!command && !natural) {
+    if (!command && (!natural || (natural === 'steer' && this.matters.routesReadRequest(message)))) {
       const result = this.matters.route(message);
       if ('request' in result) this.transport.admit(result.request);
       if (result.status === 'rejected' && result.reason === 'maintenance') this.transport.state.transaction(() => {

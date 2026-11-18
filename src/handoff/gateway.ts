@@ -63,7 +63,10 @@ export class PilotAdmission {
     let input = matterInput ?? message.text;
     const prefix = /^([^\s:：]+)[:：]\s*([\s\S]+)$/.exec(text);
     if (matterInput === undefined && this.projectRouting !== 'workspace' && prefix && Object.hasOwn(this.scope.projects, prefix[1]!)) {
-      if (realpathSync(this.scope.projects[prefix[1]!]!) !== this.directory) return { status: 'rejected', reason: 'outside_pilot' };
+      if (realpathSync(this.scope.projects[prefix[1]!]!) !== this.directory) {
+        this.store.retainRefusal(message, 'outside_pilot');
+        return { status: 'rejected', reason: 'outside_pilot' };
+      }
       input = prefix[2]!;
     }
     const accepted = this.store.accept(message, input, this.project, undefined, conversation);

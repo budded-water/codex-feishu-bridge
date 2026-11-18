@@ -1078,7 +1078,7 @@ test('switching matters starts separate native threads and quoting the older tas
   const followup = h.admission.store.requestForMessage(quote)!;
   assert.equal(followup.conversation, a.request.conversation);
   assert.equal(await complete(followup, 103), threadA);
-  const cardReply = h.interactions.receive(h.actor('检查支付宝', { parentId: 'delivered-' + card.id }));
+  const cardReply = h.interactions.receive(h.actor('只查询最近的发布记录', { parentId: 'delivered-' + card.id }));
   assert.ok('request' in cardReply);
   assert.equal(cardReply.request.conversation, a.request.conversation);
   const plain = h.interactions.receive(h.actor('继续刚才的处理'));
@@ -1358,7 +1358,39 @@ test('an exact matter address can use a project alias as its name without changi
   assert.equal(routed.request.conversation,
     h.admission.store.matters.named({ owner: ownerKey(newMatter), project: h.admission.project }, 'backend')!.id);
   assert.equal(routed.request.project, h.admission.project);
-  const unchanged = h.interactions.receive(h.actor('other: check release'));
-  assert.equal(unchanged.status, 'rejected');
+  const refused = h.actor('other: check release');
+  assert.equal(h.interactions.receive(refused).status, 'rejected');
+  h.interactions.receive(h.actor('/matter-new other'));
+  assert.equal(h.interactions.receive(refused).status, 'ignored');
+  assert.equal(h.admission.store.requestForMessage(refused), undefined);
   assert.equal(h.admission.store.requests().length, 1);
+  assert.ok('request' in h.interactions.receive(h.actor(refused.text)));
+});
+
+test('a referenced matter card and a conflicting exact address require a confirmed choice', async t => {
+  const h = setup(t);
+  const a = h.actor('/matter-new 退款调查'), b = h.actor('/matter-new Solura 发版');
+  h.interactions.receive(a);
+  h.interactions.receive(b);
+  h.interactions.receive(h.actor('/matter-bind https://github.com/fixture/release/pull/17'));
+  await drain(h);
+  const cardA = h.sent.find(item => item.options?.replyTo === a.id)!;
+  const cardB = h.sent.find(item => item.options?.replyTo === b.id)!;
+  const parentId = 'delivered-' + cardA.id;
+  const conflicting = h.actor('Solura 发版：再查发布结果', { parentId });
+  const conflictingLink = h.actor('再查 https://github.com/fixture/release/pull/17', { parentId });
+  assert.equal(h.interactions.receive(conflicting).status, 'matter-choice');
+  assert.equal(h.interactions.receive(conflictingLink).status, 'matter-choice');
+  assert.equal(h.admission.store.requests().length, 0);
+  await drain(h);
+  const clarification = h.sent.find(item => item.options?.replyTo === conflicting.id)!;
+  const selected = cardB.options!.matterCard!.anchor!;
+  const view = clarification.options!.matterCard!;
+  assert.deepEqual(view.choices.map(c => c.id).sort(), [cardA.options!.matterCard!.anchor, selected].sort());
+  assert.equal(h.interactions.matterAction({ id: view.id, event: randomUUID(), chat: view.chat,
+    user: view.user, tenant: view.tenant, message: 'delivered-' + clarification.id, choice: selected }), 'accepted');
+  const task = h.admission.store.requestForMessage(conflicting);
+  assert.equal(task?.conversation, selected);
+  assert.equal(task?.input, '再查发布结果');
+  assert.equal(h.admission.store.requestForMessage(conflictingLink), undefined);
 });
