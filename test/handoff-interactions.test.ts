@@ -437,6 +437,28 @@ test('assigned group execution and quoted steering preserve scoped context and s
   assert.equal((await h.native.run(grant.permit)).checkpoint, report.checkpoint);
 });
 
+test('restart completes a legacy scheduled group request reference under its retained event', async t => {
+  const referenced: string[] = [];
+  const h = setup(t, undefined, { context: async (_session, message) => {
+    referenced.push(message.id);
+    return { status: 'available', messages: [], note: 'Recovered reference' };
+  } });
+  h.config.enableGroups = true;
+  const message = h.actor('Legacy scheduled group task', { chatType: 'group', parentId: 'original-quote' });
+  const saved = h.admission.store.accept(message, message.text, h.admission.project);
+  assert.ok('request' in saved);
+  h.admission.store.rememberEvent(saved.request.id, 42);
+  h.admission.store.routed(saved.request.id, true);
+  assert.equal(h.admission.store.reference(saved.request.execution, message), undefined);
+  await h.restart();
+  await drain(h);
+  assert.deepEqual(referenced, [message.id]);
+  assert.equal(h.admission.store.reference(saved.request.execution, message)?.context?.note, 'Recovered reference');
+  assert.equal(h.admission.store.submission(saved.request.id)?.event, 42);
+  assert.equal(h.admission.store.submission(saved.request.id)?.status, 'scheduled');
+  assert.equal(h.admission.store.execution(saved.request.execution), undefined);
+});
+
 test('a slow quoted group reference cannot block stop or steer a completed native turn', async t => {
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });

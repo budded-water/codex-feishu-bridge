@@ -309,7 +309,7 @@ export class PilotInteractions {
   }
 
   private async publish(): Promise<void> {
-    for (const request of this.admission.store.pendingGroupReferences()) {
+    for (const request of this.admission.store.unpreparedGroupReferences()) {
       await this.prepareReference(request, request.message, this.config.groupContextMessages);
     }
     await this.source.flush();

@@ -96,6 +96,8 @@ export class AdmissionStore {
       this.db.exec(`
         CREATE INDEX IF NOT EXISTS pending_submissions ON submissions(next) WHERE status='pending';
         CREATE INDEX IF NOT EXISTS live_reference_context ON reference_context(execution) WHERE body IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS unblocked_group_requests ON requests(origin)
+          WHERE blocked IS NULL AND json_extract(message,'$.chatType')='group';
       `);
       this.transaction(() => {
         for (const [table, columns] of Object.entries({ conversations: ['thread', 'last_execution'], executions: ['native_thread', 'native_turn', 'native_generation'] })) {
@@ -263,9 +265,10 @@ export class AdmissionStore {
     return (this.db.prepare('SELECT id FROM requests ORDER BY rowid').all() as { id: string }[]).map(row => this.request(row.id)!);
   }
 
-  pendingGroupReferences(): RequestRecord[] {
+  unpreparedGroupReferences(): RequestRecord[] {
+    // Older gateways could schedule a group request before persisting its reference.
     const rows = this.db.prepare(`SELECT r.id FROM submissions s JOIN requests r ON r.id=s.request
-      WHERE s.status='pending' AND r.blocked IS NULL AND json_extract(r.message,'$.chatType')='group'
+      WHERE s.status IN ('pending','scheduled') AND r.blocked IS NULL AND json_extract(r.message,'$.chatType')='group'
         AND NOT EXISTS(SELECT 1 FROM executions e WHERE e.request=r.id)
         AND NOT EXISTS(SELECT 1 FROM reference_context ref WHERE ref.origin=r.origin AND ref.execution=r.execution)
       ORDER BY r.rowid`).all() as { id: string }[];
