@@ -1,6 +1,6 @@
 # Implementation and acceptance status
 
-Owner-private Feishu quoted-task replies are implemented in the P1 gateway. Source verification and managed activation/owner acceptance are tracked in the [active OpenSpec change](../openspec/changes/route-owner-task-replies/tasks.md).
+Owner-private Feishu quoted-task replies are deployed on the managed M6 gateway and Worker. A genuine owner chat verified merging before assignment, steering the exact running turn, and a linked follow-up in the same Codex thread. The [delivered specification](../openspec/specs/owner-task-replies/spec.md) records the contract and the [dated rollout record](live-acceptance.md#2026-11-18-m6-owner-private-quoted-task-replies) records the tested scope.
 
 ## Owner native permissions — Auto-review/save/reuse accepted, remaining effects pending
 

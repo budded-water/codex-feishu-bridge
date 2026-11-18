@@ -6,5 +6,7 @@
 
 ## 2. Managed acceptance
 
-- [ ] 2.1 Activate the reviewed candidate under the authorized M6 rollout.
-- [ ] 2.2 Verify real owner-private Feishu replies before assignment, during a turn and after confirmed completion.
+- [x] 2.1 Activate the reviewed candidate under the authorized M6 rollout.
+- [x] 2.2 Verify real owner-private Feishu replies before assignment, during a turn and after confirmed completion.
+
+The managed rollout and genuine Feishu acceptance are recorded in the dated live acceptance notes.
