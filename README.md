@@ -6,7 +6,7 @@ The opt-in [owner native-permissions feature](docs/native-permissions.md) is mer
 
 它可以作为本地 Codex 的工作分身入口：在已登记的项目中分析问题、实现功能、修复 Bug、review 代码；GitHub、资料搜索、飞书工具等工作由本机 Codex 已配置的工具完成。模型推理仍使用 Codex 的模型服务，可通过 `codexReasoningEffort` 单独设置 bot 的推理强度，本地文件操作在运行桥接程序的电脑上执行。
 
-The managed M6 pilot now uses compact task detail cards with native-state headings and expandable request/history/evidence. Source checks and deployment are verified. The owner has confirmed visible disclosure chevrons and clear expand/collapse behavior, with same-card refresh and unchanged task/evidence facts independently checked; this bounded client acceptance is recorded in [live acceptance](docs/live-acceptance.md).
+The managed M6 pilot now uses compact task detail cards with native-state headings and expandable request/history/evidence. Source checks and deployment are verified. The owner has confirmed visible disclosure chevrons and clear expand/collapse behavior, with same-card refresh and unchanged task/evidence facts verified from backend records; this bounded client acceptance is recorded in [live acceptance](docs/live-acceptance.md).
 
 ## 先选择你的使用方式
 
