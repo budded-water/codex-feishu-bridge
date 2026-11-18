@@ -504,10 +504,41 @@ test('rollback waits for a committed quoted reply receipt after a gateway crash 
   for (let i = 0; i < 5; i++) await interactions.flush();
   assert.equal(delivered.filter(id => id === reply.id).length, 1);
   assert.equal(delivered.filter(id => id === liveReply.id).length, 1);
+
+  admission.store.maintenance.resume();
+  const followupMessage = { ...reply, id: 'queued-quoted-reply-before-thread-change' };
+  assert.equal(interactions.receive(followupMessage).status, 'task-reply');
+  const followup = admission.store.requests().at(-1)!;
+  admission.store.routed(followup.id, true);
+  await interactions.flush();
+  assert.equal(delivered.filter(id => id === followupMessage.id).length, 1);
+  await interactions.close();
+  const fixtureDb = new DatabaseSync(join(h.plan.pilotDirectory, 'handoff.db'));
+  try { fixtureDb.prepare('UPDATE conversations SET thread=? WHERE id=?').run('fixture-replacement-thread', followup.conversation); }
+  finally { fixtureDb.close(); }
+  assert.equal(admission.store.reserve(followup.id, 2).kind, 'blocked');
+  admission.store.maintenance.quiesce();
+  const interruptedGateway = gateway();
+  const projected = interruptedGateway.transport.state;
+  try {
+    projected.projectAssignedTask(admission.store.request(followup.id)!, 'pilot', admission.directory, 'unknown');
+    await interruptedGateway.transport.flush();
+    assert.equal(projected.drainStatus().outbox, 0);
+    assert.equal(projected.drainStatus().reactions, 0);
+    assert.equal((await pilotMaintenance(admission, native, projected, { command: 'status' })).outbox, 1);
+  } finally { projected.close(); }
+  await assert.rejects(rollbackHandoff(h.plan), /task reply notice.*projected/);
+  interactions = gateway();
+  await interactions.recover();
+  await assert.rejects(rollbackHandoff(h.plan), /drained/);
+  for (let i = 0; i < 5; i++) await interactions.flush();
+  assert.equal(delivered.filter(id => id === followupMessage.id).length, 2);
+  assert.equal(admission.store.execution(followup.execution), undefined);
   await interactions.close();
   admission.close();
   assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');
   const restored = new State(h.plan.legacyDirectory);
   assert.equal(restored.remember(reply), false);
+  assert.equal(restored.remember(followupMessage), false);
   restored.close();
 });

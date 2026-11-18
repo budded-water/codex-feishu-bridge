@@ -50,9 +50,12 @@ export class HandoffTransport {
   }
 
   private syncTaskReplies(): void {
-    for (const { origin } of unprojectedTaskReplyNotices(this.openReader())) {
-      const reply = this.gateway.store.taskReply(origin)!;
-      this.state.projectControlNotice({ ...reply, origin: 'task-reply/' + origin, status: reply.kind });
+    for (const { id, kind } of unprojectedTaskReplyNotices(this.openReader())) {
+      if (kind === 'thread-change') this.admit(this.gateway.store.request(id)!);
+      else {
+        const reply = this.gateway.store.taskReply(id)!;
+        this.state.projectControlNotice({ ...reply, origin: 'task-reply/' + id, status: reply.kind });
+      }
     }
   }
 
@@ -66,11 +69,11 @@ export class HandoffTransport {
       LEFT JOIN transport.projected_tasks p ON p.execution=r.execution
       LEFT JOIN transport.tasks t ON t.id=r.execution
       WHERE p.execution IS NULL OR t.status IS NOT ${projectedStatus}
-        OR (((s.status='blocked' AND r.blocked IS NOT ?) OR r.blocked=?) AND p.notified=0)
+        OR (s.status='blocked' AND r.blocked IS NOT ? AND p.notified=0)
         OR (e.id IS NOT NULL AND p.checkpoint IS NULL)
         OR (e.status IN ('completed','interrupted') AND EXISTS(
           SELECT 1 FROM reference_context ref WHERE ref.execution=r.execution AND ref.body IS NOT NULL))
-      ORDER BY r.rowid`).all(OWNER_WITHDRAWN, OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED) as { id: string }[];
+      ORDER BY r.rowid`).all(OWNER_WITHDRAWN, OWNER_WITHDRAWN) as { id: string }[];
     for (const { id } of candidates) {
       const request = this.gateway.store.request(id)!;
       this.admit(request);

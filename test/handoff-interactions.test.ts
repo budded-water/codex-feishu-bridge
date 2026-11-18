@@ -229,8 +229,6 @@ test('a queued follow-up does not use a different native conversation if the thr
   h.admission.terminal(importRun.permit, { status: 'completed', processSettled: true, reference: 'fixture/checkpoint' });
   assert.equal(h.admission.store.reserve(followup.id, 3).kind, 'blocked');
   assert.equal(h.admission.store.execution(followup.execution), undefined);
-  h.interactions.transport.state.projectAdmissionNotice = () => { throw Error('Crash after the blocked task state was projected'); };
-  await assert.rejects(h.interactions.flush(), /after the blocked task state/);
   await h.restart();
   await drain(h);
   assert.equal(h.admission.store.execution(followup.execution), undefined);
