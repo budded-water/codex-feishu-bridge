@@ -7,10 +7,10 @@ import { Outbox, type Sender } from '../outbox.js';
 import { Feedback, type ReactionPort } from '../feedback.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
-import { OWNER_WITHDRAWN, type RequestRecord } from './store.js';
+import { OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED, type RequestRecord } from './store.js';
 import { verificationText } from './verification-view.js';
 import { repairText } from './repair-view.js';
-import { openHandoffReader } from './read-only.js';
+import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
 
 const projectedStatus = `CASE WHEN r.blocked=? THEN 'interrupted'
   WHEN r.blocked IS NOT NULL OR s.status='blocked' THEN 'unknown'
@@ -40,12 +40,28 @@ export class HandoffTransport {
     const unscheduled = this.gateway.store.submission(request.id)?.status === 'blocked';
     this.state.projectAssignedTask(request, this.gateway.scope.pilot, this.gateway.directory,
       withdrawn ? 'interrupted' : request.blocked || unscheduled ? 'unknown' : execution?.status === 'active' ? 'running' : execution?.status ?? 'queued');
-    if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
+    if (request.blocked === QUOTED_CONVERSATION_CHANGED) this.state.projectAdmissionNotice(request, '原任务的会话在等待期间发生变化，追问未启动。请重新说明需要处理的事项。');
+    else if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
+  }
+
+  private openReader(): DatabaseSync {
+    const directory = this.gateway.stateDirectory;
+    return this.reader ??= openHandoffReader(join(directory, 'handoff.db'), join(directory, 'transport', 'bridge.db'));
+  }
+
+  private syncTaskReplies(): void {
+    for (const { id, kind } of unprojectedTaskReplyNotices(this.openReader())) {
+      if (kind === 'thread-change') this.admit(this.gateway.store.request(id)!);
+      else {
+        const reply = this.gateway.store.taskReply(id)!;
+        this.state.projectControlNotice({ ...reply, origin: 'task-reply/' + id, status: reply.kind });
+      }
+    }
   }
 
   async sync(): Promise<void> {
-    const directory = this.gateway.stateDirectory;
-    const reader = this.reader ??= openHandoffReader(join(directory, 'handoff.db'), join(directory, 'transport', 'bridge.db'));
+    this.syncTaskReplies();
+    const reader = this.openReader();
     // The transport checkpoint and reference tombstones survive restarts independently.
     const candidates = reader.prepare(`SELECT r.id FROM requests r
       LEFT JOIN submissions s ON s.request=r.id
@@ -92,8 +108,11 @@ export class HandoffTransport {
 
   async flush(): Promise<void> { await Promise.all([this.outbox.flush(), this.feedback.flush()]); }
   async close(): Promise<void> {
-    await this.outbox.close(); await this.feedback.close();
-    this.reader?.close();
-    this.state.close();
+    try { this.syncTaskReplies(); }
+    finally {
+      await this.outbox.close(); await this.feedback.close();
+      this.reader?.close();
+      this.state.close();
+    }
   }
 }

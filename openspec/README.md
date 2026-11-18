@@ -29,6 +29,10 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 [Task 3.2](changes/add-project-verification-handoff/tasks.md) still requires an authorized business task with its declared acceptance plan and retained reports. The owner currently has no such task. Fixture success, source checks and layout acceptance do not complete that business gate. This change is not archived or promoted to a main spec by the current synchronization. Broader repair/discovery and Release Kit integration remain separate future work.
 
+## Active owner-private task reply change
+
+[route-owner-task-replies](changes/route-owner-task-replies/proposal.md) adds pre-assignment aggregation, exact-turn steering and source-linked follow-up for owned Feishu replies. Its [tasks](changes/route-owner-task-replies/tasks.md) track source verification and genuine managed acceptance.
+
 ## Where facts belong
 
 The delivered [owner task-progress slice](changes/archive/2026-11-16-add-owner-task-progress/proposal.md) adds read-only owner task browsing and confirmed-message refresh over existing execution facts. Source checks, exact-head CI/independent review, PR merge, managed M6 activation and genuine owner overview/historical-detail/refresh acceptance are complete. The corrected copied rich-post query and same-card update preserve the original task, approval, Hub and evidence baseline without new execution. Requirements are in the main specification and the change is archived. Broader live activity/client/fault families remain separate; this does not close P3 business acceptance or enable proactive task admission.

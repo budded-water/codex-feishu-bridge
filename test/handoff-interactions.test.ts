@@ -9,6 +9,7 @@ import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
 import type { DeliveryOptions, ContextPort } from '../src/types.js';
+import { SteerTargetEnded } from '../src/codex/client.js';
 import { FakeCodex, until } from './helpers.js';
 import { readJournal } from '../src/handoff/journal.js';
 import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
@@ -63,6 +64,219 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
 }
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
+
+test('plain owner replies merge into the referenced queued request once and reach the eventual native turn', async t => {
+  const h = setup(t);
+  const original = h.actor('Inspect the release');
+  const admitted = h.interactions.receive(original);
+  assert.ok('request' in admitted);
+  const unrelated = h.interactions.receive(h.actor('Independently check the staging site'));
+  assert.ok('request' in unrelated);
+  const first = h.actor('Also look at CI', { parentId: original.id });
+  const second = h.actor('只看后端', { parentId: original.id });
+  assert.equal(h.interactions.receive(first).status, 'task-reply');
+  assert.equal(h.interactions.receive(second).status, 'task-reply');
+  await h.restart();
+  assert.equal(h.interactions.receive(first).status, 'ignored');
+  assert.equal(h.admission.store.requests().length, 2);
+  assert.equal(h.admission.store.request(unrelated.request.id)!.input, 'Independently check the staging site');
+  await drain(h);
+  for (const reply of [first, second]) {
+    assert.equal(h.sent.filter(row => row.options?.replyTo === reply.id && row.text.includes('已补到原任务')).length, 1);
+  }
+  const reserved = h.admission.store.reserve(admitted.request.id, 10);
+  assert.equal(reserved.kind, 'start');
+  if (reserved.kind !== 'start') throw Error('Expected reservation');
+  const running = h.native.run(reserved.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  const start = h.codex.calls.find(call => call.method === 'turn/start')!;
+  assert.deepEqual(start.params.input, [{ type: 'text', text: 'Inspect the release\n\n用户补充要求：\nAlso look at CI\n\n用户补充要求：\n只看后端', text_elements: [] }]);
+  assert.equal(h.admission.store.assignmentRuns(admitted.request.id).length, 1);
+  h.codex.complete(String(start.params.threadId), 'turn-2');
+  await running;
+});
+
+test('a reply after Worker reservation waits for the original native turn rather than rewriting input or starting another task', async t => {
+  const h = setup(t);
+  const message = h.actor('Begin the original task');
+  const admitted = h.interactions.receive(message);
+  assert.ok('request' in admitted);
+  const worker = new PilotAdmission(h.config.stateDirectory, h.admission.scope);
+  let grant;
+  try { grant = worker.store.reserve(admitted.request.id, 41); }
+  finally { worker.close(); }
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected reservation');
+  const reply = h.actor('Include CI', { parentId: message.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  await drain(h);
+  assert.equal(h.admission.store.control(reply)?.status, 'received');
+  assert.equal(h.admission.store.request(admitted.request.id)?.input, message.text);
+  assert.equal(h.admission.store.requests().length, 1);
+  const running = h.native.run(grant.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  await drain(h);
+  const start = h.codex.calls.find(call => call.method === 'turn/start')!;
+  const steers = h.codex.calls.filter(call => call.method === 'turn/steer');
+  assert.equal(steers.length, 1);
+  assert.equal(steers[0]!.params.threadId, start.params.threadId);
+  assert.equal(steers[0]!.params.expectedTurnId, 'turn-2');
+  h.codex.complete(String(start.params.threadId), 'turn-2');
+  await running;
+});
+
+test('a plain reply to the active task uses the exact native turn and survives lost acknowledgement without another task', async t => {
+  const h = setup(t);
+  const task = await h.launch();
+  const another = h.interactions.receive(h.actor('Do separate work without a reply'));
+  assert.ok('request' in another);
+  const original = h.native.relay.bind(h.native);
+  h.native.relay = async (...args) => { await original(...args); throw Error('Response lost after dispatch'); };
+  const reply = h.actor('Also check the CI conclusion', { parentId: task.message.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  await drain(h);
+  h.codex.complete(task.thread, task.turn);
+  await task.running;
+  await h.restart();
+  await drain(h);
+  const steers = h.codex.calls.filter(call => call.method === 'turn/steer');
+  assert.equal(steers.length, 1);
+  assert.equal(steers[0]!.params.threadId, task.thread);
+  assert.equal(steers[0]!.params.expectedTurnId, task.turn);
+  assert.deepEqual(steers[0]!.params.input, [{ type: 'text', text: 'Also check the CI conclusion', text_elements: [] }]);
+  assert.equal(h.admission.store.control(reply)!.status, 'accepted');
+  assert.equal(h.admission.store.requests().length, 2);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === reply.id && row.text.includes('已把补充要求传给当前任务')).length, 1);
+  assert.ok(!h.sent.some(row => row.options?.replyTo === reply.id && row.text.includes('后续追问')));
+});
+
+test('a reply to an ended task queues a linked follow-up in the same thread and preserves the original native journal', async t => {
+  const h = setup(t);
+  const task = await h.launch();
+  h.codex.complete(task.thread, task.turn);
+  await task.running;
+  await drain(h);
+  const final = h.sent.find(row => row.options?.replyTo === task.message.id && row.text.includes('Done'))!;
+  assert.ok(final);
+  const journal = join(h.config.stateDirectory, 'executions', task.request.execution, 'bridge.db');
+  const original = readFileSync(journal);
+  const reply = h.actor('Explain why', { parentId: task.message.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  assert.equal(h.interactions.receive(reply).status, 'ignored');
+  const [initial, followup] = h.admission.store.requests();
+  assert.equal(initial!.input, task.request.input);
+  assert.equal(followup!.conversation, initial!.conversation);
+  assert.match(followup!.input, /本次用户追问：\nExplain why/);
+  const record = h.admission.store.taskReply(JSON.stringify([reply.tenant, reply.id]))!;
+  assert.equal(record.request, initial!.id);
+  assert.equal(record.followup, followup!.id);
+  await h.restart();
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === reply.id && row.text.includes('已排为原会话的后续追问')).length, 1);
+  assert.deepEqual(readFileSync(journal), original);
+  const reservation = h.admission.store.reserve(followup!.id, 11);
+  assert.equal(reservation.kind, 'start');
+  if (reservation.kind !== 'start') throw Error('Expected follow-up reservation');
+  const running = h.native.run(reservation.permit);
+  await until(() => h.codex.calls.filter(call => call.method === 'turn/start').length === 2);
+  assert.equal(h.codex.calls.find(call => call.method === 'thread/resume')?.params.threadId, task.thread);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').at(-1)!.params.threadId, task.thread);
+  await h.native.stop();
+  await running;
+});
+
+test('a reply that misses its active turn becomes a follow-up only after definite rejection and settlement', async t => {
+  const h = setup(t);
+  const task = await h.launch();
+  const nativeRequest = h.codex.request.bind(h.codex);
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    const result = await nativeRequest<T>(method, params);
+    if (method === 'turn/steer') {
+      h.codex.complete(task.thread, task.turn);
+      throw new SteerTargetEnded();
+    }
+    return result;
+  };
+  const reply = h.actor('Also tell me what is left', { parentId: task.message.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  await drain(h);
+  await task.running;
+  await drain(h);
+  assert.equal(h.admission.store.control(reply)?.status, 'rejected');
+  assert.equal(h.admission.store.requests().length, 2);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, 1);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 1);
+  await h.restart();
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === reply.id && row.text.includes('后续追问')).length, 1);
+  assert.equal(h.admission.store.requests().length, 2);
+});
+
+test('a queued follow-up does not use a different native conversation if the thread changed before assignment', async t => {
+  const h = setup(t);
+  const task = await h.launch();
+  h.codex.complete(task.thread, task.turn);
+  await task.running;
+  const reply = h.actor('Why?', { parentId: task.message.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  const followup = h.admission.store.requests().at(-1)!;
+  const next = h.interactions.receive(h.actor('Independent new task'));
+  assert.ok('request' in next);
+  const importRun = h.admission.store.reserve(next.request.id, 2);
+  assert.equal(importRun.kind, 'start');
+  if (importRun.kind !== 'start') throw Error('Expected an intervening reservation');
+  h.admission.store.nativeSnapshot(importRun.permit, { thread: 'replacement-thread', turn: 'new-turn', generation: 'new-generation' });
+  h.admission.terminal(importRun.permit, { status: 'completed', processSettled: true, reference: 'fixture/checkpoint' });
+  assert.equal(h.admission.store.reserve(followup.id, 3).kind, 'blocked');
+  assert.equal(h.admission.store.execution(followup.execution), undefined);
+  await h.restart();
+  await drain(h);
+  assert.equal(h.admission.store.execution(followup.execution), undefined);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === reply.id && row.text.includes('会话在等待期间发生变化')).length, 1);
+});
+
+test('a quoted reply with possibly applied effects remains lookup-only after original completion', async t => {
+  const h = setup(t);
+  const task = await h.launch();
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    const result = await request<T>(method, params);
+    if (method === 'turn/steer') throw Error('Codex did not confirm whether the input was applied');
+    return result;
+  };
+  const reply = h.actor('One more detail', { parentId: task.message.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  await drain(h);
+  h.codex.complete(task.thread, task.turn);
+  await task.running;
+  await h.restart();
+  await drain(h);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 1);
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.equal(h.admission.store.control(reply)?.status, 'unknown');
+  assert.ok(h.sent.some(row => row.options?.replyTo === reply.id && row.text.includes('未确认成功')));
+});
+
+test('a private quote respects owner, chat, explicit commands, withdrawal and unmatched references', async t => {
+  const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
+  const original = h.actor('Do the planned task');
+  const admitted = h.interactions.receive(original);
+  assert.ok('request' in admitted);
+  for (const actor of [{ user: 'ou_intruder' }, { tenant: 'other' }, { chat: 'other-chat' }]) {
+    assert.equal(h.interactions.receive(h.actor('Different actor', { parentId: original.id, ...actor })).status, 'ignored');
+  }
+  assert.equal(h.interactions.receive(h.actor('/queue', { parentId: original.id })).status, 'queue');
+  assert.equal(h.interactions.receive(h.actor('/withdraw', { parentId: original.id })).status, 'withdrawn');
+  const reply = h.actor('Please add CI', { parentId: original.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.equal(h.admission.store.request(admitted.request.id)!.input, original.text);
+  assert.equal(h.interactions.receive(h.actor('Ordinary message with an unrelated quote', { parentId: 'unknown-original' })).status, 'accepted');
+  await drain(h);
+  assert.ok(h.sent.some(row => row.options?.replyTo === reply.id && row.text.includes('无法接收补充')));
+});
 
 test('private card callbacks preserve delivered identity and original native target through lost IPC acknowledgment and restart', async t => {
   const h = setup(t); h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';

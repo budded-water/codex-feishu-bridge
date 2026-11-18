@@ -37,7 +37,7 @@ lines.on('line', line => {
     reply(message, { thread: { id: thread } });
   } else if (method === 'turn/start') {
     turn = randomUUID();
-    mode = params.input[0].text.match(/case-(hold|approval|lost-start|loss|stop|group-cancel)/)?.[1] ?? 'complete';
+    mode = params.input[0].text.match(/case-(complete|hold|approval|lost-start|loss|stop|group-cancel)/)?.[1] ?? 'complete';
     audit({ event: method, thread, turn, mode, text: params.input[0].text });
     if (mode === 'lost-start') return process.exit(0); // Accepted effect with no acknowledgement.
     reply(message, { turn: { id: turn, status: 'inProgress' } });

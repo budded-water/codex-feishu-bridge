@@ -11,6 +11,7 @@ import { Bridge } from '../src/bridge.js';
 import { PilotAdmission } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
+import { pilotMaintenance } from '../src/handoff/maintenance.js';
 import { loadMigrationPlan, stageHandoff, rollbackHandoff } from '../src/handoff/migration.js';
 import { acquireRoot, manageRuntime, openRuntimeControl, readFence, writePrivate, controllerFile, fenceFile } from '../src/handoff/ownership.js';
 import { CODEX_VERSION } from '../src/codex/generated/version.js';
@@ -447,4 +448,97 @@ test('rollback requires withdrawn-request notice delivery and preserves skipped 
   assert.deepEqual({ ...verification }, { profile: 'withdrawn-fixture', phase: 'skipped', observation: null });
   const retainedCard = read(join(h.plan.bundleDirectory, operation.archive, 'transport.db'), db => db.prepare('SELECT id,execution,message FROM task_views').get());
   assert.deepEqual({ ...retainedCard }, { id: card.id, execution: card.execution, message: 'task-card-before-rollback' });
+});
+
+test('rollback waits for a committed quoted reply receipt after a gateway crash and recovery projects it once', async t => {
+  const h = await fixture(t); await stageHandoff(h.plan);
+  const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope);
+  const codex = new ManagedFake();
+  const native = new NativeExecutions(admission, h.plan.config, () => codex);
+  const delivered: string[] = [];
+  const gateway = () => new PilotInteractions(admission, h.plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) },
+    native, { send: async (_chat, _text, id, options) => {
+      if (options?.replyTo) delivered.push(options.replyTo);
+      return 'delivered-' + id;
+    } }, { addReaction: async () => 'reaction', findReaction: async () => undefined, removeReaction: async () => {} });
+  let interactions = gateway();
+  admission.store.maintenance.resume();
+  const original = { ...h.message, chatType: 'p2p' as const, id: 'pilot-quoted-task', text: 'Read the task' };
+  const accepted = interactions.receive(original); assert.ok('request' in accepted);
+  admission.store.routed(accepted.request.id, true);
+  const grant = admission.store.reserve(accepted.request.id, 1);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected reservation');
+  const running = native.run(grant.permit);
+  await until(() => codex.calls.some(call => call.method === 'turn/start'));
+  const liveReply = { ...original, id: 'quoted-live-reply-before-rollback', text: 'Also check CI', parentId: original.id };
+  assert.equal(interactions.receive(liveReply).status, 'task-reply');
+  codex.complete('retained-native-thread', 'turn-1');
+  await running;
+  // Deliver the original result, then simulate stopping before the gateway reconciles the live reply.
+  await interactions.transport.sync();
+  await interactions.transport.flush();
+  await interactions.transport.close();
+  assert.equal(admission.store.control(liveReply)?.status, 'received');
+  admission.store.maintenance.quiesce();
+  const reply = { ...original, id: 'quoted-reply-before-rollback', text: 'What about CI?', parentId: original.id };
+  // Commit only the ingress transaction to exercise the crash before transport projection.
+  assert.equal(admission.store.acceptTaskReply(reply, admission.project)?.status, 'task-reply');
+  const transport = new State(join(h.plan.pilotDirectory, 'transport'));
+  try {
+    assert.equal(transport.drainStatus().outbox, 0);
+    const status = await pilotMaintenance(admission, native, transport, { command: 'status' });
+    assert.equal(status.outbox, 1);
+    assert.equal(status.controls, 1);
+    assert.equal(status.guards, 0);
+  } finally { transport.close(); }
+  const lease = await acquireRoot(h.plan.legacyDirectory, 'pilot', h.plan.pilotDirectory);
+  const controller = await openRuntimeControl(lease, () => ({})); await controller.close(true); await lease.release();
+  await assert.rejects(rollbackHandoff(h.plan), /drained/);
+  admission.store.finishTaskReplies();
+  await assert.rejects(rollbackHandoff(h.plan), /task reply notice.*projected/);
+  interactions = gateway();
+  await interactions.recover();
+  assert.equal(interactions.receive(reply).status, 'ignored');
+  await assert.rejects(rollbackHandoff(h.plan), /drained/);
+  for (let i = 0; i < 5; i++) await interactions.flush();
+  assert.equal(delivered.filter(id => id === reply.id).length, 1);
+  assert.equal(delivered.filter(id => id === liveReply.id).length, 1);
+
+  admission.store.maintenance.resume();
+  const followupMessage = { ...reply, id: 'queued-quoted-reply-before-thread-change' };
+  assert.equal(interactions.receive(followupMessage).status, 'task-reply');
+  const followup = admission.store.requests().at(-1)!;
+  admission.store.routed(followup.id, true);
+  await interactions.flush();
+  assert.equal(delivered.filter(id => id === followupMessage.id).length, 1);
+  await interactions.close();
+  const fixtureDb = new DatabaseSync(join(h.plan.pilotDirectory, 'handoff.db'));
+  try { fixtureDb.prepare('UPDATE conversations SET thread=? WHERE id=?').run('fixture-replacement-thread', followup.conversation); }
+  finally { fixtureDb.close(); }
+  assert.equal(admission.store.reserve(followup.id, 2).kind, 'blocked');
+  admission.store.maintenance.quiesce();
+  const interruptedGateway = gateway();
+  const projected = interruptedGateway.transport.state;
+  try {
+    projected.projectAssignedTask(admission.store.request(followup.id)!, 'pilot', admission.directory, 'unknown');
+    await interruptedGateway.transport.flush();
+    assert.equal(projected.drainStatus().outbox, 0);
+    assert.equal(projected.drainStatus().reactions, 0);
+    assert.equal((await pilotMaintenance(admission, native, projected, { command: 'status' })).outbox, 1);
+  } finally { projected.close(); }
+  await assert.rejects(rollbackHandoff(h.plan), /task reply notice.*projected/);
+  interactions = gateway();
+  await interactions.recover();
+  await assert.rejects(rollbackHandoff(h.plan), /drained/);
+  for (let i = 0; i < 5; i++) await interactions.flush();
+  assert.equal(delivered.filter(id => id === followupMessage.id).length, 2);
+  assert.equal(admission.store.execution(followup.execution), undefined);
+  await interactions.close();
+  admission.close();
+  assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');
+  const restored = new State(h.plan.legacyDirectory);
+  assert.equal(restored.remember(reply), false);
+  assert.equal(restored.remember(followupMessage), false);
+  restored.close();
 });

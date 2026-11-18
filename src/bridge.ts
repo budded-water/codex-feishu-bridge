@@ -11,6 +11,7 @@ import type { Config } from './config.js';
 import { parseRoute, routeSchema, routingConfig } from './routing.js';
 import { State } from './state.js';
 import { ownerKey, record, string, type CodexPort, type IncomingMessage, type RpcEvent, type RpcRequest, type Session, type Task, type ContextPort, type ChatContext, type NativeControlTarget, type ControlDisposition, type NativeActivity } from './types.js';
+import { SteerTargetEnded } from './codex/client.js';
 import type { ThreadStartParams } from './codex/generated/v2/ThreadStartParams.js';
 import type { ThreadResumeParams } from './codex/generated/v2/ThreadResumeParams.js';
 import type { TurnStartParams } from './codex/generated/v2/TurnStartParams.js';
@@ -276,7 +277,8 @@ export class Bridge {
       await this.control(message, active.session, command, argument, active);
       if (command === '/stop') return this.state.executionForTrigger(this.state.trigger(active.task.id)!, active.session.owner)?.status === 'unknown' ? 'unknown' : 'stopping';
       return 'accepted';
-    } catch {
+    } catch (error) {
+      if (command === '/steer' && error instanceof SteerTargetEnded) return 'rejected';
       this.state.send(message.chat, '控制请求未确认成功，请查看当前状态；不会自动重发。', { replyTo: message.id });
       return 'unknown';
     }

@@ -74,6 +74,11 @@ export class PilotInteractions {
     if (!operator && !admin) return { status: 'ignored' as const };
     const natural = naturalControl(message.text.trim());
     const command = /^\/(?:help|status|stop|steer|approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
+    if (operator && message.chatType === 'p2p' && message.parentId && !message.unsupported &&
+      message.text.length <= 30_000 && message.text.trim() && !message.text.trimStart().startsWith('/') && natural !== 'stop') {
+      const reply = this.admission.store.acceptTaskReply(message, this.admission.project);
+      if (reply) return reply;
+    }
     if (!command && !natural) {
       const result = this.admission.receive(message);
       if ('request' in result) this.transport.admit(result.request);
@@ -95,7 +100,7 @@ export class PilotInteractions {
       if (!this.transport.state.remember(message)) return { status: 'duplicate' as const };
       this.transport.state.send(message.chat,
         present('使用帮助',
-          section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。']),
+          section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。', '在本人私聊回复原任务消息，可补充正在等待或执行的任务，或追问已结束的任务。']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
           section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/rules` 原生规则 · `/reviews` 非通过审查记录', '- `/browser-retry 编号 local-change-confirmed` 本机处理后检查并续接普通任务', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
           Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',
@@ -262,13 +267,16 @@ export class PilotInteractions {
 
   private async relay(control: ControlRecord): Promise<void> {
     const message = this.dispatchMessage(control);
+    const taskReply = this.admission.store.taskReply(control.origin);
+    const rejection = taskReply ? undefined : '原任务或请求已结束、过期或无权控制，这条指令没有执行。';
     if (control.status !== 'received') {
       try {
         const status = await this.native.controlResult(control.execution, message);
-        if (status && status !== 'dispatching') this.admission.store.controlResult(control.message, status, status === 'rejected' ? '原任务或请求已结束、过期或无权控制，这条指令没有执行。' : undefined);
+        if (status && status !== 'dispatching') this.admission.store.controlResult(control.message, status, status === 'rejected' ? rejection : undefined);
       } catch { /* Uncertain dispatch is lookup-only; approvals are never resent. */ }
       return;
     }
+    if (taskReply && this.admission.store.execution(control.execution)?.status !== 'active') return;
     if (message.chatType === 'group' && message.parentId && /^\/steer\s/.test(message.text.trimStart())) {
       const execution = this.admission.store.execution(control.execution)!;
       await this.prepareReference(this.admission.store.request(execution.request)!, message, 0);
@@ -277,11 +285,14 @@ export class PilotInteractions {
     if (!target) {
       try {
         const owner = await this.native.inspect(control.execution);
+        if (taskReply && owner.status !== 'running') return;
         const fields = { generation: owner.generation, thread: owner.thread, turn: owner.turn };
         if (Object.values(fields).some(value => typeof value !== 'string' || !value)) return;
         target = fields as NativeControlTarget;
         this.admission.store.bindControl(control.message, target);
       } catch {
+        // A new Worker may not have started. Polling settles quoted controls against the exact execution.
+        if (taskReply) return;
         this.admission.store.controlResult(control.message, 'rejected', '原执行器当前不可确认，这条控制没有执行。请先核对状态。');
         return;
       }
@@ -289,7 +300,7 @@ export class PilotInteractions {
     if (!this.admission.store.dispatchControl(control.message)) return;
     try {
       const result = await this.native.relay(control.execution, message, target);
-      this.admission.store.controlResult(control.message, result, result === 'rejected' ? '原任务或请求已结束、过期或无权控制，这条指令没有执行。' : undefined);
+      this.admission.store.controlResult(control.message, result, result === 'rejected' ? rejection : undefined);
     } catch {
       this.admission.store.controlResult(control.message, 'unknown', '这条控制是否生效尚未确认，正在核对执行记录；不会自动重发。');
     }
@@ -350,6 +361,7 @@ export class PilotInteractions {
     await this.permissions.publish();
     await this.transport.sync();
     await this.flushControls();
+    this.admission.store.finishTaskReplies();
     await this.transport.sync();
     for (const control of this.admission.store.controls()) this.transport.state.projectControlNotice(control);
     await this.transport.flush();
@@ -357,6 +369,7 @@ export class PilotInteractions {
 
   async recover(): Promise<void> {
     await this.native.recover();
+    this.admission.store.finishTaskReplies();
     await this.transport.sync();
   }
 
@@ -383,6 +396,7 @@ export class PilotInteractions {
       await this.recovery.idle();
       this.recovery.sync();
       this.queue.sync();
+      this.admission.store.finishTaskReplies();
       await this.transport.close();
     })();
   }

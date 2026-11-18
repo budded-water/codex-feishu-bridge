@@ -23,9 +23,14 @@ export type RequestRecord = {
 };
 export type ControlRecord = { origin: string; execution: string; message: IncomingMessage; target: NativeControlTarget | null;
   status: 'received' | ControlDisposition; result: string | null };
+export type TaskReplyRecord = {
+  origin: string; request: string; message: IncomingMessage;
+  kind: 'merged' | 'live' | 'followup' | 'rejected'; result: string | null; followup: string | null;
+};
 export type RecoveryRecord = { origin: string; execution: string; actor: string; evidence: string; created: number };
 export type WithdrawalRecord = { origin: string; request: string; actor: string; previous_blocked: string | null; previous_problem: string | null; created: number };
 export const OWNER_WITHDRAWN = 'owner_withdrawn';
+export const QUOTED_CONVERSATION_CHANGED = 'quoted_conversation_changed';
 export type Submission = { request: string; event: number | null; attempts: number };
 export type Permit = { execution: string; token: string };
 export type ExecutionRecord = {
@@ -35,6 +40,8 @@ export type ExecutionRecord = {
 export type Reservation = { kind: 'start'; permit: Permit; request: RequestRecord } |
   { kind: 'existing'; execution: ExecutionRecord } | { kind: 'blocked' | 'busy' | 'withdrawn' };
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+const settledTaskReplyDecisions = `SELECT q.origin FROM task_replies q JOIN controls c ON c.origin=q.origin
+  JOIN executions e ON e.id=c.execution WHERE q.kind='live' AND c.status IN ('received','rejected') AND e.status<>'active'`;
 
 export class AdmissionStore {
   private db: DatabaseSync;
@@ -76,6 +83,10 @@ export class AdmissionStore {
           origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES executions(id), message TEXT NOT NULL,
           target TEXT, status TEXT NOT NULL, result TEXT
         );
+        CREATE TABLE IF NOT EXISTS task_replies (
+          origin TEXT PRIMARY KEY, request TEXT NOT NULL REFERENCES requests(id), message TEXT NOT NULL,
+          kind TEXT NOT NULL, result TEXT, followup TEXT REFERENCES requests(id)
+        );
         CREATE TABLE IF NOT EXISTS recoveries (
           origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES executions(id), actor TEXT NOT NULL,
           evidence TEXT NOT NULL, created INTEGER NOT NULL
@@ -94,6 +105,8 @@ export class AdmissionStore {
       `);
       this.repairs = new RepairStore(this.db, permit => { this.startableRequest(permit); });
       this.db.exec(`
+        CREATE INDEX IF NOT EXISTS live_task_replies ON task_replies(request) WHERE kind='live';
+        CREATE UNIQUE INDEX IF NOT EXISTS task_reply_followup ON task_replies(followup) WHERE followup IS NOT NULL;
         CREATE INDEX IF NOT EXISTS pending_submissions ON submissions(next) WHERE status='pending';
         CREATE INDEX IF NOT EXISTS live_reference_context ON reference_context(execution) WHERE body IS NOT NULL;
         CREATE INDEX IF NOT EXISTS unblocked_group_requests ON requests(origin)
@@ -147,24 +160,116 @@ export class AdmissionStore {
       if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already belongs to a control');
       const previous = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(origin) as { id: string } | undefined;
       if (previous) return { duplicate: true, request: this.request(previous.id)! };
+      if (this.taskReply(origin)) throw new Error('Message identity already belongs to a task reply');
       if (this.maintenance.paused) {
         this.db.prepare('INSERT OR IGNORE INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, 'maintenance');
         return { paused: true };
       }
-      const owner = ownerKey(message);
-      this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)').run(randomUUID(), owner, project);
-      const conversation = this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=?').get(owner, project) as { id: string };
-      const uncertain = this.db.prepare("SELECT 1 FROM guards JOIN executions ON executions.id=guards.execution WHERE guards.project=? AND executions.status='unknown'").get(project);
-      const request: RequestRecord = { id: randomUUID(), execution: randomUUID(), conversation: conversation.id, project,
-        message, input, blocked: uncertain ? 'project_outcome_unknown' : null };
-      this.db.prepare('INSERT INTO requests VALUES (?,?,?,?,?,?,?,?)').run(request.id, request.execution, request.conversation,
-        project, origin, JSON.stringify(message), input, request.blocked);
-      if (verification?.repair) this.repairs.admit(request.execution, verification, Boolean(request.blocked));
-      else if (verification) this.db.prepare('INSERT INTO verifications VALUES (?,?,?,?,?,NULL)')
-        .run(request.execution, verification.profile, profileDigest(verification.definition), JSON.stringify(verification.definition), request.blocked ? 'skipped' : 'planned');
-      if (!request.blocked) this.db.prepare("INSERT INTO submissions(request,status) VALUES (?,'pending')").run(request.id);
-      return { duplicate: false, request };
+      return { duplicate: false, request: this.insertRequest(message, input, project, verification) };
     });
+  }
+
+  private insertRequest(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection): RequestRecord {
+    const owner = ownerKey(message);
+    this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)').run(randomUUID(), owner, project);
+    const conversation = this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=?').get(owner, project) as { id: string };
+    const request: RequestRecord = { id: randomUUID(), execution: randomUUID(), conversation: conversation.id, project,
+      message, input, blocked: this.uncertainProject(project) ? 'project_outcome_unknown' : null };
+    this.db.prepare('INSERT INTO requests VALUES (?,?,?,?,?,?,?,?)').run(request.id, request.execution, request.conversation,
+      project, JSON.stringify([message.tenant, message.id]), JSON.stringify(message), input, request.blocked);
+    if (verification?.repair) this.repairs.admit(request.execution, verification, Boolean(request.blocked));
+    else if (verification) this.db.prepare('INSERT INTO verifications VALUES (?,?,?,?,?,NULL)')
+      .run(request.execution, verification.profile, profileDigest(verification.definition), JSON.stringify(verification.definition), request.blocked ? 'skipped' : 'planned');
+    if (!request.blocked) this.db.prepare("INSERT INTO submissions(request,status) VALUES (?,'pending')").run(request.id);
+    return request;
+  }
+
+  private uncertainProject(project: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM guards JOIN executions ON executions.id=guards.execution WHERE guards.project=? AND executions.status='unknown'").get(project));
+  }
+
+  taskReply(origin: string): TaskReplyRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM task_replies WHERE origin=?').get(origin) as
+      (Omit<TaskReplyRecord, 'message'> & { message: string }) | undefined;
+    return row && { ...row, message: JSON.parse(row.message) as IncomingMessage };
+  }
+
+  acceptTaskReply(message: IncomingMessage, project: string) {
+    return this.transaction(() => {
+      const origin = JSON.stringify([message.tenant, message.id]);
+      if (this.taskReply(origin) || this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin, origin) ||
+        this.retained(message)) return { status: 'duplicate' as const };
+      const quotedOrigin = JSON.stringify([message.tenant, message.parentId]);
+      const source = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
+        WHERE r.origin=? AND c.owner=? AND r.project=? AND json_extract(r.message,'$.chatType')='p2p'`)
+        .get(quotedOrigin, ownerKey(message), project) as { id: string } | undefined;
+      if (!source) return;
+      const request = this.request(source.id)!;
+      const execution = this.execution(request.execution);
+      const text = '用户补充要求：\n' + message.text;
+      const combined = request.input + '\n\n' + text;
+      const save = (kind: TaskReplyRecord['kind'], result: string | null) => {
+        this.db.prepare('INSERT INTO task_replies VALUES (?,?,?,?,?,NULL)').run(origin, request.id, JSON.stringify(message), kind, result);
+        // A reverse migration must retain the Feishu message identity for every disposition, even an in-place merge.
+        this.db.prepare("INSERT INTO retained_receipts VALUES (?,?,'task_reply')").run(message.tenant, message.id);
+      };
+      if (this.maintenance.paused || request.blocked || this.submission(request.id)?.status === 'blocked' || this.uncertainProject(project)) {
+        save('rejected', '当前任务无法接收补充。请查看原任务状态后再发送新消息。');
+      } else if (this.verification(request.execution) || this.repairs.get(request.execution) ||
+        this.permissionRetry(request.execution) || this.browserRetry(request.execution)) {
+        save('rejected', '这条任务使用专用验证、修复或续接流程。请使用原任务的操作入口，或发送新的普通任务。');
+      } else if (!execution) {
+        if (combined.length > 30_000) save('rejected', '合并后的任务过长。这条补充未加入，请缩短后再回复。');
+        else {
+          this.db.prepare('UPDATE requests SET input=? WHERE id=?').run(combined, request.id);
+          save('merged', '已补到原任务，将一起执行。');
+        }
+      } else if (execution.status === 'active') {
+        if (message.text.length > 29_993) save('rejected', '补充内容过长，请缩短后再回复。');
+        else {
+          this.acceptControl(execution.id, message);
+          save('live', null);
+        }
+      } else {
+        save('live', null);
+        this.finishTaskReply(this.taskReply(origin)!, request);
+      }
+      return { status: 'task-reply' as const };
+    });
+  }
+
+  finishTaskReplies(): void {
+    const candidates = this.db.prepare(settledTaskReplyDecisions).all() as { origin: string }[];
+    for (const { origin } of candidates) this.transaction(() => {
+      const reply = this.taskReply(origin)!;
+      const control = this.control(reply.message);
+      const request = this.request(reply.request)!;
+      if (reply.kind !== 'live' || !control || !['received', 'rejected'].includes(control.status) || this.execution(request.execution)?.status === 'active') return;
+      this.finishTaskReply(reply, request);
+      if (control.status === 'received') this.controlResult(reply.message, 'rejected');
+    });
+  }
+
+  private finishTaskReply(reply: TaskReplyRecord, request: RequestRecord): void {
+    const source = this.db.prepare('SELECT status,evidence,native_thread,native_turn FROM executions WHERE id=?')
+      .get(request.execution) as { status: string; evidence: string | null; native_thread: string | null; native_turn: string | null } | undefined;
+    let failure: string | undefined;
+    if (this.maintenance.paused || this.uncertainProject(request.project)) failure = '当前无法排入追问，请核对任务状态后再发送新消息。';
+    else if (!source || !['completed', 'interrupted'].includes(source.status) || !source.evidence?.startsWith('native-checkpoint/') ||
+      !source.native_thread || !source.native_turn || this.conversationThread(request.conversation) !== source.native_thread) {
+      failure = '原任务的执行结果或会话尚无法确认，这条回复未排为追问。请查看原任务。';
+    }
+    const original = Array.from(request.message.text).slice(0, 1000).join('');
+    const input = '本次用户追问：\n' + reply.message.text +
+      '\n\n被回复任务的原始需求（节选，仅作上下文，按本次追问执行）：\n' + original;
+    if (input.length > 30_000) failure ??= '追问内容过长，请缩短后再回复。';
+    if (failure) {
+      this.db.prepare("UPDATE task_replies SET kind='rejected',result=? WHERE origin=?").run(failure, reply.origin);
+    } else {
+      const followup = this.insertRequest(reply.message, input, request.project);
+      this.db.prepare("UPDATE task_replies SET kind='followup',result=?,followup=? WHERE origin=?")
+        .run('原任务已结束，已排为原会话的后续追问。', followup.id, reply.origin);
+    }
   }
 
   permissionRetry(execution: string): PermissionRetry | undefined {
@@ -250,14 +355,15 @@ export class AdmissionStore {
     });
   }
 
-  drainStatus(): Record<string, number | boolean> {
+  drainStatus() {
     const count = (sql: string) => Number((this.db.prepare(sql).get() as { n: number }).n);
     return {
       paused: this.maintenance.paused,
       guards: count('SELECT COUNT(*) AS n FROM guards'),
       queued: count("SELECT COUNT(*) AS n FROM requests WHERE blocked IS NULL AND NOT EXISTS(SELECT 1 FROM executions WHERE executions.request=requests.id) AND NOT EXISTS(SELECT 1 FROM submissions WHERE submissions.request=requests.id AND status='blocked')"),
       publication: count("SELECT COUNT(*) AS n FROM submissions WHERE status='pending'"),
-      controls: count("SELECT COUNT(*) AS n FROM controls WHERE status IN ('received','dispatching') AND EXISTS(SELECT 1 FROM guards WHERE guards.execution=controls.execution)"),
+      controls: count(`SELECT COUNT(*) AS n FROM controls WHERE (status IN ('received','dispatching') AND
+        EXISTS(SELECT 1 FROM guards WHERE guards.execution=controls.execution)) OR origin IN (${settledTaskReplyDecisions})`),
     };
   }
 
@@ -477,6 +583,12 @@ export class AdmissionStore {
       if (held) {
         if (this.execution(held.execution)!.status !== 'unknown') return { kind: 'busy' };
         this.db.prepare("UPDATE requests SET blocked='project_outcome_unknown' WHERE id=?").run(request.id);
+        return { kind: 'blocked' };
+      }
+      const quoted = this.db.prepare(`SELECT e.native_thread FROM task_replies q JOIN requests source ON source.id=q.request
+        JOIN executions e ON e.id=source.execution WHERE q.followup=?`).get(request.id) as { native_thread: string } | undefined;
+      if (quoted && this.conversationThread(request.conversation) !== quoted.native_thread) {
+        this.db.prepare('UPDATE requests SET blocked=? WHERE id=?').run(QUOTED_CONVERSATION_CHANGED, request.id);
         return { kind: 'blocked' };
       }
       const permit = { execution: request.execution, token: randomUUID() };
