@@ -1059,7 +1059,7 @@ test('switching matters starts separate native threads and quoting the older tas
   const card = h.sent.find(item => item.options?.replyTo === newRefund.id)!;
   const matter = card.options!.matterCard!;
   assert.equal(matter.title, '退款调查');
-  const initial = h.actor('查退款积压');
+  const initial = h.actor('只查询当前退款积压');
   const a = h.interactions.receive(initial);
   assert.ok('request' in a);
   const threadA = await complete(a.request, 101);
@@ -1313,15 +1313,20 @@ test('an unresolved card reply is held while another matter is selected', async 
     h.interactions.receive(newA); await h.interactions.flush();
     assert.equal(h.interactions.matterAction({ id: b.options!.matterCard!.id, event: randomUUID(), tenant: b.options!.matterCard!.tenant,
       user: b.options!.matterCard!.user, chat: b.chat, message: 'delivered-' + b.id, choice: b.options!.matterCard!.anchor! }), 'accepted');
-    const unclear = h.actor('继续查一下', { parentId: 'visible-a-card' });
+    const unclear = h.actor('补充：检查发布记录', { parentId: 'visible-a-card' });
     assert.equal(h.interactions.receive(unclear).status, 'matter-choice');
+    const rejected = h.actor('补充：先检查发布入口', { parentId: 'visible-a-card' });
+    // Also preserve a legacy refusal that was only recorded in the transport ledger.
+    assert.equal(h.interactions.transport.state.remember(rejected), true);
     assert.equal(h.admission.store.requestForMessage(unclear), undefined);
     acknowledge = true;
     transport.exec('UPDATE outbox SET next=0');
     await drain(h);
     assert.equal(h.interactions.receive(unclear).status, 'matter-choice');
     assert.equal(h.admission.store.requestForMessage(unclear), undefined);
-    const fresh = h.interactions.receive(h.actor('继续查一下', { parentId: 'visible-a-card' }));
+    assert.equal(h.interactions.receive(rejected).status, 'duplicate');
+    assert.equal(h.admission.store.requestForMessage(rejected), undefined);
+    const fresh = h.interactions.receive(h.actor('补充：检查发布入口', { parentId: 'visible-a-card' }));
     assert.ok('request' in fresh);
     assert.equal(fresh.request.conversation,
       h.admission.store.matters.named({ owner: ownerKey(newA), project: h.admission.project }, '退款调查')!.id);
@@ -1352,12 +1357,18 @@ test('an exact matter address can use a project alias as its name without changi
   const h = setup(t, undefined, undefined, ['backend', 'other']);
   const newMatter = h.actor('/matter-new backend');
   h.interactions.receive(newMatter);
-  const routed = h.interactions.receive(h.actor('backend: check release'));
+  const original = h.actor('backend: check release');
+  const routed = h.interactions.receive(original);
   assert.ok('request' in routed);
   assert.equal(routed.request.input, 'check release');
   assert.equal(routed.request.conversation,
     h.admission.store.matters.named({ owner: ownerKey(newMatter), project: h.admission.project }, 'backend')!.id);
   assert.equal(routed.request.project, h.admission.project);
+  const duplicate = h.interactions.receive(original);
+  assert.equal(duplicate.status, 'duplicate');
+  assert.ok('request' in duplicate);
+  assert.equal(duplicate.request.id, routed.request.id);
+  assert.equal(h.admission.store.retained(original), false);
   const refused = h.actor('other: check release');
   assert.equal(h.interactions.receive(refused).status, 'rejected');
   h.interactions.receive(h.actor('/matter-new other'));
@@ -1365,6 +1376,22 @@ test('an exact matter address can use a project alias as its name without changi
   assert.equal(h.admission.store.requestForMessage(refused), undefined);
   assert.equal(h.admission.store.requests().length, 1);
   assert.ok('request' in h.interactions.receive(h.actor(refused.text)));
+
+  const lostProjection = h.actor('backend: read CI');
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  try {
+    transport.exec(`CREATE TRIGGER fail_task_projection BEFORE INSERT ON projected_tasks
+      BEGIN SELECT RAISE(ABORT,'fixture task projection failure'); END;`);
+    assert.throws(() => h.interactions.receive(lostProjection), /fixture task projection failure/);
+    const admitted = h.admission.store.requestForMessage(lostProjection)!;
+    assert.equal(admitted.conversation, routed.request.conversation);
+    transport.exec('DROP TRIGGER fail_task_projection');
+    const repaired = h.interactions.receive(lostProjection);
+    assert.ok('request' in repaired && repaired.status === 'duplicate');
+    assert.equal(repaired.request.id, admitted.id);
+    assert.equal(h.admission.store.retained(lostProjection), false);
+    assert.ok(transport.prepare('SELECT 1 FROM projected_tasks WHERE execution=?').get(admitted.execution));
+  } finally { transport.close(); }
 });
 
 test('a referenced matter card and a conflicting exact address require a confirmed choice', async t => {
@@ -1393,4 +1420,22 @@ test('a referenced matter card and a conflicting exact address require a confirm
   assert.equal(task?.conversation, selected);
   assert.equal(task?.input, '再查发布结果');
   assert.equal(h.admission.store.requestForMessage(conflictingLink), undefined);
+});
+
+test('an unaddressed natural restriction steers the actual active task after a matter switch', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new Release'));
+  const active = await h.launch();
+  h.interactions.receive(h.actor('/matter-new Follow-up'));
+  const text = h.actor('只看日志');
+  assert.equal(h.interactions.receive(text).status, 'control');
+  await drain(h);
+  const steers = h.codex.calls.filter(call => call.method === 'turn/steer');
+  assert.equal(steers.length, 1);
+  assert.equal(steers[0]?.params.threadId, active.thread);
+  assert.equal(steers[0]?.params.expectedTurnId, active.turn);
+  assert.equal(h.interactions.receive(text).status, 'duplicate');
+  assert.equal(h.admission.store.requests().length, 1);
+  h.codex.complete(active.thread, active.turn);
+  await active.running;
 });

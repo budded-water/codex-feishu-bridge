@@ -55,6 +55,8 @@ export class PilotAdmission {
   receive(inputMessage: IncomingMessage, conversation?: string, matterInput?: string): Admission {
     const message = this.operator(inputMessage);
     if (!message || this.store.retained(message)) return { status: 'ignored' };
+    const prior = this.store.requestForMessage(message);
+    if (prior) return { status: 'duplicate', request: prior };
     if (message.unsupported || message.text.length > 30_000) return { status: 'rejected', reason: 'unsupported_input' };
     const text = message.text.trim();
     if (/^pair\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return { status: 'ignored' };

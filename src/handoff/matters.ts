@@ -129,13 +129,22 @@ export class OwnerMatters {
     return matter && { matter: matter.id, input: match[2]! };
   }
 
-  routesReadRequest(message: IncomingMessage): boolean {
+  hasDisposition(message: IncomingMessage): boolean {
+    const store = this.admission.store.matters;
+    return this.owner(message) &&
+      Boolean(store.held(message, this.admission.project) || store.notice(message));
+  }
+
+  overridesNaturalSteer(message: IncomingMessage): boolean {
     if (!this.owner(message)) return false;
-    if (this.state.matterReference(message)) return true;
     const scope = this.scope(message), store = this.admission.store.matters;
-    if (!store.list(scope, 1).length) return false;
-    if (message.parentId && this.state.referencedTask(message.parentId, scope.owner)) return false;
-    return /^只(?:看|统计|查询|分析|读取)/.test(message.text.trim());
+    if (this.state.matterReference(message) || this.address(message) ||
+      pullRequests(message.text).some(ref => store.bound(scope, ref))) return true;
+    if (message.parentId) return Boolean(store.list(scope, 1).length &&
+      !this.state.referencedTask(message.parentId, scope.owner));
+    const focus = store.focus(scope);
+    return Boolean(focus && focus !== DEFAULT_MATTER && /^只(?:看|统计|查询|分析|读取)/.test(message.text.trim()) &&
+      !this.admission.store.unsettled().some(execution => execution.status === 'active'));
   }
 
   route(message: IncomingMessage): Admission | { status: 'matter-choice' | 'duplicate' } {

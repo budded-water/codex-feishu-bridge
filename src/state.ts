@@ -273,6 +273,10 @@ export class State {
     this.db.prepare('UPDATE relayed_controls SET status=? WHERE origin=?').run(status, JSON.stringify([message.tenant, message.id]));
   }
 
+  hasSeen(message: Pick<IncomingMessage, 'tenant' | 'id'>): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM seen WHERE tenant=? AND id=?').get(message.tenant, message.id));
+  }
+
   remember(message: IncomingMessage): boolean {
     return Number(this.db.prepare('INSERT OR IGNORE INTO seen VALUES (?, ?)').run(message.tenant, message.id).changes) === 1;
   }

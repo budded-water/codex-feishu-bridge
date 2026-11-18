@@ -77,14 +77,26 @@ export class PilotInteractions {
       message.chat === (this.config.approvalChat ?? this.admission.scope.chat) &&
       (this.config.accessMode !== 'allowlist' || this.config.allowedUsers.includes(message.user));
     if (!operator && !admin) return { status: 'ignored' as const };
+    const ordinaryOwner = operator && message.chatType === 'p2p';
+    if (ordinaryOwner) {
+      const request = this.admission.store.requestForMessage(message);
+      if (request) {
+        this.transport.admit(request);
+        return { status: 'duplicate' as const, request };
+      }
+      const control = this.admission.store.control(message);
+      if (control) return { status: 'duplicate' as const, control };
+      if (this.matters.hasDisposition(message)) return this.matters.route(message);
+      if (this.transport.state.hasSeen(message)) return { status: 'duplicate' as const };
+    }
     const natural = naturalControl(message.text.trim());
     const command = /^\/(?:help|status|stop|steer|approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
-    if (operator && message.chatType === 'p2p' && message.parentId && !message.unsupported &&
+    if (ordinaryOwner && message.parentId && !message.unsupported &&
       message.text.length <= 30_000 && message.text.trim() && !message.text.trimStart().startsWith('/') && natural !== 'stop') {
       const reply = this.admission.store.acceptTaskReply(message, this.admission.project);
       if (reply) return reply;
     }
-    if (!command && (!natural || (natural === 'steer' && this.matters.routesReadRequest(message)))) {
+    if (!command && (!natural || (natural === 'steer' && this.matters.overridesNaturalSteer(message)))) {
       const result = this.matters.route(message);
       if ('request' in result) this.transport.admit(result.request);
       if (result.status === 'rejected' && result.reason === 'maintenance') this.transport.state.transaction(() => {
