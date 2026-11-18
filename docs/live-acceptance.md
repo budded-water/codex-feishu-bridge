@@ -2,7 +2,7 @@
 
 ## 2026-11-18 pinned Autoloop v1.9.2 upgrade
 
-The M6 Hub/Worker advanced to the signed [v1.9.2 release](https://github.com/KKKKhazix/agent-autoloop/releases/tag/v1.9.2). The tested release passed both isolated routing and assigned-native verifiers with the deployed gateway source, plus 123 relevant upstream tests. An isolated old → new → old test retained an original run, its later human decision and the follow-up run. The new runtime associated the answer with the originating event.
+The M6 Hub/Worker advanced to the [v1.9.2 release](https://github.com/KKKKhazix/agent-autoloop/releases/tag/v1.9.2), pinned to its signed commit. The tested release passed both isolated routing and assigned-native verifiers with the deployed gateway source, plus 123 relevant upstream tests. An isolated old → new → old test retained an original run, its later human decision and the follow-up run. The new runtime associated the answer with the originating event.
 
 Admission was paused and execution, publication, controls, prompts and reply delivery drained. Only the Hub/Worker service was replaced. Its closed backup passed per-file hash verification, followed by SQLite integrity and foreign-key checks on a disposable copy using the prior revision's Hub SQL function. The running gateway retained its existing terminal reaction cleanup retry. Runtime health reported the new commit, the Worker checked in after replacement, and admission reopened after checking the prior Hub fact prefix, master key, admissions and conversation pointers.
 
