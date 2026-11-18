@@ -122,8 +122,15 @@ export class OwnerMatters {
     return { status: 'matter-choice' };
   }
 
+  private address(message: IncomingMessage) {
+    const match = /^([^\n:：]{1,50})(?:：|:(?!\/\/))\s*([\s\S]+)$/.exec(message.text.trim());
+    if (!match) return;
+    const matter = this.admission.store.matters.named(this.scope(message), match[1]!.trim().normalize('NFC'));
+    return matter && { matter: matter.id, input: match[2]! };
+  }
+
   route(message: IncomingMessage): Admission | { status: 'matter-choice' | 'duplicate' } {
-    const submit = (selected?: string) => this.admission.receive(message, selected && conversation(selected));
+    const submit = (selected?: string, input?: string) => this.admission.receive(message, selected && conversation(selected), input);
     if (!this.owner(message) || message.unsupported || message.text.length > 30_000 || !message.text.trim() ||
       message.text.trimStart().startsWith('/') ||
       /^pair\s+[0-9a-f-]{36}$/i.test(message.text.trim())) return submit();
@@ -141,14 +148,12 @@ export class OwnerMatters {
 
     // A verified card reply is an explicit choice of address. References
     // inside a message can still describe related work for the model to read.
-    const reference = this.state.matterReference(message);
-    if (reference) return submit(reference);
-    const title = /^([^\n:：]{1,50})(?:：|:(?!\/\/))\s*\S/.exec(message.text.trim())?.[1]?.trim().normalize('NFC');
-    const named = title && store.named(scope, title);
+    const address = this.address(message), reference = this.state.matterReference(message);
+    if (reference) return submit(reference, address?.input);
     const linked = pullRequests(message.text).map(ref => store.bound(scope, ref));
-    const targets = [...new Set([named ? named.id : undefined, ...linked].filter((id): id is string => Boolean(id)))];
-    if (targets.length === 1) return submit(targets[0]);
-    if (targets.length > 1 && targets.length <= PAGE_SIZE) return this.clarify(store.hold(scope, message, targets));
+    const targets = [...new Set([address?.matter, ...linked].filter((id): id is string => Boolean(id)))];
+    if (targets.length === 1) return submit(targets[0], address?.input);
+    if (targets.length > 1 && targets.length <= PAGE_SIZE) return this.clarify(store.hold(scope, message, targets, address?.input));
     if (targets.length > PAGE_SIZE) {
       return this.requireResend(message, '这条消息关联了多个事项。请引用目标事项的卡片，或只保留对应的 PR 链接后重发。');
     }
@@ -164,7 +169,8 @@ export class OwnerMatters {
     }
 
     const selected = store.focus(scope);
-    if (selected) return submit(selected);
+    // A quoted parent may be a visible card whose delivery is still unconfirmed.
+    if (selected && !message.parentId) return submit(selected);
     if (!candidates.length) return submit();
     return this.clarify(store.hold(scope, message, [...candidates.slice(0, PAGE_SIZE).map(m => m.id), DEFAULT_MATTER]));
   }
@@ -179,8 +185,8 @@ export class OwnerMatters {
       const card = this.state.matterCard(click);
       if (!card) return { status: 'rejected' };
       if (card.action === 'switch') return { status: store.select(scope, click.choice) ? 'accepted' : 'rejected' };
-      const request = store.consume(scope, card.id, click.choice, original => {
-        const admission = this.admission.receive(original, conversation(click.choice));
+      const request = store.consume(scope, card.id, click.choice, (original, input) => {
+        const admission = this.admission.receive(original, conversation(click.choice), input);
         return 'request' in admission && admission.status !== 'duplicate' ? admission.request : undefined;
       });
       return request ? { status: 'accepted', admitted: true } : { status: 'rejected' };

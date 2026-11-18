@@ -49,7 +49,7 @@ export class MatterStore {
           );
           CREATE TABLE IF NOT EXISTS matter_inputs (
             origin TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, owner TEXT NOT NULL, project TEXT NOT NULL,
-            message TEXT NOT NULL, choices TEXT NOT NULL, chosen TEXT, projected INTEGER NOT NULL DEFAULT 0
+            message TEXT NOT NULL, choices TEXT NOT NULL, input TEXT, chosen TEXT, projected INTEGER NOT NULL DEFAULT 0
           );
           CREATE INDEX IF NOT EXISTS unprojected_matter_inputs ON matter_inputs(id) WHERE projected=0 AND chosen IS NULL;
           CREATE TABLE IF NOT EXISTS matter_notices (
@@ -163,10 +163,10 @@ export class MatterStore {
     return row && { ...row, message: JSON.parse(row.message) as IncomingMessage, choices: JSON.parse(row.choices) as string[] };
   }
 
-  hold(scope: Scope, message: IncomingMessage, choices: string[]): HeldMatter {
+  hold(scope: Scope, message: IncomingMessage, choices: string[], input?: string): HeldMatter {
     return this.transaction(() => {
-      this.db.prepare('INSERT OR IGNORE INTO matter_inputs(origin,id,owner,project,message,choices) VALUES (?,?,?,?,?,?)')
-        .run(origin(message), randomUUID(), scope.owner, scope.project, JSON.stringify(message), JSON.stringify(choices));
+      this.db.prepare('INSERT OR IGNORE INTO matter_inputs(origin,id,owner,project,message,choices,input) VALUES (?,?,?,?,?,?,?)')
+        .run(origin(message), randomUUID(), scope.owner, scope.project, JSON.stringify(message), JSON.stringify(choices), input ?? null);
       return this.held(message, scope.project)!;
     });
   }
@@ -181,17 +181,17 @@ export class MatterStore {
     this.db.prepare('UPDATE matter_inputs SET projected=1 WHERE id=?').run(id);
   }
 
-  consume<T>(scope: Scope, id: string, choice: string, submit: (original: IncomingMessage) => T | undefined): T | undefined {
+  consume<T>(scope: Scope, id: string, choice: string, submit: (original: IncomingMessage, input?: string) => T | undefined): T | undefined {
     return this.transaction(() => {
-      const row = this.db.prepare('SELECT message,choices,chosen FROM matter_inputs WHERE id=? AND owner=? AND project=?')
-        .get(id, scope.owner, scope.project) as { message: string; choices: string; chosen: string | null } | undefined;
+      const row = this.db.prepare('SELECT message,choices,input,chosen FROM matter_inputs WHERE id=? AND owner=? AND project=?')
+        .get(id, scope.owner, scope.project) as { message: string; choices: string; input: string | null; chosen: string | null } | undefined;
       if (!row || row.chosen || !(JSON.parse(row.choices) as string[]).includes(choice) ||
         (choice !== DEFAULT_MATTER && !this.owned(scope, choice))) return;
       const original = JSON.parse(row.message) as IncomingMessage;
       // Mark it consumed before admission in the same transaction. Admission
       // checks held messages so they cannot be scheduled by a duplicate ingress.
       this.db.prepare('UPDATE matter_inputs SET chosen=? WHERE id=?').run(choice, id);
-      const value = submit(original);
+      const value = submit(original, row.input ?? undefined);
       if (value === undefined) {
         this.db.prepare('UPDATE matter_inputs SET chosen=NULL WHERE id=?').run(id);
         return;

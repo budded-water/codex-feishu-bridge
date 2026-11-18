@@ -232,6 +232,9 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
     try {
       if (unprojectedTaskReplyNotices(reader).length) throw new Error('Committed task reply notice has not been projected');
     } finally { reader.close(); }
+    if (admission.store.matters.unprojected().length || admission.store.matters.unprojectedNotices().length) {
+      throw new Error('Committed matter response has not been projected');
+    }
     const native = new NativeExecutions(admission, plan.config);
     for (const request of admission.store.requests()) {
       const verification = admission.store.verification(request.execution);

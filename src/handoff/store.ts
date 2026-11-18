@@ -214,6 +214,7 @@ export class AdmissionStore {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.taskReply(origin) || this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin, origin) ||
         this.retained(message)) return { status: 'duplicate' as const };
+      if (this.matters.held(message, project) || this.matters.notice(message)) return;
       const quotedOrigin = JSON.stringify([message.tenant, message.parentId]);
       const source = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
         WHERE r.origin=? AND c.owner=? AND r.project=? AND json_extract(r.message,'$.chatType')='p2p'`)

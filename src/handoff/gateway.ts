@@ -52,7 +52,7 @@ export class PilotAdmission {
     return message;
   }
 
-  receive(inputMessage: IncomingMessage, conversation?: string): Admission {
+  receive(inputMessage: IncomingMessage, conversation?: string, matterInput?: string): Admission {
     const message = this.operator(inputMessage);
     if (!message || this.store.retained(message)) return { status: 'ignored' };
     if (message.unsupported || message.text.length > 30_000) return { status: 'rejected', reason: 'unsupported_input' };
@@ -60,9 +60,9 @@ export class PilotAdmission {
     if (/^pair\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return { status: 'ignored' };
     if (text.startsWith('/')) return { status: 'rejected', reason: 'control_requires_live_gateway' };
     if (realpathSync(this.scope.projects[this.scope.pilot]!) !== this.directory) throw new Error('Pilot directory changed');
-    let input = message.text;
+    let input = matterInput ?? message.text;
     const prefix = /^([^\s:：]+)[:：]\s*([\s\S]+)$/.exec(text);
-    if (this.projectRouting !== 'workspace' && prefix && Object.hasOwn(this.scope.projects, prefix[1]!)) {
+    if (matterInput === undefined && this.projectRouting !== 'workspace' && prefix && Object.hasOwn(this.scope.projects, prefix[1]!)) {
       if (realpathSync(this.scope.projects[prefix[1]!]!) !== this.directory) return { status: 'rejected', reason: 'outside_pilot' };
       input = prefix[2]!;
     }

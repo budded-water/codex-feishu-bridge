@@ -21,10 +21,14 @@ class ManagedFake extends FakeCodex implements ManagedCodex {
   async close() { this.exit(); }
 }
 
-function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort) {
+function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort, extraProjects: string[] = []) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'handoff-interactions-')));
   const project = join(root, 'project'); mkdirSync(project);
-  const scope: PilotScope = { installation: 'fixture', tenant: 'tenant', operator: 'ou_owner', chat: 'chat', projects: { pilot: project },
+  const projects = { pilot: project, ...Object.fromEntries(extraProjects.map(name => {
+    const directory = join(root, name); mkdirSync(directory);
+    return [name, directory];
+  })) };
+  const scope: PilotScope = { installation: 'fixture', tenant: 'tenant', operator: 'ou_owner', chat: 'chat', projects,
     pilot: 'pilot', hubInstance: 'hub', source: 'fixture', rule: 'pilot', agent: 'native', agentUse: 'bridge-native' };
   const config: Config = { allowedUsers: ['ou_owner', 'ou_admin'], accessMode: 'allowlist', allowedTenant: 'tenant', enableGroups: false,
     groupContextMessages: 0, groupContextImages: 0, approvalUsers: ['ou_admin'], approvalChat: 'admin', codexExecutable: 'codex',
@@ -1291,4 +1295,70 @@ test('matter card delivery retains its idempotency key until the platform ID and
     assert.equal(pending(), undefined);
     assert.equal((transport.prepare('SELECT message FROM matter_cards').get() as { message: string | null }).message, 'platform-id');
   } finally { transport.close(); }
+});
+
+test('an unresolved card reply is held while another matter is selected', async t => {
+  const h = setup(t);
+  const newB = h.actor('/matter-new Solura 发版');
+  h.interactions.receive(newB); await drain(h);
+  const b = h.sent.find(row => row.options?.replyTo === newB.id)!;
+  const newA = h.actor('/matter-new 退款调查');
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  let acknowledge = false;
+  try {
+    h.setSend(async (chat, text, id, options) => {
+      h.sent.push({ chat, text, id, options });
+      return options?.replyTo === newA.id ? acknowledge ? 'visible-a-card' : undefined : 'delivered-' + id;
+    });
+    h.interactions.receive(newA); await h.interactions.flush();
+    assert.equal(h.interactions.matterAction({ id: b.options!.matterCard!.id, event: randomUUID(), tenant: b.options!.matterCard!.tenant,
+      user: b.options!.matterCard!.user, chat: b.chat, message: 'delivered-' + b.id, choice: b.options!.matterCard!.anchor! }), 'accepted');
+    const unclear = h.actor('继续查一下', { parentId: 'visible-a-card' });
+    assert.equal(h.interactions.receive(unclear).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(unclear), undefined);
+    acknowledge = true;
+    transport.exec('UPDATE outbox SET next=0');
+    await drain(h);
+    assert.equal(h.interactions.receive(unclear).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(unclear), undefined);
+    const fresh = h.interactions.receive(h.actor('继续查一下', { parentId: 'visible-a-card' }));
+    assert.ok('request' in fresh);
+    assert.equal(fresh.request.conversation,
+      h.admission.store.matters.named({ owner: ownerKey(newA), project: h.admission.project }, '退款调查')!.id);
+  } finally { transport.close(); }
+});
+
+test('a late parent cannot convert a held or refused reply into a quoted-task supplement', async t => {
+  for (const number of [2, 7]) {
+    const h = setup(t);
+    for (let i = 1; i <= number; i++) h.interactions.receive(h.actor('/matter-new Project' + i + ' 发版'));
+    const parent = h.actor('Project1 发版：检查发布内容');
+    const early = h.actor('确认发版', { parentId: parent.id });
+    assert.equal(h.interactions.receive(early).status, 'matter-choice');
+    const scope = { owner: ownerKey(early), project: h.admission.project };
+    const saved = number === 2 ? h.admission.store.matters.held(early, scope.project) : h.admission.store.matters.notice(early);
+    assert.ok(saved);
+    const admitted = h.interactions.receive(parent);
+    assert.ok('request' in admitted);
+    await h.restart();
+    assert.equal(h.interactions.receive(early).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(early), undefined);
+    assert.equal(h.admission.store.taskReply(JSON.stringify([early.tenant, early.id])), undefined);
+    assert.equal(h.admission.store.request(admitted.request.id)?.input, '检查发布内容');
+  }
+});
+
+test('an exact matter address can use a project alias as its name without changing the canonical project', async t => {
+  const h = setup(t, undefined, undefined, ['backend', 'other']);
+  const newMatter = h.actor('/matter-new backend');
+  h.interactions.receive(newMatter);
+  const routed = h.interactions.receive(h.actor('backend: check release'));
+  assert.ok('request' in routed);
+  assert.equal(routed.request.input, 'check release');
+  assert.equal(routed.request.conversation,
+    h.admission.store.matters.named({ owner: ownerKey(newMatter), project: h.admission.project }, 'backend')!.id);
+  assert.equal(routed.request.project, h.admission.project);
+  const unchanged = h.interactions.receive(h.actor('other: check release'));
+  assert.equal(unchanged.status, 'rejected');
+  assert.equal(h.admission.store.requests().length, 1);
 });

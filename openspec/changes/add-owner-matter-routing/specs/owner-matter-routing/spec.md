@@ -25,6 +25,12 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 - **THEN** the gateway SHALL atomically consume the choice and admit the original message into the chosen conversation
 - **AND** duplicate deliveries and repeated choices SHALL NOT admit another request, change its destination or override a newer selection
 
+#### Scenario: A quoted reference is awaiting confirmation
+
+- **WHEN** the owner quotes an unconfirmed parent while named matters exist and supplies no other explicit matter address
+- **THEN** the gateway SHALL ask for a choice before dispatching
+- **AND** a redelivery after the parent appears SHALL keep any previously held or refused disposition
+
 #### Scenario: An earlier refusal is replayed
 
 - **WHEN** Feishu redelivers a command or card action refused during maintenance, or a message that required resubmission
@@ -35,6 +41,11 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 - **WHEN** delivery fails or a response has no confirmed platform message ID
 - **THEN** the gateway SHALL retain the same outgoing card identity for recovery
 - **AND** a card SHALL become actionable only after binding its confirmed platform message ID
+
+#### Scenario: Rollback reaches a retained, unprojected response
+
+- **WHEN** reverse conversion finds a committed matter response or clarification card that has not been projected
+- **THEN** it SHALL preserve the existing gateway as owner and wait for the response to be projected and drained
 
 #### Scenario: Existing records remain usable
 

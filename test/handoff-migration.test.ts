@@ -565,10 +565,22 @@ test('closed rollback retains named work and restores the legacy default thread'
   await until(() => codex.calls.some(call => call.method === 'turn/start'));
   codex.complete('thread-1', 'turn-2'); await running;
   for (let i = 0; i < 6; i++) await interactions.flush();
+  const unprojected = { ...named, id: 'unprojected-command' };
+  admission.store.matters.retainNotice(unprojected, () => ({ text: 'Retained response' }));
   admission.store.maintenance.quiesce();
   await interactions.close(); admission.close();
   const lease = await acquireRoot(h.plan.legacyDirectory, 'pilot', h.plan.pilotDirectory);
   const controller = await openRuntimeControl(lease, () => ({})); await controller.close(true); await lease.release();
+  await assert.rejects(rollbackHandoff(h.plan), /matter response has not been projected/);
+  assert.equal(readFence(h.plan.legacyDirectory)!.role, 'pilot');
+  const reopened = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope);
+  const recovery = new PilotInteractions(reopened, h.plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) },
+    new NativeExecutions(reopened, h.plan.config, () => new ManagedFake()),
+    { send: async (_chat, _text, id) => 'matter-answer-' + id },
+    { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
+  await recovery.recover();
+  for (let i = 0; i < 6; i++) await recovery.flush();
+  await recovery.close(); reopened.close();
   assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');
   const restored = new State(h.plan.legacyDirectory);
   try {
