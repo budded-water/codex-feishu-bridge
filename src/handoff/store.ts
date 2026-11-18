@@ -40,6 +40,8 @@ export type ExecutionRecord = {
 export type Reservation = { kind: 'start'; permit: Permit; request: RequestRecord } |
   { kind: 'existing'; execution: ExecutionRecord } | { kind: 'blocked' | 'busy' | 'withdrawn' };
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+const settledTaskReplyDecisions = `SELECT q.origin FROM task_replies q JOIN controls c ON c.origin=q.origin
+  JOIN executions e ON e.id=c.execution WHERE q.kind='live' AND c.status IN ('received','rejected') AND e.status<>'active'`;
 
 export class AdmissionStore {
   private db: DatabaseSync;
@@ -237,9 +239,7 @@ export class AdmissionStore {
   }
 
   finishTaskReplies(): void {
-    const candidates = this.db.prepare(`SELECT q.origin FROM task_replies q JOIN controls c ON c.origin=q.origin
-      JOIN executions e ON e.id=c.execution WHERE q.kind='live' AND c.status IN ('received','rejected') AND e.status<>'active'`)
-      .all() as { origin: string }[];
+    const candidates = this.db.prepare(settledTaskReplyDecisions).all() as { origin: string }[];
     for (const { origin } of candidates) this.transaction(() => {
       const reply = this.taskReply(origin)!;
       const control = this.control(reply.message);
@@ -355,14 +355,15 @@ export class AdmissionStore {
     });
   }
 
-  drainStatus(): Record<string, number | boolean> {
+  drainStatus() {
     const count = (sql: string) => Number((this.db.prepare(sql).get() as { n: number }).n);
     return {
       paused: this.maintenance.paused,
       guards: count('SELECT COUNT(*) AS n FROM guards'),
       queued: count("SELECT COUNT(*) AS n FROM requests WHERE blocked IS NULL AND NOT EXISTS(SELECT 1 FROM executions WHERE executions.request=requests.id) AND NOT EXISTS(SELECT 1 FROM submissions WHERE submissions.request=requests.id AND status='blocked')"),
       publication: count("SELECT COUNT(*) AS n FROM submissions WHERE status='pending'"),
-      controls: count("SELECT COUNT(*) AS n FROM controls WHERE status IN ('received','dispatching') AND EXISTS(SELECT 1 FROM guards WHERE guards.execution=controls.execution)"),
+      controls: count(`SELECT COUNT(*) AS n FROM controls WHERE (status IN ('received','dispatching') AND
+        EXISTS(SELECT 1 FROM guards WHERE guards.execution=controls.execution)) OR origin IN (${settledTaskReplyDecisions})`),
     };
   }
 

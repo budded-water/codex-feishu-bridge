@@ -229,8 +229,12 @@ test('a queued follow-up does not use a different native conversation if the thr
   h.admission.terminal(importRun.permit, { status: 'completed', processSettled: true, reference: 'fixture/checkpoint' });
   assert.equal(h.admission.store.reserve(followup.id, 3).kind, 'blocked');
   assert.equal(h.admission.store.execution(followup.execution), undefined);
+  h.interactions.transport.state.projectAdmissionNotice = () => { throw Error('Crash after the blocked task state was projected'); };
+  await assert.rejects(h.interactions.flush(), /after the blocked task state/);
+  await h.restart();
   await drain(h);
-  assert.ok(h.sent.some(row => row.options?.replyTo === reply.id && row.text.includes('会话在等待期间发生变化')));
+  assert.equal(h.admission.store.execution(followup.execution), undefined);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === reply.id && row.text.includes('会话在等待期间发生变化')).length, 1);
 });
 
 test('a quoted reply with possibly applied effects remains lookup-only after original completion', async t => {

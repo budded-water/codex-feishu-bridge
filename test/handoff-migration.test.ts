@@ -471,10 +471,15 @@ test('rollback waits for a committed quoted reply receipt after a gateway crash 
   if (grant.kind !== 'start') throw Error('Expected reservation');
   const running = native.run(grant.permit);
   await until(() => codex.calls.some(call => call.method === 'turn/start'));
+  const liveReply = { ...original, id: 'quoted-live-reply-before-rollback', text: 'Also check CI', parentId: original.id };
+  assert.equal(interactions.receive(liveReply).status, 'task-reply');
   codex.complete('retained-native-thread', 'turn-1');
   await running;
-  for (let i = 0; i < 5; i++) await interactions.flush();
-  await interactions.close();
+  // Deliver the original result, then simulate stopping before the gateway reconciles the live reply.
+  await interactions.transport.sync();
+  await interactions.transport.flush();
+  await interactions.transport.close();
+  assert.equal(admission.store.control(liveReply)?.status, 'received');
   admission.store.maintenance.quiesce();
   const reply = { ...original, id: 'quoted-reply-before-rollback', text: 'What about CI?', parentId: original.id };
   // Commit only the ingress transaction to exercise the crash before transport projection.
@@ -482,10 +487,15 @@ test('rollback waits for a committed quoted reply receipt after a gateway crash 
   const transport = new State(join(h.plan.pilotDirectory, 'transport'));
   try {
     assert.equal(transport.drainStatus().outbox, 0);
-    assert.equal((await pilotMaintenance(admission, native, transport, { command: 'status' })).outbox, 1);
+    const status = await pilotMaintenance(admission, native, transport, { command: 'status' });
+    assert.equal(status.outbox, 1);
+    assert.equal(status.controls, 1);
+    assert.equal(status.guards, 0);
   } finally { transport.close(); }
   const lease = await acquireRoot(h.plan.legacyDirectory, 'pilot', h.plan.pilotDirectory);
   const controller = await openRuntimeControl(lease, () => ({})); await controller.close(true); await lease.release();
+  await assert.rejects(rollbackHandoff(h.plan), /drained/);
+  admission.store.finishTaskReplies();
   await assert.rejects(rollbackHandoff(h.plan), /task reply notice.*projected/);
   interactions = gateway();
   await interactions.recover();
@@ -493,6 +503,7 @@ test('rollback waits for a committed quoted reply receipt after a gateway crash 
   await assert.rejects(rollbackHandoff(h.plan), /drained/);
   for (let i = 0; i < 5; i++) await interactions.flush();
   assert.equal(delivered.filter(id => id === reply.id).length, 1);
+  assert.equal(delivered.filter(id => id === liveReply.id).length, 1);
   await interactions.close();
   admission.close();
   assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');

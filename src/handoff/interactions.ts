@@ -369,6 +369,7 @@ export class PilotInteractions {
 
   async recover(): Promise<void> {
     await this.native.recover();
+    this.admission.store.finishTaskReplies();
     await this.transport.sync();
   }
 
@@ -395,6 +396,7 @@ export class PilotInteractions {
       await this.recovery.idle();
       this.recovery.sync();
       this.queue.sync();
+      this.admission.store.finishTaskReplies();
       await this.transport.close();
     })();
   }

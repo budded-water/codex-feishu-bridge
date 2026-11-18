@@ -148,8 +148,7 @@ export class State {
         .run(request.execution, request.conversation, request.input, status, request.message.id, Date.now(), JSON.stringify(request.message));
       this.taskStatus(request.execution, status);
       if (!['queued', 'running'].includes(status)) this.db.prepare("UPDATE approvals SET status='invalidated' WHERE task=? AND status='pending'").run(request.execution);
-      if (fresh && request.blocked !== OWNER_WITHDRAWN) {
-        if (request.blocked === QUOTED_CONVERSATION_CHANGED) return;
+      if (fresh && request.blocked !== OWNER_WITHDRAWN && request.blocked !== QUOTED_CONVERSATION_CHANGED) {
         if (request.blocked) this.send(request.message.chat, '前一个任务的结果尚未确认，当前请求没有开始。请先核对实际结果。', { replyTo: request.message.id });
         else this.db.prepare('INSERT INTO feedback(task,message) VALUES (?,?)').run(request.execution, this.replyTarget(request.execution)!);
       }
