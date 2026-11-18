@@ -21,11 +21,16 @@ function pullRequest(value: string): string | undefined {
 }
 
 function pullRequests(text: string): string[] {
-  // Retain the characters used in GitHub addresses, stopping at prose or markup.
-  const urls = text.match(/https:\/\/[\p{L}\p{N}./_:%?&#=@~+-]+/giu) ?? [];
-  const refs = urls.map(value => pullRequest(value.replace(/[.:?_~]+$/, '')))
-    .filter((ref): ref is string => Boolean(ref));
-  return [...new Set(refs)];
+  const refs = new Set<string>();
+  // Accept canonical ASCII paths next to prose. A slash followed by a word
+  // still introduces a path segment that must pass pullRequest's validation.
+  for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%?&#=@~+-]+/gi)) {
+    const value = match[0];
+    if (value.endsWith('/') && /^[\p{L}\p{N}]/u.test(text.slice(match.index + value.length))) continue;
+    const ref = pullRequest(value.replace(/[.:?_~]+$/, ''));
+    if (ref) refs.add(ref);
+  }
+  return [...refs];
 }
 
 const words = new Intl.Segmenter('zh', { granularity: 'word' });
