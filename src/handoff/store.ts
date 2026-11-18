@@ -93,6 +93,10 @@ export class AdmissionStore {
         );
       `);
       this.repairs = new RepairStore(this.db, permit => { this.startableRequest(permit); });
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS pending_submissions ON submissions(next) WHERE status='pending';
+        CREATE INDEX IF NOT EXISTS live_reference_context ON reference_context(execution) WHERE body IS NOT NULL;
+      `);
       this.transaction(() => {
         for (const [table, columns] of Object.entries({ conversations: ['thread', 'last_execution'], executions: ['native_thread', 'native_turn', 'native_generation'] })) {
           const present = this.db.prepare('PRAGMA table_info(' + table + ')').all() as { name: string }[];
@@ -259,6 +263,15 @@ export class AdmissionStore {
     return (this.db.prepare('SELECT id FROM requests ORDER BY rowid').all() as { id: string }[]).map(row => this.request(row.id)!);
   }
 
+  pendingGroupReferences(): RequestRecord[] {
+    const rows = this.db.prepare(`SELECT r.id FROM submissions s JOIN requests r ON r.id=s.request
+      WHERE s.status='pending' AND r.blocked IS NULL AND json_extract(r.message,'$.chatType')='group'
+        AND NOT EXISTS(SELECT 1 FROM executions e WHERE e.request=r.id)
+        AND NOT EXISTS(SELECT 1 FROM reference_context ref WHERE ref.origin=r.origin AND ref.execution=r.execution)
+      ORDER BY r.rowid`).all() as { id: string }[];
+    return rows.map(row => this.request(row.id)!);
+  }
+
   recentVerificationRequests(owner: string, project: string): RequestRecord[] {
     const rows = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
       WHERE c.owner=? AND r.project=? AND (EXISTS(SELECT 1 FROM verifications v WHERE v.execution=r.execution)
@@ -384,7 +397,7 @@ export class AdmissionStore {
   }
 
   retireReferences(execution: string): void {
-    this.db.prepare('UPDATE reference_context SET body=NULL WHERE execution=?').run(execution);
+    this.db.prepare('UPDATE reference_context SET body=NULL WHERE execution=? AND body IS NOT NULL').run(execution);
   }
 
   pendingControls(): ControlRecord[] {

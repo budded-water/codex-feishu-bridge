@@ -309,10 +309,8 @@ export class PilotInteractions {
   }
 
   private async publish(): Promise<void> {
-    for (const request of this.admission.store.requests()) {
-      if (!request.blocked && !this.admission.store.execution(request.execution) && request.message.chatType === 'group') {
-        await this.prepareReference(request, request.message, this.config.groupContextMessages);
-      }
+    for (const request of this.admission.store.pendingGroupReferences()) {
+      await this.prepareReference(request, request.message, this.config.groupContextMessages);
     }
     await this.source.flush();
   }

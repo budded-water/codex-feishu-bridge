@@ -30,6 +30,8 @@ The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-v
 
 ## Current checkpoint — 2026-11-18
 
+The runtime source includes a [read-only P1 metrics command](operation.md#metrics-after-live-setup) and reconciliation that filters settled projections before loading request payloads. The metrics command can read existing compatible pilot state without activating the new runtime. Host and business acceptance are tracked independently below.
+
 | Layer | Current delivery | Remaining boundary |
 | --- | --- | --- |
 | Design and requirements | Selected Feishu/Autoloop/native Codex composition; delivered main specs and archived bounded changes | Active P3 business acceptance stays open; future changes need their own bounded contract |
