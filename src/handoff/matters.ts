@@ -164,7 +164,9 @@ export class OwnerMatters {
     if (held) return this.clarify(held);
     if (this.admission.store.maintenance.paused) return submit();
 
-    const address = this.address(message), reference = this.state.matterReference(message);
+    const address = this.address(message);
+    if (!address && this.admission.projectAddress(message.text)?.outsidePilot) return submit();
+    const reference = this.state.matterReference(message);
     const linked = pullRequests(message.text).map(ref => store.bound(scope, ref));
     const targets = [...new Set([reference, address?.matter, ...linked].filter((id): id is string => Boolean(id)))];
     if (targets.length === 1) return submit(targets[0], address?.input);

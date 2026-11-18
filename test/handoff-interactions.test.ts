@@ -1369,8 +1369,15 @@ test('an exact matter address can use a project alias as its name without changi
   assert.ok('request' in duplicate);
   assert.equal(duplicate.request.id, routed.request.id);
   assert.equal(h.admission.store.retained(original), false);
+  h.interactions.receive(h.actor('/matter-new Solura Release'));
+  h.interactions.receive(h.actor('/matter-new Backend Release'));
   const refused = h.actor('other: check release');
-  assert.equal(h.interactions.receive(refused).status, 'rejected');
+  assert.deepEqual(h.interactions.receive(refused), { status: 'rejected', reason: 'outside_pilot' });
+  assert.equal(h.admission.store.retained(refused), true);
+  assert.equal(h.admission.store.matters.held(refused, h.admission.project), undefined);
+  assert.equal(h.admission.store.matters.notice(refused), undefined);
+  await drain(h);
+  assert.equal(h.sent.some(row => row.options?.replyTo === refused.id), false);
   h.interactions.receive(h.actor('/matter-new other'));
   assert.equal(h.interactions.receive(refused).status, 'ignored');
   assert.equal(h.admission.store.requestForMessage(refused), undefined);
