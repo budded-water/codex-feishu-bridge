@@ -1,5 +1,11 @@
 # Live acceptance evidence
 
+## 2026-11-18 pinned Autoloop v1.9.2 upgrade
+
+The M6 Hub/Worker advanced to the signed [v1.9.2 release](https://github.com/KKKKhazix/agent-autoloop/releases/tag/v1.9.2). The tested release passed both isolated routing and assigned-native verifiers with the deployed gateway source, plus 123 relevant upstream tests. An isolated old → new → old test retained an original run, its later human decision and the follow-up run. The new runtime associated the answer with the originating event.
+
+Admission was paused and execution, publication, controls, prompts and reply delivery drained. Only the Hub/Worker service was replaced. Its closed backup passed per-file hash verification, followed by SQLite integrity and foreign-key checks on a disposable copy using the prior revision's Hub SQL function. The running gateway retained its existing terminal reaction cleanup retry. Runtime health reported the new commit, the Worker checked in after replacement, and admission reopened after checking the prior Hub fact prefix, master key, admissions and conversation pointers. A genuine owner-private message roundtrip is pending.
+
 ## 2026-11-18 task disclosure affordance correction
 
 The owner originally reported that the deployed disclosure headings looked like ordinary text and requested a chevron. The initial exact source-task query is bound to a confirmed structured platform message; that established delivery while the owner's feedback left discoverability unaccepted. [PR #43](https://github.com/budded-water/codex-feishu-bridge/pull/43) explicitly configured native down-chevrons, right placement and expansion rotation, blue Markdown titles, padded bordered headers, and a concise expand/collapse hint. Its 376-test/typecheck/build, exact-head CI/preflight and independent complete-diff review passed before merge.

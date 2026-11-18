@@ -32,6 +32,8 @@ The [bounded repair change](../openspec/changes/archive/2026-11-16-add-bounded-v
 
 The runtime source includes a [read-only P1 metrics command](operation.md#metrics-after-live-setup) and reconciliation that filters settled projections before loading request payloads. The metrics command can read existing compatible pilot state without activating the new runtime. Host and business acceptance are tracked independently below.
 
+The independent [Autoloop v1.9.2 service upgrade](live-acceptance.md#2026-11-18-pinned-autoloop-v192-upgrade) retains its own runtime and acceptance evidence.
+
 | Layer | Current delivery | Remaining boundary |
 | --- | --- | --- |
 | Design and requirements | Selected Feishu/Autoloop/native Codex composition; delivered main specs and archived bounded changes | Active P3 business acceptance stays open; future changes need their own bounded contract |
