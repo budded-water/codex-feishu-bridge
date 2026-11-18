@@ -27,7 +27,7 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 
 #### Scenario: An earlier refusal is replayed
 
-- **WHEN** Feishu redelivers an input that was refused during maintenance or required resubmission
+- **WHEN** Feishu redelivers a command or card action refused during maintenance, or a message that required resubmission
 - **THEN** the gateway SHALL retain the refusal even if the selection or registered objects subsequently change
 
 #### Scenario: The transport acknowledgement is incomplete

@@ -169,18 +169,21 @@ export class OwnerMatters {
     return this.clarify(store.hold(scope, message, [...candidates.slice(0, PAGE_SIZE).map(m => m.id), DEFAULT_MATTER]));
   }
 
-  click(click: MatterClick): { status: CardResult; request?: Extract<Admission, { request: unknown }>['request'] } {
+  click(click: MatterClick): { status: CardResult; admitted?: true } {
     const actor: IncomingMessage = { tenant: click.tenant, chat: click.chat, user: click.user, chatType: 'p2p',
       id: 'matter-switch/' + click.event, text: '', parentId: click.message };
-    if (!this.owner(actor) || this.admission.store.maintenance.paused) return { status: 'rejected' };
-    const card = this.state.matterCard(click), scope = this.scope(actor), store = this.admission.store.matters;
-    if (!card) return { status: 'rejected' };
-    if (card.action === 'switch') return { status: store.select(scope, actor, click.choice) ? 'accepted' : 'rejected' };
-    const request = store.consume(scope, card.id, click.choice, original => {
-      if (this.admission.store.maintenance.paused) return;
-      const admission = this.admission.receive(original, conversation(click.choice));
-      return 'request' in admission && admission.status !== 'duplicate' ? admission.request : undefined;
+    if (!this.owner(actor)) return { status: 'rejected' };
+    const scope = this.scope(actor), store = this.admission.store.matters;
+    return store.decide(actor, () => {
+      if (this.admission.store.maintenance.paused) return { status: 'rejected' };
+      const card = this.state.matterCard(click);
+      if (!card) return { status: 'rejected' };
+      if (card.action === 'switch') return { status: store.select(scope, click.choice) ? 'accepted' : 'rejected' };
+      const request = store.consume(scope, card.id, click.choice, original => {
+        const admission = this.admission.receive(original, conversation(click.choice));
+        return 'request' in admission && admission.status !== 'duplicate' ? admission.request : undefined;
+      });
+      return request ? { status: 'accepted', admitted: true } : { status: 'rejected' };
     });
-    return request ? { status: 'accepted', request } : { status: 'rejected' };
   }
 }

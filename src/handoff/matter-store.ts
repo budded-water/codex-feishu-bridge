@@ -86,7 +86,7 @@ export class MatterStore {
       .run(scope.owner, scope.project, choice);
   }
 
-  private decide<T>(message: IncomingMessage, work: () => T): T {
+  decide<T>(message: IncomingMessage, work: () => T): T {
     return this.transaction(() => {
       const key = origin(message);
       const previous = this.db.prepare('SELECT result FROM matter_decisions WHERE origin=?').get(key) as { result: string } | undefined;
@@ -109,12 +109,10 @@ export class MatterStore {
     });
   }
 
-  select(scope: Scope, message: IncomingMessage, choice: string): boolean {
-    return this.decide(message, () => {
-      if (choice !== DEFAULT_MATTER && !this.owned(scope, choice)) return false;
-      this.setFocus(scope, choice);
-      return true;
-    });
+  select(scope: Scope, choice: string): boolean {
+    if (choice !== DEFAULT_MATTER && !this.owned(scope, choice)) return false;
+    this.setFocus(scope, choice);
+    return true;
   }
 
   bind(scope: Scope, message: IncomingMessage, ref: string): 'bound' | 'conflict' | 'no-matter' {

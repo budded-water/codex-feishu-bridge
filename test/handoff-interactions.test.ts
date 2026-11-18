@@ -1123,9 +1123,15 @@ test('registered PRs take precedence and an ambiguous input is published once af
   assert.equal(normalizeMatterClick(platform, 'fixture')?.id, selected.id);
   assert.equal(normalizeMatterClick(platform, 'other-app'), undefined);
   await h.restart();
-  assert.equal(h.interactions.matterAction({ ...selected, user: 'ou_admin' }), 'rejected');
-  assert.equal(h.interactions.matterAction({ ...selected, message: 'other-message' }), 'rejected');
-  assert.equal(h.interactions.matterAction({ ...selected, choice: 'default' }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), user: 'ou_admin' }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), message: 'other-message' }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), choice: 'default' }), 'rejected');
+  assert.equal(h.admission.store.requestForMessage(deferred), undefined);
+  const pausedClick = { ...selected, event: randomUUID() };
+  h.admission.store.maintenance.quiesce();
+  assert.equal(h.interactions.matterAction(pausedClick), 'rejected');
+  h.admission.store.maintenance.resume();
+  assert.equal(h.interactions.matterAction(pausedClick), 'rejected');
   assert.equal(h.admission.store.requestForMessage(deferred), undefined);
   assert.equal(h.interactions.matterAction(selected), 'accepted');
   assert.equal(h.admission.store.requestForMessage(deferred)?.conversation, aView.anchor);
