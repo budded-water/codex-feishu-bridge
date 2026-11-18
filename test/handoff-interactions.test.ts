@@ -330,6 +330,28 @@ test('an unrouted source request removes its receipt reaction and reports that i
   assert.equal(h.codex.calls.length, 0);
 });
 
+test('steady synchronization skips retained settled rows but recovers an unprojected admission', async t => {
+  const h = setup(t);
+  const history = new Set<string>();
+  for (let index = 0; index < 10; index++) {
+    const message = h.actor('Historical task');
+    const result = h.interactions.receive(message); assert.ok('request' in result);
+    history.add(result.request.id);
+    h.admission.store.routed(result.request.id, false);
+  }
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.text.includes('没有进入预期的调度规则')).length, history.size);
+  const lookup = t.mock.method(h.admission.store, 'request');
+  const incoming = h.actor('Admitted before a gateway interruption');
+  const saved = h.admission.store.accept(incoming, incoming.text, h.admission.project);
+  assert.ok('request' in saved);
+  await h.restart();
+  await drain(h);
+  assert.ok(h.reactions.has(incoming.id));
+  assert.equal(lookup.mock.calls.filter(call => history.has(call.arguments[0])).length, 0);
+  assert.equal(h.sent.filter(row => row.text.includes('没有进入预期的调度规则')).length, history.size);
+});
+
 test('a settled pre-start cancellation still produces truthful human feedback', async t => {
   const h = setup(t);
   const result = h.interactions.receive(h.actor('Not started')); assert.ok('request' in result);
@@ -403,10 +425,38 @@ test('assigned group execution and quoted steering preserve scoped context and s
   const steer = h.codex.calls.find(call => call.method === 'turn/steer')!.params.input as typeof input;
   assert.ok(steer[0]!.text!.includes('steering-quote')); assert.ok(steer.some(item => item.type === 'image'));
   assert.equal(calls[1]!.limit, 0); assert.equal(calls[1]!.source.id, supplement.id);
-  h.codex.complete('thread-1', 'turn-2'); const report = await running; await drain(h);
+  const retire = t.mock.method(h.admission.store, 'retireReferences', () => { throw new Error('interrupted after projection'); });
+  h.codex.complete('thread-1', 'turn-2'); const report = await running;
+  await h.interactions.transport.sync();
+  assert.equal(h.interactions.transport.state.projectedFinal(admitted.request.execution), true);
+  assert.ok(h.admission.store.reference(admitted.request.execution, message)!.context);
+  retire.mock.restore();
+  await h.restart(); await drain(h);
   assert.equal(h.admission.store.reference(admitted.request.execution, message)!.context, null);
   assert.equal(h.admission.store.reference(admitted.request.execution, supplement)!.context, null);
   assert.equal((await h.native.run(grant.permit)).checkpoint, report.checkpoint);
+});
+
+test('restart completes a legacy scheduled group request reference under its retained event', async t => {
+  const referenced: string[] = [];
+  const h = setup(t, undefined, { context: async (_session, message) => {
+    referenced.push(message.id);
+    return { status: 'available', messages: [], note: 'Recovered reference' };
+  } });
+  h.config.enableGroups = true;
+  const message = h.actor('Legacy scheduled group task', { chatType: 'group', parentId: 'original-quote' });
+  const saved = h.admission.store.accept(message, message.text, h.admission.project);
+  assert.ok('request' in saved);
+  h.admission.store.rememberEvent(saved.request.id, 42);
+  h.admission.store.routed(saved.request.id, true);
+  assert.equal(h.admission.store.reference(saved.request.execution, message), undefined);
+  await h.restart();
+  await drain(h);
+  assert.deepEqual(referenced, [message.id]);
+  assert.equal(h.admission.store.reference(saved.request.execution, message)?.context?.note, 'Recovered reference');
+  assert.equal(h.admission.store.submission(saved.request.id)?.event, 42);
+  assert.equal(h.admission.store.submission(saved.request.id)?.status, 'scheduled');
+  assert.equal(h.admission.store.execution(saved.request.execution), undefined);
 });
 
 test('a slow quoted group reference cannot block stop or steer a completed native turn', async t => {

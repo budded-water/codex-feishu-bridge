@@ -65,6 +65,14 @@ On restart, queued and running tasks are interrupted rather than replayed. Check
 
 Observe acknowledgment/completion latency, pending delivery age, retry frequency, approval expirations, and Codex restart counts. The runtime has received reactions, quiet waiting, connection logs and `/status` with active stage/event age, but no exported dashboard or metric time series. Track reaction failures/cleanup backlog alongside answer delivery latency. A live process is not proof of model/network health.
 
+For the default bridge, run `npm run metrics` using the same `BRIDGE_CONFIG` as the service. For the P1 Autoloop deployment, supply its private handoff state directory and the matching pinned Hub database from the deployment inventory.
+
+```bash
+npm run --silent metrics -- --handoff /absolute/pilot-state /absolute/hub.db
+```
+
+The P1 report opens three databases read-only and aggregates up to 1,000 retained admissions. It reports native state, guard and timestamp coverage alongside p50 and p95. Hub metrics require one recorded assignment, with a retained Hub event matching that request and run. The recorded claim can be the latest claim after a retry. The transport clock starts at local projection, and first result measures the first acknowledged final reply chunk. Native runtime, human approval wait, full business delivery, and token costs require separate evidence. Missing timestamps produce fewer samples and missing usage is shown as a coverage count. The window can include fixtures, so compare equivalent cohorts before interpreting a latency change. No service or model call is needed.
+
 ## Pilot migration maintenance
 
 The local `npm run handoff` commands inspect session IDs, quiesce admission, report drainage and prepare closed-state migration or rollback. Both managed runtime entries validate the shared consumer ownership root. Follow [the migration guide](handoff-migration.md) and the private deployment manifest when operating the pilot.

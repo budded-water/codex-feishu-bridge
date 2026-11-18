@@ -1,6 +1,7 @@
 import { browserAccessText, browserRetryCommand } from '../browser-access.js';
 import { section, copyBlock } from '../presentation.js';
 import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { State } from '../state.js';
 import { Outbox, type Sender } from '../outbox.js';
 import { Feedback, type ReactionPort } from '../feedback.js';
@@ -9,12 +10,18 @@ import type { NativeExecutions } from './native.js';
 import { OWNER_WITHDRAWN, type RequestRecord } from './store.js';
 import { verificationText } from './verification-view.js';
 import { repairText } from './repair-view.js';
+import { openHandoffReader } from './read-only.js';
+
+const projectedStatus = `CASE WHEN r.blocked=? THEN 'interrupted'
+  WHEN r.blocked IS NOT NULL OR s.status='blocked' THEN 'unknown'
+  WHEN e.status='active' THEN 'running' ELSE COALESCE(e.status,'queued') END`;
 
 // Transport projections use State's delivery contracts, never its execution queue.
 export class HandoffTransport {
   readonly state: State;
   private outbox: Outbox;
   private feedback: Feedback;
+  private reader?: DatabaseSync;
 
   constructor(private gateway: PilotAdmission, private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = []) {
     this.state = new State(join(gateway.stateDirectory, 'transport'), secrets);
@@ -37,7 +44,22 @@ export class HandoffTransport {
   }
 
   async sync(): Promise<void> {
-    for (const request of this.gateway.store.requests()) {
+    const directory = this.gateway.stateDirectory;
+    const reader = this.reader ??= openHandoffReader(join(directory, 'handoff.db'), join(directory, 'transport', 'bridge.db'));
+    // The transport checkpoint and reference tombstones survive restarts independently.
+    const candidates = reader.prepare(`SELECT r.id FROM requests r
+      LEFT JOIN submissions s ON s.request=r.id
+      LEFT JOIN executions e ON e.id=r.execution
+      LEFT JOIN transport.projected_tasks p ON p.execution=r.execution
+      LEFT JOIN transport.tasks t ON t.id=r.execution
+      WHERE p.execution IS NULL OR t.status IS NOT ${projectedStatus}
+        OR (s.status='blocked' AND r.blocked IS NOT ? AND p.notified=0)
+        OR (e.id IS NOT NULL AND p.checkpoint IS NULL)
+        OR (e.status IN ('completed','interrupted') AND EXISTS(
+          SELECT 1 FROM reference_context ref WHERE ref.execution=r.execution AND ref.body IS NOT NULL))
+      ORDER BY r.rowid`).all(OWNER_WITHDRAWN, OWNER_WITHDRAWN) as { id: string }[];
+    for (const { id } of candidates) {
+      const request = this.gateway.store.request(id)!;
       this.admit(request);
       const execution = this.gateway.store.execution(request.execution);
       if (!execution) continue;
@@ -69,5 +91,9 @@ export class HandoffTransport {
   }
 
   async flush(): Promise<void> { await Promise.all([this.outbox.flush(), this.feedback.flush()]); }
-  async close(): Promise<void> { await this.outbox.close(); await this.feedback.close(); this.state.close(); }
+  async close(): Promise<void> {
+    await this.outbox.close(); await this.feedback.close();
+    this.reader?.close();
+    this.state.close();
+  }
 }
