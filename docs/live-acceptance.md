@@ -6,6 +6,10 @@ The M6 gateway and Worker assignment runner adopted [PR #49](https://github.com/
 
 The accepted cutover quiesced and drained both services before switching their bridge artifacts. It verified a fresh Feishu connection, a new check-in from the Worker under the v1.9.2 Hub, the same retained Hub fact prefix and master key, and matching admission, assignment, conversation and transport histories before admission reopened. The closed capture matched 660 file hashes, including 189 retained files under the native execution directories. Five disposable SQLite copies passed integrity and foreign-key checks. The Hub check used the pinned credential index function with the captured key.
 
+A genuine owner reply to a waiting shell task was accepted by the exact original native turn and did not create another request or Hub run. A separate original task was still unclaimed when its owner reply was merged. Its single later native turn produced the merged reply marker. The owner stopped the waiting fixture through a quoted command, and the original waiting execution was sealed as interrupted.
+
+After the merged task completed, the owner replied to its original Feishu message again. The resulting new request retained a direct source link, reused the same Codex thread and started a distinct turn. Each of the merged task and its follow-up settled in one matched Hub run with zero retries. Their final messages matched the expected markers in the sealed journals and transport checkpoints. Feishu acknowledged both final deliveries. The owner confirmed receiving the merged marker.
+
 ## 2026-11-18 M6 gateway synchronization rollout
 
 The managed gateway adopted [PR #45](https://github.com/budded-water/codex-feishu-bridge/pull/45) and [PR #47](https://github.com/budded-water/codex-feishu-bridge/pull/47) at reviewed artifact `3f43ca78ccea946cc423871f4ae243f54183cded`. Feishu had reported that the message for one pending reaction cleanup was missing. The fix reads the Feishu response-body code before the HTTP client's generic code, and the pending record cleared through normal runtime cleanup after activation. The local check passed typecheck, 379 tests and build. The pinned integration exercised the real Hub and Worker with scripted native execution.
@@ -15,10 +19,6 @@ With admission paused, the gateway exited and a closed backup was captured. Veri
 A genuine owner-private message resumed the existing Codex thread. Its one Hub run completed without retry. The native checkpoint matched the sealed journal and the transport projection. Feishu acknowledged one final reply, and the owner confirmed receiving it.
 
 The one-second synchronization cadence continues. SQL selects pending work and incomplete projections before the gateway loads per-task evidence. The rollout verified functional continuity. No matched-workload latency or CPU measurements were taken.
-
-A genuine owner reply to a waiting shell task was accepted by the exact original native turn and did not create another request or Hub run. A separate original task was still unclaimed when its owner reply was merged. Its single later native turn produced the merged reply marker. The owner stopped the waiting fixture through a quoted command, and the original waiting execution was sealed as interrupted.
-
-After the merged task completed, the owner replied to its original Feishu message again. The resulting new request retained a direct source link, reused the same Codex thread and started a distinct turn. Each of the merged task and its follow-up settled in one matched Hub run with zero retries. Their final messages matched the expected markers in the sealed journals and transport checkpoints. Feishu acknowledged both final deliveries. The owner confirmed receiving the merged marker.
 
 ## 2026-11-18 pinned Autoloop v1.9.2 upgrade
 
