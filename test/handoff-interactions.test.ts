@@ -1107,6 +1107,10 @@ test('registered PRs take precedence and an ambiguous input is published once af
     '检查 https://github.com/org/Solura/pull/9/files?diff=split',
     'Review https://github.com/Org/solura/pull/9.',
     'Check https://github.com/Org/solura/pull/9, focusing on CI.',
+    '检查 https://github.com/Org/solura/pull/9,再看 CI',
+    '检查这个 PR（https://github.com/Org/solura/pull/9）',
+    '检查「https://github.com/Org/solura/pull/9」的 CI',
+    '检查 [对应 PR](https://github.com/Org/solura/pull/9)',
   ]) {
     const direct = h.interactions.receive(h.actor(text));
     assert.ok('request' in direct);

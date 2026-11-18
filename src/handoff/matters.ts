@@ -21,9 +21,10 @@ function pullRequest(value: string): string | undefined {
 }
 
 function pullRequests(text: string): string[] {
-  return [...new Set((text.match(/https:\/\/[^\s\x60<>()\[\]"'，。？！、]+/gi) ?? [])
-    .map(value => pullRequest(value.replace(/[.,;:!?]+$/, '')))
-    .filter((ref): ref is string => Boolean(ref)))];
+  const urls = text.match(/https:\/\/[^\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"',;!，。？！、；：…]+/giu) ?? [];
+  const refs = urls.map(value => pullRequest(value.replace(/[.:?]+$/, '')))
+    .filter((ref): ref is string => Boolean(ref));
+  return [...new Set(refs)];
 }
 
 const words = new Intl.Segmenter('zh', { granularity: 'word' });
