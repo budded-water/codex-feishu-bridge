@@ -197,8 +197,8 @@ test('HTTP not-found after a lost delete response completes cleanup without expo
   const adapter = new Feishu({ appId: 'this-app', appSecret: 'fake-secret' });
   t.after(() => adapter.close());
   Object.assign(adapter, { client: { im: { v1: { messageReaction: {
-    delete: async () => { throw { response: { data: { code: 231011, msg: 'private SDK details' } } }; },
-    list: async () => { throw { response: { data: { code: 231003 } } }; },
+    delete: async () => { throw { code: 'ERR_BAD_REQUEST', response: { data: { code: 231003, msg: 'private SDK details' } } }; },
+    list: async () => { throw { code: 'ERR_BAD_REQUEST', response: { data: { code: 231011 } } }; },
   } } } } });
   await adapter.removeReaction('original', 'gone');
   assert.equal(await adapter.findReaction('original'), undefined);
