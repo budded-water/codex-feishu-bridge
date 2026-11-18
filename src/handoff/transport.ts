@@ -7,7 +7,7 @@ import { Outbox, type Sender } from '../outbox.js';
 import { Feedback, type ReactionPort } from '../feedback.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
-import { OWNER_WITHDRAWN, type RequestRecord } from './store.js';
+import { OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED, type RequestRecord } from './store.js';
 import { verificationText } from './verification-view.js';
 import { repairText } from './repair-view.js';
 import { openHandoffReader } from './read-only.js';
@@ -40,13 +40,21 @@ export class HandoffTransport {
     const unscheduled = this.gateway.store.submission(request.id)?.status === 'blocked';
     this.state.projectAssignedTask(request, this.gateway.scope.pilot, this.gateway.directory,
       withdrawn ? 'interrupted' : request.blocked || unscheduled ? 'unknown' : execution?.status === 'active' ? 'running' : execution?.status ?? 'queued');
-    if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
+    if (request.blocked === QUOTED_CONVERSATION_CHANGED) this.state.projectAdmissionNotice(request, '原任务的会话在等待期间发生变化，追问未启动。请重新说明需要处理的事项。');
+    else if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
   }
 
   async sync(): Promise<void> {
     const directory = this.gateway.stateDirectory;
     const reader = this.reader ??= openHandoffReader(join(directory, 'handoff.db'), join(directory, 'transport', 'bridge.db'));
     // The transport checkpoint and reference tombstones survive restarts independently.
+    const replies = reader.prepare(`SELECT q.origin FROM task_replies q
+      WHERE q.result IS NOT NULL AND NOT EXISTS(SELECT 1 FROM transport.projected_control_notices n
+        WHERE n.origin='task-reply/' || q.origin AND n.status=q.kind) ORDER BY q.rowid`).all() as { origin: string }[];
+    for (const { origin } of replies) {
+      const reply = this.gateway.store.taskReply(origin)!;
+      this.state.projectControlNotice({ ...reply, origin: 'task-reply/' + origin, status: reply.kind });
+    }
     const candidates = reader.prepare(`SELECT r.id FROM requests r
       LEFT JOIN submissions s ON s.request=r.id
       LEFT JOIN executions e ON e.id=r.execution

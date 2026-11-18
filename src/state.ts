@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { Maintenance } from './maintenance.js';
 import { openPrivateDatabase } from './private-database.js';
-import { OWNER_WITHDRAWN, type RequestRecord, type ControlRecord } from './handoff/store.js';
+import { OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED, type RequestRecord, type ControlRecord } from './handoff/store.js';
 import type { JournalProjection } from './handoff/journal.js';
 import { splitReply } from './reply.js';
 import { approvalCard, approvalText, parseApproval, cardMessage, approvalReplyTarget, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
@@ -149,6 +149,7 @@ export class State {
       this.taskStatus(request.execution, status);
       if (!['queued', 'running'].includes(status)) this.db.prepare("UPDATE approvals SET status='invalidated' WHERE task=? AND status='pending'").run(request.execution);
       if (fresh && request.blocked !== OWNER_WITHDRAWN) {
+        if (request.blocked === QUOTED_CONVERSATION_CHANGED) return;
         if (request.blocked) this.send(request.message.chat, '前一个任务的结果尚未确认，当前请求没有开始。请先核对实际结果。', { replyTo: request.message.id });
         else this.db.prepare('INSERT INTO feedback(task,message) VALUES (?,?)').run(request.execution, this.replyTarget(request.execution)!);
       }
@@ -196,7 +197,7 @@ export class State {
     return Boolean(this.db.prepare("SELECT 1 FROM projected_control_notices WHERE origin=? AND status='observed'").get('verification/' + execution));
   }
 
-  projectControlNotice(control: ControlRecord): void {
+  projectControlNotice(control: Pick<ControlRecord, 'origin' | 'message' | 'result'> & { status: string }): void {
     this.transaction(() => {
       if (!control.result || !['unknown', 'dispatching'].includes(control.status)) {
         this.db.prepare(`DELETE FROM outbox WHERE id IN (SELECT id FROM projected_control_notices WHERE origin=? AND status IN ('unknown','dispatching'))`).run(control.origin);

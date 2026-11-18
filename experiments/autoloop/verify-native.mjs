@@ -88,8 +88,8 @@ try {
   interactions = openInteractions();
   await interactions.recover();
   const actor = (text, extra = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, ...extra });
-  const raw = (id, text) => ({ tenant_key: scope.tenant, sender: { sender_type: 'user', sender_id: { open_id: scope.operator } },
-    message: { message_id: id, chat_id: scope.chat, chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text }) } });
+  const raw = (id, text, parent) => ({ tenant_key: scope.tenant, sender: { sender_type: 'user', sender_id: { open_id: scope.operator } },
+    message: { message_id: id, chat_id: scope.chat, chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text }), ...(parent ? { parent_id: parent } : {}) } });
   const start = () => { up = spawn(process.execPath, [...cli, 'up'], { env, stdio: 'ignore' }); };
   const ready = () => until('Hub ready', () => fetch(url + '/healthz').then(value => value.ok).catch(() => false));
   const hubState = async () => {
@@ -159,15 +159,15 @@ try {
     await stopUp('SIGKILL');
     assert.equal((await runtime.recover())[0].status, 'live');
     start(); await ready();
-    const supplement = actor(' \t/steer finish this fixture');
+    const supplement = normalizeMessage(raw('quote-active', 'Finish this fixture', first.message.id), 'ou_fixture_bot');
     const relay = runtime.relay.bind(runtime);
     runtime.relay = async (...args) => { const result = await relay(...args); throw new Error('Fixture acknowledgement lost after native dispatch: ' + result); };
-    interactions.receive(supplement); await interactions.flush();
+    assert.equal(interactions.receive(supplement).status, 'task-reply'); await interactions.flush();
     assert.ok(['unknown', 'accepted'].includes(admission.store.control(supplement).status));
     await interactions.close(); interactions = openInteractions(); await interactions.recover();
     await interactions.flush();
     assert.equal(admission.store.control(supplement).status, 'accepted');
-    assert.equal(interactions.receive(supplement).status, 'duplicate');
+    assert.equal(interactions.receive(supplement).status, 'ignored');
     runtime.relay = relay;
     assert.equal((await ended(first)).status, 'completed'); await settledHub();
     assert.equal(audit().filter(item => item.event === 'turn/start').length, 1);
@@ -213,13 +213,25 @@ try {
       sourceRelease(); writeFileSync(privateConfig, actualConfig); failureProxy.closeAllConnections(); await new Promise(resolve => failureProxy.close(resolve));
       await interactions.close(); interactions = openInteractions(); await interactions.recover();
     }
-    const next = await submit('followup', 'case-complete');
-    await ended(next); await settledHub();
-    assert.equal(runtime.evidence(next.execution).outcome.thread, initial.outcome.thread);
+    const followup = normalizeMessage(raw('quote-followup', 'case-complete', first.message.id), 'ou_fixture_bot');
+    const queuedSupplement = normalizeMessage(raw('quote-queued', 'Include this in the same native turn', followup.id), 'ou_fixture_bot');
+    const beforeQuotes = admission.store.requests().length;
+    assert.equal(interactions.receive(followup).status, 'task-reply');
+    assert.equal(interactions.receive(queuedSupplement).status, 'task-reply');
+    assert.equal(admission.store.requests().length, beforeQuotes + 1);
+    const next = admission.store.requests().at(-1);
+    await ended(next); await settledHub(); await interactions.flush();
+    const continued = runtime.evidence(next.execution);
+    assert.equal(continued.outcome.thread, initial.outcome.thread);
+    assert.notEqual(continued.outcome.turn, initial.outcome.turn);
+    assert.match(audit().filter(item => item.event === 'turn/start').at(-1).text, /Include this in the same native turn/);
+    assert.equal(admission.store.assignmentRuns(next.id).length, 1);
+    assert.ok(deliveries.some(item => item.options?.replyTo === followup.id && item.text.includes('后续追问')));
+    assert.ok(deliveries.some(item => item.options?.replyTo === queuedSupplement.id && item.text.includes('已补到原任务')));
     const marker = JSON.parse(readFileSync(join(state, 'executions', first.execution, 'native-owner.json'), 'utf8'));
     await runtime.run(marker.permit);
     assert.equal(audit().filter(item => item.event === 'turn/start').length, 2);
-    console.log('PASS: actual worker restart, duplicate live control, native continuation and retained checkpoint replay');
+    console.log('PASS: real Hub/Worker preserve one quoted live steer after lost acknowledgement and run one linked follow-up with its queued supplement');
 
     const approval = await submit('approval', 'case-approval');
     let token;
