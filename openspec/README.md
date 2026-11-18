@@ -18,6 +18,7 @@ Completed bounded changes have been synchronized into delivered main specificati
 | Approval cards | [approval-cards](specs/approval-cards/spec.md) | [Cards](changes/archive/2026-11-16-enable-feishu-approval-cards/tasks.md) |
 | Bounded verification repair | [bounded-verification-repair](specs/bounded-verification-repair/spec.md) | [Repair](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) |
 | Read-only verification findings | [verification-findings](specs/verification-findings/spec.md) | [Findings](changes/archive/2026-11-16-add-verification-findings/tasks.md) |
+| Owner task replies | [owner-task-replies](specs/owner-task-replies/spec.md) | [Quoted replies](changes/archive/2026-11-18-route-owner-task-replies/tasks.md) |
 | Owner task progress | [owner-task-progress](specs/owner-task-progress/spec.md) | [Task progress](changes/archive/2026-11-16-add-owner-task-progress/tasks.md) |
 | Browser access handoff | [browser-access-handoff](specs/browser-access-handoff/spec.md) | [Browser handoff](changes/archive/2026-11-18-add-browser-access-handoff/tasks.md) |
 
@@ -28,10 +29,6 @@ These are implemented contracts with bounded evidence, not universal live accept
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) stays active. Its optional runtime is merged/deployed, and real owner-private fixture `/verify` plus historical `/verification` are accepted. Native execution, project validation, review and publication remain separate.
 
 [Task 3.2](changes/add-project-verification-handoff/tasks.md) still requires an authorized business task with its declared acceptance plan and retained reports. The owner currently has no such task. Fixture success, source checks and layout acceptance do not complete that business gate. This change is not archived or promoted to a main spec by the current synchronization. Broader repair/discovery and Release Kit integration remain separate future work.
-
-## Active owner-private task reply change
-
-[route-owner-task-replies](changes/route-owner-task-replies/proposal.md) adds pre-assignment aggregation, exact-turn steering and source-linked follow-up for owned Feishu replies. Its [tasks](changes/route-owner-task-replies/tasks.md) track source verification and genuine managed acceptance.
 
 ## Where facts belong
 
