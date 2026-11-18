@@ -35,7 +35,7 @@ Use the original approval card or the displayed English prompt command for a liv
 
 ## Observed acceptance
 
-The M6 enrolled owner has received the current-work overview, copied a pure rich-post query for a historical repair task, received its detail card and refreshed that same card. Confirmed transport/callback identity and the original pre-query baseline establish unchanged admission, Hub, task/approval and native/project/report facts with no new execution. This is historical owner-private query acceptance; live active-stage, other-client and fault families retain the separate source/automated or pending limits in [live acceptance](live-acceptance.md).
+The M6 enrolled owner has received the current-work overview, copied a pure rich-post query for a historical repair task, received its detail card and refreshed that same card. Confirmed transport/callback identity and the original pre-query baseline establish unchanged admission, Hub, task/approval and native/project/report facts with no new execution. The later compact layout and explicit native chevrons also have genuine owner confirmation of visible click cues and clear expand/collapse, plus a verified update of the same historical source card. Its acceptance baseline establishes no new tasks and unchanged admission/Hub/native/policy facts. This is historical owner-private query acceptance; live active-stage, other-client and fault families retain the separate source/automated or pending limits in [live acceptance](live-acceptance.md).
 
 ## Persistence and compatibility
 
