@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -8,10 +9,11 @@ import type { Config } from '../src/config.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
-import type { DeliveryOptions, ContextPort } from '../src/types.js';
+import { ownerKey, type DeliveryOptions, type ContextPort } from '../src/types.js';
 import { SteerTargetEnded } from '../src/codex/client.js';
 import { FakeCodex, until } from './helpers.js';
 import { readJournal } from '../src/handoff/journal.js';
+import { matterCard, normalizeMatterClick } from '../src/matter-card.js';
 import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
@@ -1028,4 +1030,171 @@ test('pilot English help is local, deduplicated and available while paused; reti
   }
   assert.equal(h.admission.store.requests().length, 0); assert.equal(h.admission.store.controls().length, 0);
   assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.withdrawals().length, 0); assert.equal(h.codex.calls.length, 0);
+});
+
+test('switching matters starts separate native threads and quoting the older task resumes its original thread', async t => {
+  const h = setup(t);
+  const complete = async (request: { id: string }, run: number) => {
+    const issued = h.admission.store.reserve(request.id, run);
+    assert.equal(issued.kind, 'start');
+    if (issued.kind !== 'start') throw Error('Expected assignment');
+    const count = h.codex.calls.filter(call => call.method === 'turn/start').length;
+    const running = h.native.run(issued.permit);
+    const turns = () => h.codex.calls.filter(call => call.method === 'turn/start');
+    await until(() => turns().length > count);
+    const thread = String(turns().at(-1)!.params.threadId);
+    const sequence = h.codex.calls.filter(call => ['thread/start', 'turn/start'].includes(call.method)).length;
+    h.codex.complete(thread, 'turn-' + sequence);
+    await running;
+    return thread;
+  };
+
+  const newRefund = h.actor('/matter-new 退款调查');
+  h.interactions.receive(newRefund);
+  await drain(h);
+  const card = h.sent.find(item => item.options?.replyTo === newRefund.id)!;
+  const matter = card.options!.matterCard!;
+  assert.equal(matter.title, '退款调查');
+  const initial = h.actor('查退款积压');
+  const a = h.interactions.receive(initial);
+  assert.ok('request' in a);
+  const threadA = await complete(a.request, 101);
+
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const b = h.interactions.receive(h.actor('检查待发布版本'));
+  assert.ok('request' in b);
+  assert.notEqual(a.request.conversation, b.request.conversation);
+  assert.equal(a.request.project, b.request.project);
+  const threadB = await complete(b.request, 102);
+  assert.notEqual(threadA, threadB);
+
+  await h.restart();
+  const quote = h.actor('再看微信渠道', { parentId: initial.id });
+  assert.equal(h.interactions.receive(quote).status, 'task-reply');
+  const followup = h.admission.store.requestForMessage(quote)!;
+  assert.equal(followup.conversation, a.request.conversation);
+  assert.equal(await complete(followup, 103), threadA);
+  const cardReply = h.interactions.receive(h.actor('检查支付宝', { parentId: 'delivered-' + card.id }));
+  assert.ok('request' in cardReply);
+  assert.equal(cardReply.request.conversation, a.request.conversation);
+  const plain = h.interactions.receive(h.actor('继续刚才的处理'));
+  assert.ok('request' in plain);
+  assert.equal(plain.request.conversation, b.request.conversation);
+  assert.equal(h.codex.calls.filter(call => call.method === 'thread/start').length, 2);
+});
+
+test('registered PRs take precedence and an ambiguous input is published once after a confirmed choice', async t => {
+  const h = setup(t);
+  const a = h.actor('/matter-new Solura 发版');
+  const b = h.actor('/matter-new Go Global 发版');
+  h.interactions.receive(a);
+  h.interactions.receive(h.actor('/matter-bind https://github.com/Org/solura/pull/9'));
+  h.interactions.receive(b);
+  h.interactions.receive(h.actor('/matter-bind https://github.com/Org/backend/pull/7'));
+  await drain(h);
+  const aCard = h.sent.find(item => item.options?.replyTo === a.id)!;
+  const bCard = h.sent.find(item => item.options?.replyTo === b.id)!;
+  const aView = aCard.options!.matterCard!, bView = bCard.options!.matterCard!;
+  const click = (row: typeof aCard, choice: string, event = randomUUID()) => ({
+    id: row.options!.matterCard!.id, choice, event, message: 'delivered-' + row.id,
+    chat: h.admission.scope.chat, user: h.admission.scope.operator, tenant: h.admission.scope.tenant,
+  });
+  const direct = h.interactions.receive(h.actor('检查 https://github.com/org/Solura/pull/9/files?diff=split'));
+  assert.ok('request' in direct);
+  assert.equal(direct.request.conversation, aView.anchor);
+
+  const deferred = h.actor('昨天那个发版再查一下');
+  assert.equal(h.interactions.receive(deferred).status, 'matter-choice');
+  assert.equal(h.interactions.receive(deferred).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(deferred), undefined);
+  await drain(h);
+  const cards = h.sent.filter(item => item.options?.replyTo === deferred.id);
+  assert.equal(cards.length, 1);
+  const choice = cards[0]!;
+  const selected = click(choice, aView.anchor!);
+  assert.deepEqual(choice.options!.matterCard!.choices.map(c => c.id).sort(), [aView.anchor, bView.anchor].sort());
+  const displayed = matterCard(choice.options!.matterCard!).body.elements[1]!;
+  assert.equal(displayed.tag, 'button');
+  assert.ok('behaviors' in displayed);
+  const platform = { schema: '2.0', app_id: 'fixture', host: 'im_message', event_id: selected.event,
+    tenant_key: selected.tenant, operator: { tenant_key: selected.tenant, open_id: selected.user },
+    context: { open_chat_id: selected.chat, open_message_id: selected.message },
+    action: { tag: 'button', value: displayed.behaviors![0]!.value } };
+  assert.equal(normalizeMatterClick(platform, 'fixture')?.id, selected.id);
+  assert.equal(normalizeMatterClick(platform, 'other-app'), undefined);
+  await h.restart();
+  assert.equal(h.interactions.matterAction({ ...selected, user: 'ou_admin' }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...selected, message: 'other-message' }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...selected, choice: 'default' }), 'rejected');
+  assert.equal(h.admission.store.requestForMessage(deferred), undefined);
+  assert.equal(h.interactions.matterAction(selected), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(deferred)?.conversation, aView.anchor);
+  const switched = click(bCard, bView.anchor!);
+  assert.equal(h.interactions.matterAction(switched), 'accepted');
+  assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), choice: bView.anchor! }), 'rejected');
+  const next = h.interactions.receive(h.actor('继续'));
+  assert.ok('request' in next);
+  assert.equal(next.request.conversation, bView.anchor);
+  const count = h.admission.store.requests().length;
+  assert.equal(h.interactions.receive(deferred).status, 'duplicate');
+  assert.equal(h.admission.store.requests().length, count);
+  assert.equal(h.codex.calls.length, 0);
+});
+
+test('previous admission state keeps the default thread and request foreign keys on the matter schema', t => {
+  const root = mkdtempSync(join(tmpdir(), 'matter-schema-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const scope: PilotScope = { installation: 'fixture', tenant: 'tenant', operator: 'ou_owner', chat: 'chat',
+    projects: { pilot: root }, pilot: 'pilot', hubInstance: 'hub', source: 'fixture', rule: 'pilot', agent: 'native', agentUse: 'bridge-native' };
+  const actor = { tenant: 'tenant', user: 'ou_owner', chat: 'chat', chatType: 'p2p' as const, id: 'original', text: 'original input' };
+  const registry = new PilotAdmission(root, scope);
+  const project = registry.project; registry.close();
+  // Build the old database independently with the legacy unique constraint.
+  const oldRoot = join(root, 'old'); mkdirSync(oldRoot);
+  const file = join(oldRoot, 'handoff.db');
+  const old = new DatabaseSync(file);
+  old.exec(`
+    CREATE TABLE conversations(id TEXT PRIMARY KEY,owner TEXT NOT NULL,project TEXT NOT NULL,
+      thread TEXT,last_execution TEXT,UNIQUE(owner,project));
+    CREATE TABLE requests(id TEXT PRIMARY KEY,execution TEXT NOT NULL UNIQUE,conversation TEXT NOT NULL REFERENCES conversations(id),
+      project TEXT NOT NULL,origin TEXT NOT NULL UNIQUE,message TEXT NOT NULL,input TEXT NOT NULL,blocked TEXT);
+  `);
+  old.prepare('INSERT INTO conversations VALUES (?,?,?,?,?)').run('previous-conversation', ownerKey(actor), project, 'previous-thread', null);
+  old.prepare('INSERT INTO requests VALUES (?,?,?,?,?,?,?,NULL)').run('previous-request', 'previous-execution',
+    'previous-conversation', project, JSON.stringify([actor.tenant, actor.id]), JSON.stringify(actor), actor.text);
+  old.close();
+  const admitted = new PilotAdmission(oldRoot, scope);
+  t.after(() => admitted.close());
+  assert.equal(admitted.store.requestForMessage(actor)?.conversation, 'previous-conversation');
+  assert.equal(admitted.store.conversationThread('previous-conversation'), 'previous-thread');
+  const named = admitted.store.matters.create({ owner: ownerKey(actor), project }, { ...actor, id: 'new-matter' }, '退款');
+  const b = admitted.receive({ ...actor, id: 'named-request' }, named.id);
+  const a = admitted.receive({ ...actor, id: 'default-request' });
+  assert.ok('request' in b && 'request' in a);
+  assert.equal(a.request.conversation, 'previous-conversation');
+  assert.equal(b.request.conversation, named.id);
+  assert.equal(admitted.store.conversationThread(named.id), null);
+  assert.equal(admitted.store.reserve(a.request.id, 80).kind, 'start');
+  assert.equal(admitted.store.reserve(b.request.id, 81).kind, 'busy');
+  const inspect = new DatabaseSync(file, { readOnly: true });
+  try { assert.deepEqual(inspect.prepare('PRAGMA foreign_key_check').all(), []); }
+  finally { inspect.close(); }
+});
+
+test('gateway restart projects a held clarification that had no transport receipt', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new First'));
+  h.interactions.receive(h.actor('/matter-new Second'));
+  await drain(h);
+  const message = h.actor('Which one?');
+  const scope = { owner: ownerKey(message), project: h.admission.project };
+  const choices = h.admission.store.matters.list(scope, 2).map(m => m.id);
+  const held = h.admission.store.matters.hold(scope, message, choices);
+  await h.restart();
+  await drain(h);
+  const matches = h.sent.filter(item => item.options?.replyTo === message.id);
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0]?.options?.matterCard?.id, held.id);
+  assert.equal(h.admission.store.requestForMessage(message), undefined);
+  assert.equal(h.admission.store.matters.unprojected().length, 0);
 });

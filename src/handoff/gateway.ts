@@ -52,7 +52,7 @@ export class PilotAdmission {
     return message;
   }
 
-  receive(inputMessage: IncomingMessage): Admission {
+  receive(inputMessage: IncomingMessage, conversation?: string): Admission {
     const message = this.operator(inputMessage);
     if (!message || this.store.retained(message)) return { status: 'ignored' };
     if (message.unsupported || message.text.length > 30_000) return { status: 'rejected', reason: 'unsupported_input' };
@@ -66,7 +66,7 @@ export class PilotAdmission {
       if (realpathSync(this.scope.projects[prefix[1]!]!) !== this.directory) return { status: 'rejected', reason: 'outside_pilot' };
       input = prefix[2]!;
     }
-    const accepted = this.store.accept(message, input, this.project);
+    const accepted = this.store.accept(message, input, this.project, undefined, conversation);
     if ('paused' in accepted) return { status: 'rejected', reason: 'maintenance' };
     return { status: accepted.duplicate ? 'duplicate' : accepted.request.blocked ? 'blocked' : 'accepted', request: accepted.request };
   }

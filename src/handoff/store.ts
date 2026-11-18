@@ -8,6 +8,7 @@ import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlD
 import { fingerprint, profileDigest, type VerificationProfile } from './verification-profile.js';
 import type { VerificationObservation } from './verification-runner.js';
 import { RepairStore } from './repair-store.js';
+import { MatterStore } from './matter-store.js';
 
 export interface VerificationRecord {
   execution: string; profile: string; digest: string; definition: VerificationProfile;
@@ -47,6 +48,7 @@ export class AdmissionStore {
   private db: DatabaseSync;
   readonly maintenance: Maintenance;
   readonly repairs: RepairStore;
+  readonly matters: MatterStore;
 
   constructor(directory: string, binding: string) {
     this.db = openPrivateDatabase(directory, 'handoff.db');
@@ -131,6 +133,7 @@ export class AdmissionStore {
           this.db.prepare('UPDATE binding SET value=? WHERE id=1').run(binding);
         }
       });
+      this.matters = new MatterStore(this.db, work => this.transaction(work));
     } catch (error) { this.db.close(); throw error; }
   }
 
@@ -154,25 +157,37 @@ export class AdmissionStore {
     return row && { ...row, message: JSON.parse(row.message) as IncomingMessage };
   }
 
-  accept(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection): { duplicate: boolean; request: RequestRecord } | { paused: true } {
+  requestForMessage(message: IncomingMessage): RequestRecord | undefined {
+    const row = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(JSON.stringify([message.tenant, message.id])) as { id: string } | undefined;
+    return row && this.request(row.id);
+  }
+
+  accept(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection, conversation?: string):
+    { duplicate: boolean; request: RequestRecord } | { paused: true } {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already belongs to a control');
       const previous = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(origin) as { id: string } | undefined;
       if (previous) return { duplicate: true, request: this.request(previous.id)! };
       if (this.taskReply(origin)) throw new Error('Message identity already belongs to a task reply');
+      const held = this.matters.held(message, project);
+      if (held && !held.chosen) throw new Error('Task is awaiting matter selection');
       if (this.maintenance.paused) {
         this.db.prepare('INSERT OR IGNORE INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, 'maintenance');
         return { paused: true };
       }
-      return { duplicate: false, request: this.insertRequest(message, input, project, verification) };
+      return { duplicate: false, request: this.insertRequest(message, input, project, verification, conversation) };
     });
   }
 
-  private insertRequest(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection): RequestRecord {
+  private insertRequest(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection, selected?: string): RequestRecord {
     const owner = ownerKey(message);
-    this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)').run(randomUUID(), owner, project);
-    const conversation = this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=?').get(owner, project) as { id: string };
+    if (!selected) this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)').run(randomUUID(), owner, project);
+    const conversation = (selected
+      ? this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=? AND id=?').get(owner, project, selected)
+      : this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=? AND title IS NULL').get(owner, project)
+    ) as { id: string } | undefined;
+    if (!conversation) throw Error('Conversation does not belong to the owner and project');
     const request: RequestRecord = { id: randomUUID(), execution: randomUUID(), conversation: conversation.id, project,
       message, input, blocked: this.uncertainProject(project) ? 'project_outcome_unknown' : null };
     this.db.prepare('INSERT INTO requests VALUES (?,?,?,?,?,?,?,?)').run(request.id, request.execution, request.conversation,
@@ -266,7 +281,7 @@ export class AdmissionStore {
     if (failure) {
       this.db.prepare("UPDATE task_replies SET kind='rejected',result=? WHERE origin=?").run(failure, reply.origin);
     } else {
-      const followup = this.insertRequest(reply.message, input, request.project);
+      const followup = this.insertRequest(reply.message, input, request.project, undefined, request.conversation);
       this.db.prepare("UPDATE task_replies SET kind='followup',result=?,followup=? WHERE origin=?")
         .run('原任务已结束，已排为原会话的后续追问。', followup.id, reply.origin);
     }
@@ -294,7 +309,7 @@ export class AdmissionStore {
         execution.evidence !== 'native-checkpoint/' + retry.checkpoint || latest?.id !== source.id ||
         conversation?.last_execution !== source.execution || conversation.thread !== retry.review.thread ||
         this.db.prepare('SELECT 1 FROM guards WHERE project=?').get(source.project)) throw Error('Source denial or conversation is stale or protected');
-      const result = this.accept(message, input, source.project);
+      const result = this.accept(message, input, source.project, undefined, source.conversation);
       if ('paused' in result) return result;
       if (result.request.conversation !== source.conversation || result.request.blocked || result.duplicate) throw Error('Retry admission identity differs');
       this.db.prepare('INSERT INTO permission_retries VALUES(?,?,?,?)').run(result.request.execution, source.execution, retry.review.id, JSON.stringify(retry));
@@ -333,7 +348,7 @@ export class AdmissionStore {
         conversation?.last_execution !== source.execution || conversation.thread !== retry.thread ||
         this.verification(source.execution) || this.repairs.get(source.execution) ||
         this.db.prepare('SELECT 1 FROM guards WHERE project=?').get(source.project)) return { rejected: 'source-unavailable' as const };
-      const result = this.accept(message, input, source.project);
+      const result = this.accept(message, input, source.project, undefined, source.conversation);
       if ('paused' in result) return result;
       if (result.request.conversation !== source.conversation || result.request.blocked || result.duplicate) throw Error('Browser continuation admission differs');
       this.db.prepare('INSERT INTO browser_retries VALUES(?,?,?)').run(result.request.execution, source.execution, JSON.stringify(retry));

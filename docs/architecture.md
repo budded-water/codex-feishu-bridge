@@ -12,7 +12,9 @@ The [P1 handoff design](../openspec/changes/archive/2026-11-16-integrate-feishu-
 
 The prepared pilot retains bounded group reference snapshots in admission state before scheduling or quoted steering, and supplies them to the assigned Bridge through ContextPort. Settled terminal projection retires snapshot bodies. Authenticated owner probes and bound journals preserve native conversation pointers before terminal settlement. Supported recovery and reverse-conversion lookup are detailed in the migration guide.
 
-The optional workspace routing mode uses one neutral execution directory and owner/chat conversation. Verified current requests determine business targets through native Codex. Its default cwd and canonical guard cover the serialized lane, with native permissions and approvals governing actual access. The assigned runner preserves this mode. See [configuration](configuration.md) and [workspace execution](../openspec/changes/archive/2026-11-16-enable-general-workspace-mode/design.md).
+The optional workspace routing mode uses one neutral execution directory and a default owner/chat conversation. Verified current requests determine business targets through native Codex. Its default cwd and canonical guard cover the serialized lane, with native permissions and approvals governing actual access. The assigned runner preserves this mode. See [configuration](configuration.md) and [workspace execution](../openspec/changes/archive/2026-11-16-enable-general-workspace-mode/design.md).
+
+Named owner matters are separate native conversation records within the same canonical project. Feishu cards and registered PR links select the target before admission. Deferred choices are consumed atomically with the original request. Related retries and exact task replies retain the source conversation. AutoLoop continues to dispatch requests under the existing canonical resource guard. See [owner matters](owner-matters.md).
 
 ## Goal and boundary
 

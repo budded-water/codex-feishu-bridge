@@ -1,3 +1,4 @@
+import { redactMatterPresentation } from './matter-card.js';
 import type { ReviewPresentation } from './review-card.js';
 import type { DeliveryOptions } from './types.js';
 import { State, type Delivery } from './state.js';
@@ -66,7 +67,11 @@ export class Outbox {
           continue;
         }
         const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined,
-          mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval, taskView, reviewCard: delivery.reviewCard });
+          mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval, taskView, reviewCard: delivery.reviewCard,
+          matterCard: delivery.matterCard && redactMatterPresentation(delivery.matterCard, value => {
+            for (const secret of this.secrets) if (secret) value = value.split(secret).join('[redacted]');
+            return value;
+          }) });
         this.state.delivered(delivery.id, message || undefined);
       } catch {
         this.state.retry(delivery);

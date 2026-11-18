@@ -1,3 +1,4 @@
+import { matterCard, normalizeMatterClick, type MatterClick } from './matter-card.js';
 import { reviewCard, normalizeReviewClick, type ReviewPresentation, type ReviewHandler } from './review-card.js';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { attachImages, contextText, mentionText, postRows } from './chat-images.js';
@@ -118,7 +119,7 @@ export class Feishu implements ContextPort, ReactionPort {
   }
 
   async start(receive: (message: IncomingMessage) => void, cardAction?: (click: ApprovalClick) => CardResult,
-    taskAction?: (click: TaskRefreshClick) => CardResult, reviewAction?: ReviewHandler): Promise<void> {
+    taskAction?: (click: TaskRefreshClick) => CardResult, reviewAction?: ReviewHandler, matterAction?: (click: MatterClick) => CardResult): Promise<void> {
     if (this.closed || this.startup) throw new Error('Feishu connection cannot be started');
     let botOpenId: string | undefined;
     if (this.enableGroups) {
@@ -138,8 +139,10 @@ export class Feishu implements ContextPort, ReactionPort {
             let result: CardResult = 'rejected';
             const review = normalizeReviewClick(data, this.appId);
             const refresh = normalizeTaskRefresh(data, this.appId);
+            const matter = normalizeMatterClick(data, this.appId);
             try {
-              if (review && reviewAction && !this.closed) result = reviewAction(review);
+              if (matter && matterAction && !this.closed) result = matterAction(matter);
+              else if (review && reviewAction && !this.closed) result = reviewAction(review);
               else if (refresh && taskAction && !this.closed) result = taskAction(refresh);
               else {
                 const click = normalizeApprovalClick(data, this.appId);
@@ -147,7 +150,7 @@ export class Feishu implements ContextPort, ReactionPort {
               }
             } catch { console.error('Card decision could not be confirmed'); }
             return { toast: { type: result === 'rejected' ? 'warning' : 'info', content: result === 'rejected'
-              ? '请求可能已处理、过期或尚未核实，请查看任务状态。' : refresh ? '正在读取任务进度。' : '已收到本次确认，正在核对请求状态。' } };
+              ? '请求可能已处理、过期或尚未核实，请查看任务状态。' : refresh ? '正在读取任务进度。' : matter ? '已确认事项选择。' : '已收到本次确认，正在核对请求状态。' } };
           },
         }),
       }).catch(() => this.connectionFailed());
@@ -172,8 +175,8 @@ export class Feishu implements ContextPort, ReactionPort {
 
   async send(chat: string, text: string, idempotencyKey: string, options: DeliveryOptions = {}): Promise<string | void> {
     const styled = markdownPost(safeMentionText(text)).zh_cn.content[0]![0]!.text;
-    const content = JSON.stringify(options.reviewCard ? reviewCard(options.reviewCard) : options.taskView ? taskCard(options.taskView) : options.approval ? approvalCard(options.approval) : notificationPost(styled,options.mentions ?? []));
-    const msg_type = options.approval || options.taskView || options.reviewCard ? 'interactive' : 'post';
+    const content = JSON.stringify(options.matterCard ? matterCard(options.matterCard) : options.reviewCard ? reviewCard(options.reviewCard) : options.taskView ? taskCard(options.taskView) : options.approval ? approvalCard(options.approval) : notificationPost(styled,options.mentions ?? []));
+    const msg_type = options.approval || options.taskView || options.reviewCard || options.matterCard ? 'interactive' : 'post';
     if (options.replyTo) {
       const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
         const code = Number(record(record(record(error).response).data).code ?? record(error).code);
