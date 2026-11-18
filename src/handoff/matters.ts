@@ -22,7 +22,8 @@ function pullRequest(value: string): string | undefined {
 
 function pullRequests(text: string): string[] {
   return [...new Set((text.match(/https:\/\/[^\s\x60<>()\[\]"'，。？！、]+/gi) ?? [])
-    .map(value => pullRequest(value)).filter((ref): ref is string => Boolean(ref)))];
+    .map(value => pullRequest(value.replace(/[.,;:!?]+$/, '')))
+    .filter((ref): ref is string => Boolean(ref)))];
 }
 
 const words = new Intl.Segmenter('zh', { granularity: 'word' });

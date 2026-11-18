@@ -1103,9 +1103,15 @@ test('registered PRs take precedence and an ambiguous input is published once af
     id: row.options!.matterCard!.id, choice, event, message: 'delivered-' + row.id,
     chat: h.admission.scope.chat, user: h.admission.scope.operator, tenant: h.admission.scope.tenant,
   });
-  const direct = h.interactions.receive(h.actor('检查 https://github.com/org/Solura/pull/9/files?diff=split'));
-  assert.ok('request' in direct);
-  assert.equal(direct.request.conversation, aView.anchor);
+  for (const text of [
+    '检查 https://github.com/org/Solura/pull/9/files?diff=split',
+    'Review https://github.com/Org/solura/pull/9.',
+    'Check https://github.com/Org/solura/pull/9, focusing on CI.',
+  ]) {
+    const direct = h.interactions.receive(h.actor(text));
+    assert.ok('request' in direct);
+    assert.equal(direct.request.conversation, aView.anchor);
+  }
 
   const deferred = h.actor('昨天那个发版再查一下');
   assert.equal(h.interactions.receive(deferred).status, 'matter-choice');
