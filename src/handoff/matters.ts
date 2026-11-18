@@ -21,8 +21,9 @@ function pullRequest(value: string): string | undefined {
 }
 
 function pullRequests(text: string): string[] {
-  const urls = text.match(/https:\/\/[^\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"',;!，。？！、；：…]+/giu) ?? [];
-  const refs = urls.map(value => pullRequest(value.replace(/[.:?]+$/, '')))
+  // Retain the characters used in GitHub addresses, stopping at prose or markup.
+  const urls = text.match(/https:\/\/[\p{L}\p{N}./_:%?&#=@~+-]+/giu) ?? [];
+  const refs = urls.map(value => pullRequest(value.replace(/[.:?_~]+$/, '')))
     .filter((ref): ref is string => Boolean(ref));
   return [...new Set(refs)];
 }

@@ -1092,7 +1092,7 @@ test('registered PRs take precedence and an ambiguous input is published once af
   const a = h.actor('/matter-new Solura 发版');
   const b = h.actor('/matter-new Go Global 发版');
   h.interactions.receive(a);
-  h.interactions.receive(h.actor('/matter-bind https://github.com/Org/solura/pull/9'));
+  h.interactions.receive(h.actor('/matter-bind https://github.com/Org/solura-app/pull/9'));
   h.interactions.receive(b);
   h.interactions.receive(h.actor('/matter-bind https://github.com/Org/backend/pull/7'));
   await drain(h);
@@ -1104,17 +1104,28 @@ test('registered PRs take precedence and an ambiguous input is published once af
     chat: h.admission.scope.chat, user: h.admission.scope.operator, tenant: h.admission.scope.tenant,
   });
   for (const text of [
-    '检查 https://github.com/org/Solura/pull/9/files?diff=split',
-    'Review https://github.com/Org/solura/pull/9.',
-    'Check https://github.com/Org/solura/pull/9, focusing on CI.',
-    '检查 https://github.com/Org/solura/pull/9,再看 CI',
-    '检查这个 PR（https://github.com/Org/solura/pull/9）',
-    '检查「https://github.com/Org/solura/pull/9」的 CI',
-    '检查 [对应 PR](https://github.com/Org/solura/pull/9)',
+    '检查 https://github.com/org/Solura-app/pull/9/files?diff=split',
+    'Review https://github.com/Org/solura-app/pull/9.',
+    'Check https://github.com/Org/solura-app/pull/9, focusing on CI.',
+    '检查 https://github.com/Org/solura-app/pull/9,再看 CI',
+    '检查这个 PR（https://github.com/Org/solura-app/pull/9）',
+    '检查「https://github.com/Org/solura-app/pull/9」的 CI',
+    '检查 [对应 PR](https://github.com/Org/solura-app/pull/9)',
+    'Review https://github.com/Org/solura-app/pull/9—check CI',
+    '检查 **https://github.com/Org/solura-app/pull/9**',
+    '检查 _https://github.com/Org/solura-app/pull/9_',
   ]) {
     const direct = h.interactions.receive(h.actor(text));
     assert.ok('request' in direct);
     assert.equal(direct.request.conversation, aView.anchor);
+  }
+  for (const text of [
+    '检查 https://github.com/Org/solura-app/pull/9/comment',
+    '检查 https://example.test/Org/solura-app/pull/9',
+  ]) {
+    const unrelated = h.interactions.receive(h.actor(text));
+    assert.ok('request' in unrelated);
+    assert.equal(unrelated.request.conversation, bView.anchor);
   }
 
   const deferred = h.actor('昨天那个发版再查一下');
