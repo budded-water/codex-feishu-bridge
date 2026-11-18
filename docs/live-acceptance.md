@@ -1,5 +1,15 @@
 # Live acceptance evidence
 
+## 2026-11-18 M6 gateway synchronization rollout
+
+The managed gateway adopted [PR #45](https://github.com/budded-water/codex-feishu-bridge/pull/45) and [PR #47](https://github.com/budded-water/codex-feishu-bridge/pull/47) at reviewed artifact `3f43ca78ccea946cc423871f4ae243f54183cded`. Feishu had reported that the message for one pending reaction cleanup was missing. The fix reads the Feishu response-body code before the HTTP client's generic code, and the pending record cleared through normal runtime cleanup after activation. The local check passed typecheck, 379 tests and build. The pinned integration exercised the real Hub and Worker with scripted native execution.
+
+With admission paused, the gateway exited and a closed backup was captured. Verification matched 404 file hashes and passed integrity and foreign-key checks on copies of the three gateway SQLite databases. Before reopening admission, checks confirmed the new Feishu connection, three new SQLite indexes, matching admission, execution, conversation and transport records, and 185 matching sealed native files. Health checks before and after cutover identified the same running AutoLoop v1.9.2 Hub process.
+
+A genuine owner-private message resumed the existing Codex thread. Its one Hub run completed without retry. The native checkpoint matched the sealed journal and the transport projection. Feishu acknowledged one final reply, and the owner confirmed receiving it.
+
+The one-second synchronization cadence continues. SQL selects pending work and incomplete projections before the gateway loads per-task evidence. The rollout verified functional continuity. No matched-workload latency or CPU measurements were taken.
+
 ## 2026-11-18 pinned Autoloop v1.9.2 upgrade
 
 The M6 Hub/Worker advanced to the [v1.9.2 release](https://github.com/KKKKhazix/agent-autoloop/releases/tag/v1.9.2), pinned to its signed commit. The tested release passed both isolated routing and assigned-native verifiers with the deployed gateway source, plus 123 relevant upstream tests. Those verifiers and the scripted P0 probe also passed with the updated repository pin. An isolated old → new → old test retained an original run, its later human decision and the follow-up run. The new runtime associated the answer with the originating event.
