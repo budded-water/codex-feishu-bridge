@@ -634,8 +634,16 @@ export class State {
   delivered(id: string, message?: string): void {
     const card = this.db.prepare('SELECT update_message,approval_view,task_view,review_card,matter_card FROM outbox WHERE id=?').get(id) as { update_message: string | null; approval_view: string | null; task_view: string | null; review_card: string | null; matter_card: string | null } | undefined;
     if (card?.matter_card) {
-      if (message) this.db.prepare('UPDATE matter_cards SET message=COALESCE(message,?) WHERE delivery=?').run(message, id);
-    } else if (card?.review_card) {
+      if (!message) throw new Error('Matter card delivery has no confirmed message ID');
+      this.transaction(() => {
+        const updated = this.db.prepare(`UPDATE matter_cards SET message=? WHERE delivery=? AND (message IS NULL OR message=?)`)
+          .run(message, id, message);
+        if (!updated.changes) throw new Error('Matter card delivery identity changed');
+        this.db.prepare('DELETE FROM outbox WHERE id=?').run(id);
+      });
+      return;
+    }
+    if (card?.review_card) {
       if (message) this.db.prepare('UPDATE review_cards SET message=COALESCE(message,?) WHERE delivery=?').run(message, id);
     }
     else if (card?.task_view) {

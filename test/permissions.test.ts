@@ -153,8 +153,15 @@ test('native review parser distinguishes denial and uncertainty; only a concrete
 });
 
 test('a sealed denied action requires a real confirmed owner card and admits exactly one fresh native-reviewed retry across restart', async t => {
-  const h = setup(t), task = await h.start(), event = reviewEvent(task.current); task.c.notify('item/autoApprovalReview/completed', event);
-  await h.drain(); assert.equal(h.sent.filter(s => s.options?.reviewCard).length, 0); task.complete(); await task.running; await h.drain();
+  const h = setup(t);
+  h.interactions.receive(message('/matter-new Original investigation', { chatType: 'p2p' }));
+  const issued = h.interactions.receive(message('Inspect repository status', { chatType: 'p2p' }));
+  assert.ok('request' in issued);
+  const task = await h.start(issued.request), event = reviewEvent(task.current);
+  task.c.notify('item/autoApprovalReview/completed', event);
+  await h.drain(); assert.equal(h.sent.filter(s => s.options?.reviewCard).length, 0); task.complete(); await task.running;
+  h.interactions.receive(message('/matter-new Unrelated release', { chatType: 'p2p' }));
+  await h.drain();
   const d = h.sent.find(s => s.options?.reviewCard)!, card = d.options!.reviewCard!; assert.equal(card.retry, true); assert.ok(reviewCard(card));
   const file = join(h.config.stateDirectory, 'executions', task.request.execution, 'bridge.db'), before = readFileSync(file);
   const action = click(d); for (const fields of [{ user: 'ou_other' }, { message: 'om_wrong' }, { chat: 'other' }]) assert.equal(h.interactions.reviewAction({ ...action, ...fields }), 'rejected');

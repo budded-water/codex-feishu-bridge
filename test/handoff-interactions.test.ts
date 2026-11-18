@@ -34,7 +34,7 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const native = new NativeExecutions(admission, config, () => codex);
   const sent: { chat: string; text: string; id: string; options?: DeliveryOptions }[] = [];
   const reactions = new Map<string, string>();
-  let send = async (chat: string, text: string, id: string, options?: DeliveryOptions): Promise<string> => {
+  let send = async (chat: string, text: string, id: string, options?: DeliveryOptions): Promise<string | void> => {
     assert.ok(!options?.replyTo?.startsWith('card/'), 'Feishu cannot reply to a synthetic event ID');
     sent.push({ chat, text, id, options }); return 'delivered-' + id;
   };
@@ -1197,4 +1197,92 @@ test('gateway restart projects a held clarification that had no transport receip
   assert.equal(matches[0]?.options?.matterCard?.id, held.id);
   assert.equal(h.admission.store.requestForMessage(message), undefined);
   assert.equal(h.admission.store.matters.unprojected().length, 0);
+});
+
+test('maintained matter commands and overflowing inputs cannot reroute on redelivery', async t => {
+  const h = setup(t);
+  const actor = h.actor('');
+  const scope = { owner: ownerKey(actor), project: h.admission.project };
+  const store = h.admission.store.matters;
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const before = store.focus(scope);
+  const canceledCreate = h.actor('/matter-new Deferred release');
+  const canceledBind = h.actor('/matter-bind https://github.com/fixture/repo/pull/75');
+  h.admission.store.maintenance.quiesce();
+  h.interactions.receive(canceledCreate);
+  h.interactions.receive(canceledBind);
+  await drain(h);
+  await h.restart();
+  h.admission.store.maintenance.resume();
+  h.interactions.receive(canceledCreate);
+  h.interactions.receive(canceledBind);
+  assert.equal(store.focus(scope), before);
+  assert.equal(store.named(scope, 'Deferred release'), undefined);
+  assert.equal(store.bound(scope, 'fixture/repo/pull/75'), undefined);
+  for (let i = 1; i < 7; i++) h.interactions.receive(h.actor('/matter-new Project' + i + ' 发版'));
+  const overflow = h.actor('确认发版 https://github.com/fixture/repo/pull/75');
+  assert.equal(h.interactions.receive(overflow).status, 'matter-choice');
+  h.interactions.receive(h.actor('/matter-bind https://github.com/fixture/repo/pull/75'));
+  const routed = h.interactions.receive(overflow);
+  assert.equal(routed.status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(overflow), undefined);
+  assert.ok('request' in h.interactions.receive(h.actor(overflow.text)), 'only the fresh message uses the new binding');
+});
+
+test('a committed matter creation produces its original card after a transport write failure and restart', async t => {
+  const h = setup(t);
+  const message = h.actor('/matter-new 退款调查');
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  try {
+    transport.exec(`CREATE TRIGGER fail_card BEFORE INSERT ON outbox WHEN NEW.matter_card IS NOT NULL
+      BEGIN SELECT RAISE(ABORT,'fixture transport failure'); END;`);
+    assert.throws(() => h.interactions.receive(message), /fixture transport failure/);
+    const scope = { owner: ownerKey(message), project: h.admission.project };
+    const original = h.admission.store.matters.named(scope, '退款调查')!;
+    assert.ok(original);
+    assert.equal(h.admission.store.matters.unprojectedNotices().length, 1);
+    transport.exec('DROP TRIGGER fail_card');
+    h.interactions.receive(h.actor('/matter-new Solura 发版'));
+    const later = h.admission.store.matters.focus(scope);
+    await h.restart();
+    await drain(h);
+    const messages = h.sent.filter(m => m.options?.replyTo === message.id);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0]?.options?.matterCard?.anchor, original.id);
+    assert.equal(h.admission.store.matters.focus(scope), later);
+    assert.equal(h.admission.store.matters.unprojectedNotices().length, 0);
+  } finally { transport.close(); }
+});
+
+test('matter card delivery retains its idempotency key until the platform ID and outbox settlement commit', async t => {
+  const h = setup(t);
+  const sends: string[] = [];
+  let missing = true;
+  h.setSend(async (_chat, _text, id) => {
+    sends.push(id);
+    return missing ? undefined : 'platform-id';
+  });
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  const pending = () => transport.prepare('SELECT id FROM outbox WHERE matter_card IS NOT NULL').get() as { id: string } | undefined;
+  try {
+    h.interactions.receive(h.actor('/matter-new 退款调查'));
+    await h.interactions.flush();
+    const first = pending()?.id;
+    assert.ok(first);
+    assert.deepEqual(sends, [first]);
+    missing = false;
+    transport.exec(`CREATE TRIGGER fail_binding BEFORE UPDATE OF message ON matter_cards
+      BEGIN SELECT RAISE(ABORT,'fixture bind failure'); END;`);
+    transport.exec('UPDATE outbox SET next=0');
+    await h.interactions.flush();
+    assert.equal(pending()?.id, first);
+    assert.equal((transport.prepare('SELECT message FROM matter_cards').get() as { message: string | null }).message, null);
+    transport.exec('DROP TRIGGER fail_binding');
+    transport.exec('UPDATE outbox SET next=0');
+    await h.restart();
+    await h.interactions.flush();
+    assert.deepEqual(sends, [first, first, first]);
+    assert.equal(pending(), undefined);
+    assert.equal((transport.prepare('SELECT message FROM matter_cards').get() as { message: string | null }).message, 'platform-id');
+  } finally { transport.close(); }
 });

@@ -286,7 +286,7 @@ function mergePilot(plan: MigrationPlan, source: string, transportPath: string, 
       const insertSeen = (tenant: string, id: string) => legacy.prepare('INSERT OR IGNORE INTO seen VALUES (?,?)').run(tenant, id);
       for (const row of rows(pilot, 'retained_receipts')) insertSeen(String(row.tenant), String(column(row, 'message')));
       for (const row of rows(transport, 'seen')) insertSeen(String(row.tenant), String(column(row, 'id')));
-      const receiptTables = ['controls', 'recoveries', ...['matter_inputs', 'matter_decisions'].filter(name =>
+      const receiptTables = ['controls', 'recoveries', ...['matter_inputs', 'matter_decisions', 'matter_notices'].filter(name =>
         pilot.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name))];
       for (const table of receiptTables) for (const row of rows(pilot, table)) {
         const origin: unknown = JSON.parse(String(row.origin));

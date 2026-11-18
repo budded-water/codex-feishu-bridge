@@ -271,10 +271,7 @@ export class PilotInteractions {
   matterAction(click: MatterClick): CardResult {
     if (this.closing) return 'rejected';
     const result = this.matters.click(click);
-    if (result.request) {
-      this.transport.admit(result.request);
-      void this.flush().catch(() => console.error('Matter task is retained; publication awaits retry'));
-    }
+    if (result.request) void this.flush().catch(() => console.error('Matter task is retained; publication awaits retry'));
     return result.status;
   }
 

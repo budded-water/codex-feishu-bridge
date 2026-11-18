@@ -1,10 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { ownerKey, type IncomingMessage } from '../types.js';
+import type { MatterPresentation } from '../matter-card.js';
 
 export const DEFAULT_MATTER = 'default';
 export type Matter = { id: string; title: string };
 type Scope = { owner: string; project: string };
+export type MatterNotice = {
+  message: IncomingMessage; text: string;
+  card?: Omit<MatterPresentation, 'tenant' | 'chat' | 'user' | 'text'>;
+};
 export type HeldMatter = { id: string; message: IncomingMessage; choices: string[]; chosen: string | null };
 const origin = (message: IncomingMessage) => JSON.stringify([message.tenant, message.id]);
 
@@ -47,6 +52,10 @@ export class MatterStore {
             message TEXT NOT NULL, choices TEXT NOT NULL, chosen TEXT, projected INTEGER NOT NULL DEFAULT 0
           );
           CREATE INDEX IF NOT EXISTS unprojected_matter_inputs ON matter_inputs(id) WHERE projected=0 AND chosen IS NULL;
+          CREATE TABLE IF NOT EXISTS matter_notices (
+            origin TEXT PRIMARY KEY, owner TEXT NOT NULL, body TEXT NOT NULL, projected INTEGER NOT NULL DEFAULT 0
+          );
+          CREATE INDEX IF NOT EXISTS unprojected_matter_notices ON matter_notices(origin) WHERE projected=0;
         `);
       });
     } finally { db.exec('PRAGMA foreign_keys=ON'); }
@@ -122,6 +131,32 @@ export class MatterStore {
   bound(scope: Scope, ref: string): string | undefined {
     return (this.db.prepare('SELECT conversation FROM matter_objects WHERE owner=? AND project=? AND ref=?')
       .get(scope.owner, scope.project, ref) as { conversation: string } | undefined)?.conversation;
+  }
+
+  notice(message: IncomingMessage): MatterNotice | undefined {
+    const row = this.db.prepare('SELECT body FROM matter_notices WHERE origin=? AND owner=?')
+      .get(origin(message), ownerKey(message)) as { body: string } | undefined;
+    return row && JSON.parse(row.body) as MatterNotice;
+  }
+
+  retainNotice(message: IncomingMessage, build: () => Omit<MatterNotice, 'message'>): MatterNotice {
+    return this.transaction(() => {
+      const existing = this.notice(message);
+      if (existing) return existing;
+      const notice = { ...build(), message };
+      this.db.prepare('INSERT INTO matter_notices(origin,owner,body) VALUES (?,?,?)')
+        .run(origin(message), ownerKey(message), JSON.stringify(notice));
+      return notice;
+    });
+  }
+
+  unprojectedNotices(): MatterNotice[] {
+    return (this.db.prepare('SELECT body FROM matter_notices WHERE projected=0').all() as { body: string }[])
+      .map(row => JSON.parse(row.body) as MatterNotice);
+  }
+
+  noticeProjected(message: IncomingMessage): void {
+    this.db.prepare('UPDATE matter_notices SET projected=1 WHERE origin=? AND owner=?').run(origin(message), ownerKey(message));
   }
 
   held(message: IncomingMessage, project: string): HeldMatter | undefined {

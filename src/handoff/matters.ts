@@ -4,7 +4,7 @@ import type { State } from '../state.js';
 import type { CardResult } from '../approval.js';
 import type { MatterClick, MatterPresentation } from '../matter-card.js';
 import type { Admission, PilotAdmission } from './gateway.js';
-import { DEFAULT_MATTER, type HeldMatter } from './matter-store.js';
+import { DEFAULT_MATTER, type HeldMatter, type MatterNotice } from './matter-store.js';
 
 const PAGE_SIZE = 6;
 const USAGE = '发送 /matter-new 事项名称 新建并切换。发送 /matters 查看事项和默认对话。已选中事项可用 /matter-bind GitHub PR 链接 绑定对象。';
@@ -69,23 +69,41 @@ export class OwnerMatters {
         (page > 1 ? '\n上一页 /matters ' + (page - 1) : '') +
         (value.length > PAGE_SIZE ? '\n下一页 /matters ' + (page + 1) : ''),
       { id: randomUUID(), title: '选择当前事项', action: 'switch', choices });
-    } else if (this.admission.store.maintenance.paused) {
-      this.reply(message, '系统正在维护。恢复后可以新建事项或绑定对象。');
-    } else if (title && title.length <= 50 && !/[\u0000-\u001f:：]/.test(title) && title !== defaultChoice.label) {
-      const m = store.create(s, message, title);
-      this.reply(message, '已选中此事项。直接发送任务，或日后回复这张卡片继续。', {
-        id: randomUUID(), title: m.title, action: 'switch', anchor: m.id,
-        choices: [{ id: m.id, label: '切到此事项' }],
+    } else {
+      const notice = store.retainNotice(message, () => {
+        if (this.admission.store.maintenance.paused) return { text: '系统正在维护。恢复后可以新建事项或绑定对象。' };
+        if (title && title.length <= 50 && !/[\u0000-\u001f:：]/.test(title) && title !== defaultChoice.label) {
+          const m = store.create(s, message, title);
+          return { text: '已选中此事项。直接发送任务，或日后回复这张卡片继续。', card: {
+            id: randomUUID(), title: m.title, action: 'switch', anchor: m.id,
+            choices: [{ id: m.id, label: '切到此事项' }],
+          } };
+        }
+        const ref = link && pullRequest(link);
+        if (ref) {
+          const result = store.bind(s, message, ref);
+          return { text: result === 'bound' ? '已绑定 PR。之后包含该链接的任务会直达当前事项。'
+            : result === 'conflict' ? '此 PR 已绑定其他事项，原关联继续有效。' : '先选择一个命名事项，再绑定 PR。' };
+        }
+        return { text: USAGE };
       });
-    } else if (link && pullRequest(link)) {
-      const result = store.bind(s, message, pullRequest(link)!);
-      this.reply(message, result === 'bound' ? '已绑定 PR。之后包含该链接的任务会直达当前事项。'
-        : result === 'conflict' ? '此 PR 已绑定其他事项，原关联继续有效。' : '先选择一个命名事项，再绑定 PR。');
-    } else this.reply(message, USAGE);
+      this.projectNotice(notice);
+    }
     return { status: 'matter-view' };
   }
 
+  private projectNotice(notice: MatterNotice): void {
+    this.reply(notice.message, notice.text, notice.card);
+    this.admission.store.matters.noticeProjected(notice.message);
+  }
+
+  private requireResend(message: IncomingMessage, text: string): { status: 'matter-choice' } {
+    this.projectNotice(this.admission.store.matters.retainNotice(message, () => ({ text })));
+    return { status: 'matter-choice' };
+  }
+
   sync(): void {
+    for (const notice of this.admission.store.matters.unprojectedNotices()) this.projectNotice(notice);
     for (const held of this.admission.store.matters.unprojected()) this.clarify(held);
   }
 
@@ -112,6 +130,11 @@ export class OwnerMatters {
 
     const scope = this.scope(message), store = this.admission.store.matters;
     if (this.admission.store.requestForMessage(message)) return submit();
+    const notice = store.notice(message);
+    if (notice) {
+      this.projectNotice(notice);
+      return { status: 'matter-choice' };
+    }
     const held = store.held(message, scope.project);
     if (held) return this.clarify(held);
     if (this.admission.store.maintenance.paused) return submit();
@@ -120,15 +143,14 @@ export class OwnerMatters {
     // inside a message can still describe related work for the model to read.
     const reference = this.state.matterReference(message);
     if (reference) return submit(reference);
-    const title = /^([^\n:：]{1,50})[:：]\s*\S/.exec(message.text.trim())?.[1]?.trim().normalize('NFC');
+    const title = /^([^\n:：]{1,50})(?:：|:(?!\/\/))\s*\S/.exec(message.text.trim())?.[1]?.trim().normalize('NFC');
     const named = title && store.named(scope, title);
     const linked = pullRequests(message.text).map(ref => store.bound(scope, ref));
     const targets = [...new Set([named ? named.id : undefined, ...linked].filter((id): id is string => Boolean(id)))];
     if (targets.length === 1) return submit(targets[0]);
     if (targets.length > 1 && targets.length <= PAGE_SIZE) return this.clarify(store.hold(scope, message, targets));
     if (targets.length > PAGE_SIZE) {
-      this.reply(message, '这条消息关联了多个事项。请引用目标事项的卡片，或只保留对应的 PR 链接后重发。');
-      return { status: 'matter-choice' };
+      return this.requireResend(message, '这条消息关联了多个事项。请引用目标事项的卡片，或只保留对应的 PR 链接后重发。');
     }
 
     const candidates = store.list(scope, -1);
@@ -136,8 +158,7 @@ export class OwnerMatters {
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
     if (related.length > 1) {
       if (related.length > PAGE_SIZE) {
-        this.reply(message, '有多个可能的事项。请在 /matters 中选择，或引用事项卡片后重发。');
-        return { status: 'matter-choice' };
+        return this.requireResend(message, '有多个可能的事项。请在 /matters 中选择，或引用事项卡片后重发。');
       }
       return this.clarify(store.hold(scope, message, related.map(m => m.id)));
     }

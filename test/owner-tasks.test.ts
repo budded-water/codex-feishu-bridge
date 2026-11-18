@@ -297,7 +297,15 @@ test('verbal browser consent is scoped guidance and cannot mutate policy or crea
 });
 
 test('owner-attested browser continuation admits one linked fresh ordinary request under normal native policy', async t => {
-  const { h, task } = await blockedBrowserTask(t); task.complete(); await task.running; await h.drain(); const bytes = journalBytes(h, task.request.execution);
+  const h = setup(t);
+  h.interactions.receive(message('/matter-new Original investigation', { chatType: 'p2p' }));
+  const issued = h.interactions.receive(message('Contact support about the pending review', { chatType: 'p2p' }));
+  assert.ok('request' in issued);
+  const task = await h.start(issued.request);
+  task.c.notify('item/completed', { ...task.current, item: browserDenial() });
+  task.complete(); await task.running;
+  h.interactions.receive(message('/matter-new Unrelated release', { chatType: 'p2p' }));
+  await h.drain(); const bytes = journalBytes(h, task.request.execution);
   h.interactions.receive(message('/browser-retry ' + task.request.execution, { chatType: 'p2p' })); await h.drain(); assert.equal(h.admission.store.requests().length, 1);
   h.interactions.receive(message(browserContinue(task.request.execution), { user: 'other', chatType: 'p2p' })); await h.drain(); assert.equal(h.admission.store.requests().length, 1);
   const intent = message(browserContinue(task.request.execution), { chatType: 'p2p' }); h.interactions.receive(intent); await h.drain();

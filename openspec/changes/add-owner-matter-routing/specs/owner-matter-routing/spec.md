@@ -25,6 +25,17 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 - **THEN** the gateway SHALL atomically consume the choice and admit the original message into the chosen conversation
 - **AND** duplicate deliveries and repeated choices SHALL NOT admit another request, change its destination or override a newer selection
 
+#### Scenario: An earlier refusal is replayed
+
+- **WHEN** Feishu redelivers an input that was refused during maintenance or required resubmission
+- **THEN** the gateway SHALL retain the refusal even if the selection or registered objects subsequently change
+
+#### Scenario: The transport acknowledgement is incomplete
+
+- **WHEN** delivery fails or a response has no confirmed platform message ID
+- **THEN** the gateway SHALL retain the same outgoing card identity for recovery
+- **AND** a card SHALL become actionable only after binding its confirmed platform message ID
+
 #### Scenario: Existing records remain usable
 
 - **WHEN** the gateway opens an existing state database
