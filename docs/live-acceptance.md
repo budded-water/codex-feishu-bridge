@@ -2,7 +2,7 @@
 
 ## 2026-11-18 pinned Autoloop v1.9.2 upgrade
 
-The M6 Hub/Worker advanced to the [v1.9.2 release](https://github.com/KKKKhazix/agent-autoloop/releases/tag/v1.9.2), pinned to its signed commit. The tested release passed both isolated routing and assigned-native verifiers with the deployed gateway source, plus 123 relevant upstream tests. An isolated old → new → old test retained an original run, its later human decision and the follow-up run. The new runtime associated the answer with the originating event.
+The M6 Hub/Worker advanced to the [v1.9.2 release](https://github.com/KKKKhazix/agent-autoloop/releases/tag/v1.9.2), pinned to its signed commit. The tested release passed both isolated routing and assigned-native verifiers with the deployed gateway source, plus 123 relevant upstream tests. Those verifiers and the scripted P0 probe also passed with the updated repository pin. An isolated old → new → old test retained an original run, its later human decision and the follow-up run. The new runtime associated the answer with the originating event.
 
 Admission was paused and execution, publication, controls, prompts and reply delivery drained. Only the Hub/Worker service was replaced. Its closed backup passed per-file hash verification, followed by SQLite integrity and foreign-key checks on a disposable copy using the prior revision's Hub SQL function. The running gateway retained its existing terminal reaction cleanup retry. Runtime health reported the new commit, the Worker checked in after replacement, and admission reopened after checking the prior Hub fact prefix, master key, admissions and conversation pointers.
 
@@ -199,7 +199,7 @@ Durable reply association, concrete-action approvals, scoped natural controls, e
 
 This evidence belongs to an isolated source checkout and temporary test state, not the running Feishu deployment. The native executable matched the regenerated [release constant](../src/codex/generated/version.ts). The reviewed changes were optional initialization/turn/tool-output fields and an audio input representation; supported text and interactive behavior passed the local type/behavior/build check. The real no-inference stdio/model-catalog/tool-disabled-routing-thread smoke passed outside the filesystem sandbox; its initial sandboxed child start failed and is not counted as a successful handshake.
 
-Using the clean source revision in [source.json](../experiments/autoloop/source.json), the explicit verifier ran the actual Autoloop Hub and Worker with the standalone plugin and a scripted native RPC process. It verified:
+Using [Autoloop revision `c9ec4a1`](https://github.com/KKKKhazix/agent-autoloop/commit/c9ec4a187cab49627947e7e33db265ec143db3b8), the explicit verifier ran the actual Autoloop Hub and Worker with the standalone plugin and a scripted native RPC process. It verified:
 
 - Worker/Hub process loss and restart while the original native turn remained alive, followed by owner steering and completion without another start.
 - Started and result acknowledgements lost after Hub acceptance; persisted result delivery retried without native replay.
@@ -217,7 +217,7 @@ Required local checks, strict OpenSpec validation and the separate no-inference 
 
 ## 2026-11-13: P1 routing feasibility
 
-The [P1 handoff design](../openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/design.md) was checked against the same pinned upstream source. The explicit `npm run verify:handoff-routing -- <pinned-checkout>` command started an isolated actual Hub and used its public source/worker/owner HTTP APIs with synthetic records. It did not start a Worker process, native agent, model call, Feishu connection or service installation.
+The [P1 handoff design](../openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/design.md) was checked against the same `c9ec4a1` Autoloop revision as the P0 run above. The explicit `npm run verify:handoff-routing -- <pinned-checkout>` command started an isolated actual Hub and used its public source/worker/owner HTTP APIs with synthetic records. It did not start a Worker process, native agent, model call, Feishu connection or service installation.
 
 The negative control reproduced coalescing of two distinct events into the default queued lane and inheritance of that lane's completed session. The proposed configuration then verified separate runs for burst requests, source deduplication, retrieval of an existing claim after acknowledgement loss, serial dispatch across aliases sharing a canonical-project group, and independent dispatch for another project. Subject lanes with group concurrency one were sufficient; no per-project agent fleet or kernel patch was required. A deliberately reused lane with resume disabled did not inherit its earlier session. Native owner/conversation lookup remains proposed gateway behavior, not evidence supplied by this Hub test.
 
