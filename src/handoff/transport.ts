@@ -10,7 +10,7 @@ import type { NativeExecutions } from './native.js';
 import { OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED, type RequestRecord } from './store.js';
 import { verificationText } from './verification-view.js';
 import { repairText } from './repair-view.js';
-import { openHandoffReader } from './read-only.js';
+import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
 
 const projectedStatus = `CASE WHEN r.blocked=? THEN 'interrupted'
   WHEN r.blocked IS NOT NULL OR s.status='blocked' THEN 'unknown'
@@ -44,17 +44,22 @@ export class HandoffTransport {
     else if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
   }
 
-  async sync(): Promise<void> {
+  private openReader(): DatabaseSync {
     const directory = this.gateway.stateDirectory;
-    const reader = this.reader ??= openHandoffReader(join(directory, 'handoff.db'), join(directory, 'transport', 'bridge.db'));
-    // The transport checkpoint and reference tombstones survive restarts independently.
-    const replies = reader.prepare(`SELECT q.origin FROM task_replies q
-      WHERE q.result IS NOT NULL AND NOT EXISTS(SELECT 1 FROM transport.projected_control_notices n
-        WHERE n.origin='task-reply/' || q.origin AND n.status=q.kind) ORDER BY q.rowid`).all() as { origin: string }[];
-    for (const { origin } of replies) {
+    return this.reader ??= openHandoffReader(join(directory, 'handoff.db'), join(directory, 'transport', 'bridge.db'));
+  }
+
+  private syncTaskReplies(): void {
+    for (const { origin } of unprojectedTaskReplyNotices(this.openReader())) {
       const reply = this.gateway.store.taskReply(origin)!;
       this.state.projectControlNotice({ ...reply, origin: 'task-reply/' + origin, status: reply.kind });
     }
+  }
+
+  async sync(): Promise<void> {
+    this.syncTaskReplies();
+    const reader = this.openReader();
+    // The transport checkpoint and reference tombstones survive restarts independently.
     const candidates = reader.prepare(`SELECT r.id FROM requests r
       LEFT JOIN submissions s ON s.request=r.id
       LEFT JOIN executions e ON e.id=r.execution
@@ -100,8 +105,11 @@ export class HandoffTransport {
 
   async flush(): Promise<void> { await Promise.all([this.outbox.flush(), this.feedback.flush()]); }
   async close(): Promise<void> {
-    await this.outbox.close(); await this.feedback.close();
-    this.reader?.close();
-    this.state.close();
+    try { this.syncTaskReplies(); }
+    finally {
+      await this.outbox.close(); await this.feedback.close();
+      this.reader?.close();
+      this.state.close();
+    }
   }
 }

@@ -9,6 +9,7 @@ import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
 import type { DeliveryOptions, ContextPort } from '../src/types.js';
+import { SteerTargetEnded } from '../src/codex/client.js';
 import { FakeCodex, until } from './helpers.js';
 import { readJournal } from '../src/handoff/journal.js';
 import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
@@ -95,6 +96,35 @@ test('plain owner replies merge into the referenced queued request once and reac
   await running;
 });
 
+test('a reply after Worker reservation waits for the original native turn rather than rewriting input or starting another task', async t => {
+  const h = setup(t);
+  const message = h.actor('Begin the original task');
+  const admitted = h.interactions.receive(message);
+  assert.ok('request' in admitted);
+  const worker = new PilotAdmission(h.config.stateDirectory, h.admission.scope);
+  let grant;
+  try { grant = worker.store.reserve(admitted.request.id, 41); }
+  finally { worker.close(); }
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected reservation');
+  const reply = h.actor('Include CI', { parentId: message.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  await drain(h);
+  assert.equal(h.admission.store.control(reply)?.status, 'received');
+  assert.equal(h.admission.store.request(admitted.request.id)?.input, message.text);
+  assert.equal(h.admission.store.requests().length, 1);
+  const running = h.native.run(grant.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  await drain(h);
+  const start = h.codex.calls.find(call => call.method === 'turn/start')!;
+  const steers = h.codex.calls.filter(call => call.method === 'turn/steer');
+  assert.equal(steers.length, 1);
+  assert.equal(steers[0]!.params.threadId, start.params.threadId);
+  assert.equal(steers[0]!.params.expectedTurnId, 'turn-2');
+  h.codex.complete(String(start.params.threadId), 'turn-2');
+  await running;
+});
+
 test('a plain reply to the active task uses the exact native turn and survives lost acknowledgement without another task', async t => {
   const h = setup(t);
   const task = await h.launch();
@@ -158,18 +188,24 @@ test('a reply to an ended task queues a linked follow-up in the same thread and 
 test('a reply that misses its active turn becomes a follow-up only after definite rejection and settlement', async t => {
   const h = setup(t);
   const task = await h.launch();
-  h.native.relay = async () => {
-    h.codex.complete(task.thread, task.turn);
-    await task.running;
-    return 'rejected';
+  const nativeRequest = h.codex.request.bind(h.codex);
+  h.codex.request = async <T>(method: string, params: unknown): Promise<T> => {
+    const result = await nativeRequest<T>(method, params);
+    if (method === 'turn/steer') {
+      h.codex.complete(task.thread, task.turn);
+      throw new SteerTargetEnded();
+    }
+    return result;
   };
   const reply = h.actor('Also tell me what is left', { parentId: task.message.id });
   assert.equal(h.interactions.receive(reply).status, 'task-reply');
   await drain(h);
+  await task.running;
+  await drain(h);
   assert.equal(h.admission.store.control(reply)?.status, 'rejected');
   assert.equal(h.admission.store.requests().length, 2);
   assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, 1);
-  assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 0);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 1);
   await h.restart();
   await drain(h);
   assert.equal(h.sent.filter(row => row.options?.replyTo === reply.id && row.text.includes('后续追问')).length, 1);

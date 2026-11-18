@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
 import type { State } from '../state.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
@@ -17,6 +19,9 @@ export async function pilotMaintenance(admission: PilotAdmission, native: Native
     admission.store.reconcileLocal(request.nonce, execution.id, request.reference);
   } else if (request.command !== 'status') throw new Error('Unsupported pilot maintenance operation');
   const delivery = transport.drainStatus();
-  return { ...admission.store.drainStatus(), outbox: delivery.outbox, reactions: delivery.reactions, prompts: delivery.prompts,
-    uncertain: admission.store.unsettled().filter(execution => execution.status === 'unknown').map(execution => execution.id) };
+  const reader = openHandoffReader(join(admission.stateDirectory, 'handoff.db'), join(admission.stateDirectory, 'transport/bridge.db'));
+  try {
+    return { ...admission.store.drainStatus(), outbox: Number(delivery.outbox) + unprojectedTaskReplyNotices(reader).length, reactions: delivery.reactions, prompts: delivery.prompts,
+      uncertain: admission.store.unsettled().filter(execution => execution.status === 'unknown').map(execution => execution.id) };
+  } finally { reader.close(); }
 }

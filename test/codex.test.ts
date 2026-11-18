@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { CodexClient } from '../src/codex/client.js';
+import { CodexClient, SteerTargetEnded } from '../src/codex/client.js';
 import { until } from './helpers.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/codex.mjs', import.meta.url));
@@ -104,4 +104,20 @@ test('omitted or null bot effort preserves inherited and caller settings', async
     }
     await client.close();
   }
+});
+
+test('stdio steering distinguishes verified stale native turns from generic RPC rejection', async t => {
+  const client = new CodexClient(process.execPath, [fixture]);
+  t.after(() => client.close());
+  await client.start();
+  const steer = (message: string, code = -32600) => client.request('turn/steer', {
+    threadId: 'thread', expectedTurnId: 'old-turn', input: [{ type: 'text', text: 'a supplement' }], testError: { code, message },
+  });
+  await assert.rejects(steer('no active turn to steer'), SteerTargetEnded);
+  await assert.rejects(steer('expected active turn id `old-turn` but found `new-turn`'), SteerTargetEnded);
+  for (const rejected of [
+    () => steer('no active turn to steer', -32603),
+    () => steer('expected active turn id `different-turn` but found `new-turn`'),
+    () => steer('cannot steer a review turn'),
+  ]) await assert.rejects(rejected, error => error instanceof Error && !(error instanceof SteerTargetEnded));
 });

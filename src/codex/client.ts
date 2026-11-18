@@ -12,6 +12,11 @@ interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
+  expectedSteerTurn?: string;
+}
+
+export class SteerTargetEnded extends Error {
+  constructor() { super('Codex did not accept input for the expected turn'); }
 }
 
 export async function checkVersion(executable: string, prefix: string[] = []): Promise<void> {
@@ -101,7 +106,9 @@ export class CodexClient implements CodexPort {
         const child = this.child;
         if (child) { this.fail(child); child.kill(); }
       }, method === 'initialize' ? Math.max(this.timeout, 10_000) : this.timeout);
-      this.pending.set(id, { resolve: value => resolve(value as T), reject, timer });
+      const expected = method === 'turn/steer' ? record(params).expectedTurnId : undefined;
+      this.pending.set(id, { resolve: value => resolve(value as T), reject, timer,
+        expectedSteerTurn: typeof expected === 'string' ? expected : undefined });
       try { this.write({ id, method, params }); }
       catch {
         clearTimeout(timer);
@@ -147,8 +154,15 @@ export class CodexClient implements CodexPort {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(message.id);
-    if ('error' in message) pending.reject(new Error('Codex rejected the request; see /status or start a new session'));
-    else if ('result' in message) pending.resolve(message.result);
+    if ('error' in message) {
+      const error = record(message.error);
+      const reason = error.message;
+      const expected = pending.expectedSteerTurn;
+      // The pinned app-server reports these only when steer input was not submitted.
+      const ended = expected && error.code === -32600 && typeof reason === 'string' &&
+        (reason === 'no active turn to steer' || (reason.startsWith('expected active turn id `' + expected + '` but found `') && reason.endsWith('`')));
+      pending.reject(ended ? new SteerTargetEnded() : new Error('Codex rejected the request; see /status or start a new session'));
+    } else if ('result' in message) pending.resolve(message.result);
     else pending.reject(new Error('Malformed Codex response'));
   }
 

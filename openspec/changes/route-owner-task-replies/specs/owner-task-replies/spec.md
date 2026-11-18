@@ -40,3 +40,4 @@ A recognized reply SHALL be consumed once. A queued supplement SHALL retain the 
 
 - **WHEN** the same platform message is observed again or the gateway restarts after its disposition was committed
 - **THEN** the gateway SHALL preserve the prior decision and finish any outstanding receipt projection without reapplying it
+- **AND** a runtime handoff shall account for a committed receipt before it changes consumers

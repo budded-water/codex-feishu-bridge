@@ -10,6 +10,7 @@ import { PilotAdmission, type PilotScope } from './gateway.js';
 import { NativeExecutions } from './native.js';
 import { recoveryNoticeTarget } from './recovery.js';
 import { withdrawalNoticeTarget } from './queue.js';
+import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
 import { acquireRoot, controllerFile, fenceFile, privateRecord, readFence, requireClosed, writePrivate, verifyImportedState } from './ownership.js';
 
 type Row = Record<string, string | number | null>;
@@ -227,6 +228,10 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
     for (const withdrawal of admission.store.withdrawals()) {
       if (withdrawalNoticeTarget(admission, withdrawal) && !transport.withdrawalNoticeProjected(withdrawal.origin)) throw new Error('Committed withdrawal notice has not been projected');
     }
+    const reader = openHandoffReader(join(plan.pilotDirectory, 'handoff.db'), join(plan.pilotDirectory, 'transport/bridge.db'));
+    try {
+      if (unprojectedTaskReplyNotices(reader).length) throw new Error('Committed task reply notice has not been projected');
+    } finally { reader.close(); }
     const native = new NativeExecutions(admission, plan.config);
     for (const request of admission.store.requests()) {
       const verification = admission.store.verification(request.execution);

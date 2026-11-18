@@ -18,3 +18,9 @@ export function openHandoffReader(admission: string, transport: string, hub?: st
     throw error;
   }
 }
+
+export function unprojectedTaskReplyNotices(db: DatabaseSync): { origin: string }[] {
+  return db.prepare(`SELECT q.origin FROM task_replies q
+    WHERE q.result IS NOT NULL AND NOT EXISTS(SELECT 1 FROM transport.projected_control_notices n
+      WHERE n.origin='task-reply/' || q.origin AND n.status=q.kind) ORDER BY q.rowid`).all() as { origin: string }[];
+}
