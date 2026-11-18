@@ -1467,3 +1467,30 @@ test('an unaddressed natural restriction steers the actual active task after a m
   h.codex.complete(active.thread, active.turn);
   await active.running;
 });
+
+test('explicit steering in a named private chat requires the quoted running task', async t => {
+  const h = setup(t);
+  const matter = h.actor('/matter-new Refund investigation');
+  h.interactions.receive(matter);
+  h.interactions.receive(h.actor('/matter-new Release'));
+  await drain(h);
+  const active = await h.launch();
+  const card = h.sent.find(item => item.options?.replyTo === matter.id)!;
+  assert.ok(card.options?.matterCard);
+  for (const parentId of ['delivered-' + card.id, 'unconfirmed-parent']) {
+    const control = h.actor('/steer 先不要发布', { parentId });
+    assert.equal(h.interactions.receive(control).status, 'rejected');
+    assert.equal(h.admission.store.control(control), undefined);
+  }
+  await drain(h);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 0);
+  const exact = h.actor('/steer 先查日志', { parentId: active.message.id });
+  assert.equal(h.interactions.receive(exact).status, 'control');
+  await drain(h);
+  const steers = h.codex.calls.filter(call => call.method === 'turn/steer');
+  assert.equal(steers.length, 1);
+  assert.equal(steers[0]?.params.threadId, active.thread);
+  assert.equal(steers[0]?.params.expectedTurnId, active.turn);
+  h.codex.complete(active.thread, active.turn);
+  await active.running;
+});

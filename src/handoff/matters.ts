@@ -138,12 +138,16 @@ export class OwnerMatters {
       Boolean(store.held(message, this.admission.project) || store.notice(message));
   }
 
+  hasNamedMatters(message: IncomingMessage): boolean {
+    return this.admission.store.matters.list(this.scope(message), 1).length > 0;
+  }
+
   overridesNaturalSteer(message: IncomingMessage): boolean {
     if (!this.owner(message)) return false;
     const scope = this.scope(message), store = this.admission.store.matters;
     if (this.state.matterReference(message) || this.address(message) ||
       pullRequests(message.text).some(ref => store.bound(scope, ref))) return true;
-    if (message.parentId) return Boolean(store.list(scope, 1).length &&
+    if (message.parentId) return Boolean(this.hasNamedMatters(message) &&
       !this.state.referencedTask(message.parentId, scope.owner));
     const focus = store.focus(scope);
     return Boolean(focus && focus !== DEFAULT_MATTER && /^只(?:看|统计|查询|分析|读取)/.test(message.text.trim()) &&

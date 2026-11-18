@@ -37,6 +37,11 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 - **THEN** the gateway SHALL ask for a choice before dispatching
 - **AND** a redelivery after the parent appears SHALL keep any previously held or refused disposition
 
+#### Scenario: An explicit steering command quotes a non-task reference
+
+- **WHEN** a private owner with named matters quotes a matter card or an unconfirmed parent and sends `/steer`
+- **THEN** the gateway SHALL ask for the original running task reference and SHALL NOT steer the active turn
+
 #### Scenario: An earlier refusal is replayed
 
 - **WHEN** Feishu redelivers a command or card action refused during maintenance, or a message that was refused by project routing or required resubmission

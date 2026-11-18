@@ -161,7 +161,8 @@ export class PilotInteractions {
         return { status: 'verification-status' as const };
       }
     }
-    const quotedSupplement = /^\/steer\s/.test(message.text.trim()) && !reference;
+    const quotedSupplement = message.parentId && !reference && /^\/steer\s/.test(message.text.trim()) &&
+      (!ordinaryOwner || !this.matters.hasNamedMatters(message));
     if (!execution || (!approval && message.parentId && reference !== execution.id && !quotedSupplement)) {
       this.transport.state.transaction(() => {
         if (!this.transport.state.remember(message)) return;
