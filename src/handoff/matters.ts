@@ -12,22 +12,22 @@ const defaultChoice = { id: DEFAULT_MATTER, label: '默认对话' };
 const conversation = (id: string) => id === DEFAULT_MATTER ? undefined : id;
 
 function pullRequest(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    if (url.origin !== 'https://github.com' || url.username || url.password) return;
-    const match = /^\/([a-z0-9_.-]+\/[a-z0-9_.-]+\/pull\/[1-9][0-9]{0,11})(?:\/(?:files|commits|checks))?\/?$/i.exec(url.pathname);
-    return match?.[1]?.toLowerCase();
-  } catch { return; }
+  const path = /^https:\/\/github\.com(?::443)?\/([^?#\s]+)(?:[?#]\S*)?$/i.exec(value)?.[1];
+  if (!path) return;
+  const match = /^((?!\.{1,2}\/)[a-z0-9_.-]+\/(?!\.{1,2}\/)[a-z0-9_.-]+\/pull\/[1-9][0-9]{0,11})(?:\/(?:files|commits|checks))?\/?$/i.exec(path);
+  return match?.[1]?.toLowerCase();
 }
 
 function pullRequests(text: string): string[] {
   const refs = new Set<string>();
-  // Accept canonical ASCII paths next to prose. A slash followed by a word
-  // still introduces a path segment that must pass pullRequest's validation.
+  // A slash before an unrecognized character may introduce another path
+  // segment. Only treat a trailing slash as complete at a prose boundary.
   for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%?&#=@~+-]+/gi)) {
     const value = match[0];
-    if (value.endsWith('/') && /^[\p{L}\p{N}]/u.test(text.slice(match.index + value.length))) continue;
-    const ref = pullRequest(value.replace(/[.:?_~]+$/, ''));
+    const address = value.replace(text[match.index - 1] === '_' ? /[.:_]+$/ : /[.:]+$/, '');
+    if (address.endsWith('/') && (address !== value ||
+      !/^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"',;!，。？！、；：…])/u.test(text.slice(match.index + value.length)))) continue;
+    const ref = pullRequest(address);
     if (ref) refs.add(ref);
   }
   return [...refs];

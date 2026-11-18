@@ -1110,6 +1110,7 @@ test('registered PRs take precedence and an ambiguous input is published once af
     '检查 https://github.com/Org/solura-app/pull/9,再看 CI',
     '检查 https://github.com/Org/solura-app/pull/9的 CI',
     '检查这个 PR（https://github.com/Org/solura-app/pull/9）',
+    '检查这个 PR（https://github.com/Org/solura-app/pull/9/）',
     '检查「https://github.com/Org/solura-app/pull/9」的 CI',
     '检查 [对应 PR](https://github.com/Org/solura-app/pull/9)',
     'Review https://github.com/Org/solura-app/pull/9—check CI',
@@ -1123,6 +1124,11 @@ test('registered PRs take precedence and an ambiguous input is published once af
   for (const text of [
     '检查 https://github.com/Org/solura-app/pull/9/comment',
     '检查 https://github.com/Org/solura-app/pull/9/详情',
+    '检查 https://github.com/Org/solura-app/pull/9/_详情',
+    '检查 https://github.com/Org/solura-app/pull/9/files_详情',
+    '检查 https://github.com/Org/solura-app/pull/9/~',
+    '检查 https://github.com/Org/solura-app/pull/9/✅',
+    '检查 https://github.com/Org/solura-app/pull/2/../9',
     '检查 https://example.test/Org/solura-app/pull/9',
   ]) {
     const unrelated = h.interactions.receive(h.actor(text));
