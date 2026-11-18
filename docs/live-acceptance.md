@@ -1,5 +1,15 @@
 # Live acceptance evidence
 
+## 2026-11-18 M6 gateway synchronization rollout
+
+The managed gateway adopted [PR #45](https://github.com/budded-water/codex-feishu-bridge/pull/45) with [PR #47](https://github.com/budded-water/codex-feishu-bridge/pull/47) at reviewed artifact `3f43ca78ccea946cc423871f4ae243f54183cded`. The previous revision retried cleanup of a reaction after Feishu reported its message missing. The provider's response-body status now takes precedence over the HTTP client's generic code. That pending cleanup settled through the normal runtime path after cutover. The regression failed before the fix and passed afterward. Local typecheck, 379 tests, build, the pinned Hub/Worker native verifier, exact-head CI and independent review passed.
+
+Admission was paused while the previous gateway settled. The closed backup passed hashes for 404 files and both integrity and foreign-key checks on copies of the three gateway SQLite databases. The replacement connected to Feishu, initialized the three new SQLite indexes, and preserved retained admission, execution, conversation, transport and sealed native evidence before admission reopened. The same AutoLoop v1.9.2 Hub process remained ready throughout the change.
+
+A genuine owner-private message resumed the existing Codex thread and produced one final Feishu reply. Its Hub run settled without retry, and the native checkpoint, sealed journal and transport projection matched. Feishu acknowledged delivery. The owner confirmed receiving the expected reply.
+
+The one-second synchronization cadence continues. SQL now selects pending work and incomplete projections before the gateway loads per-task evidence. This rollout checked functional continuity. Latency and CPU comparisons require matched workload samples. The private inventory retains the cutover, rollback and verification evidence.
+
 ## 2026-11-18 pinned Autoloop v1.9.2 upgrade
 
 The M6 Hub/Worker advanced to the [v1.9.2 release](https://github.com/KKKKhazix/agent-autoloop/releases/tag/v1.9.2), pinned to its signed commit. The tested release passed both isolated routing and assigned-native verifiers with the deployed gateway source, plus 123 relevant upstream tests. Those verifiers and the scripted P0 probe also passed with the updated repository pin. An isolated old → new → old test retained an original run, its later human decision and the follow-up run. The new runtime associated the answer with the originating event.
