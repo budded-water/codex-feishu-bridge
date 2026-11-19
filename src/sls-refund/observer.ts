@@ -79,7 +79,8 @@ export class RefundObserver {
             projected INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(incident,state)
           );
           CREATE TABLE IF NOT EXISTS refund_closure_checks (
-            incident TEXT PRIMARY KEY REFERENCES incidents(id), through INTEGER NOT NULL, due INTEGER NOT NULL
+            incident TEXT PRIMARY KEY REFERENCES incidents(id), checkpoint INTEGER NOT NULL,
+            through INTEGER NOT NULL, due INTEGER NOT NULL
           );
         `);
         const columns = this.db.prepare('PRAGMA table_info(observations)').all() as { name: string }[];
@@ -90,7 +91,8 @@ export class RefundObserver {
         if (sourceColumns.some(column => column.name === 'idle_floor')) {
           // The deployed candidate used a column the previous observer cannot open.
           this.db.exec(`INSERT OR REPLACE INTO refund_subscription
-            SELECT id,idle_floor FROM source WHERE idle_floor IS NOT NULL;
+            SELECT id,idle_floor FROM source WHERE idle_floor IS NOT NULL
+            AND (SELECT state FROM incidents ORDER BY rowid DESC LIMIT 1) IS NOT 'needs-attention';
             ALTER TABLE source DROP COLUMN idle_floor;`);
         }
         const identity = JSON.stringify([binding.mode, binding.region, binding.project, binding.rule, binding.start]);
@@ -168,13 +170,16 @@ export class RefundObserver {
     });
   }
 
-  nextClosureCheck(now: number): { incident: string; through: number } | undefined {
-    return this.db.prepare('SELECT incident,through FROM refund_closure_checks WHERE due<=? ORDER BY due,incident LIMIT 1')
-      .get(now) as { incident: string; through: number } | undefined;
+  nextClosureCheck(now: number): { incident: string; checkpoint: number; through: number } | undefined {
+    return this.db.prepare('SELECT incident,checkpoint,through FROM refund_closure_checks WHERE due<=? ORDER BY due,incident LIMIT 1')
+      .get(now) as { incident: string; checkpoint: number; through: number } | undefined;
   }
 
-  finishClosureCheck(incident: string): void {
-    this.db.prepare('DELETE FROM refund_closure_checks WHERE incident=?').run(incident);
+  advanceClosureCheck(incident: string, checkpoint: number): void {
+    this.transaction(() => {
+      this.db.prepare('UPDATE refund_closure_checks SET checkpoint=? WHERE incident=?').run(checkpoint, incident);
+      this.db.prepare('DELETE FROM refund_closure_checks WHERE incident=? AND checkpoint>=through').run(incident);
+    });
   }
 
   acceptWindow(from: number, to: number, evaluations: Evaluation[], now: number): void {
@@ -219,8 +224,7 @@ export class RefundObserver {
       ORDER BY i.rowid DESC LIMIT 1`).get(at, at) as
       { id: string; through: number; body: string } | undefined;
     if (closed) {
-      const earlier = JSON.parse(closed.body) as Evidence;
-      const firstHealthy = Math.min(earlier.recovery!.at, ...earlier.backlog.map(sample => sample.at));
+      const firstHealthy = this.earliestSample(JSON.parse(closed.body) as Evidence);
       if (firing ? at >= firstHealthy : at === closed.through - 1) {
         // Late data can invalidate a confirmed recovery without creating a
         // second incident or granting another automatic observation budget.
@@ -299,8 +303,8 @@ export class RefundObserver {
           this.samplesAdvance(JSON.parse(earlier.body) as Evidence, evidence);
         this.db.prepare('UPDATE incidents SET state=? WHERE id=?').run(resolved ? 'resolved' : 'needs-attention', sample.incident);
         if (resolved && closureCheckAt !== undefined) {
-          this.db.prepare('INSERT INTO refund_closure_checks VALUES (?,?,?)')
-            .run(sample.incident, sample.evidenceThrough, closureCheckAt);
+          this.db.prepare('INSERT INTO refund_closure_checks VALUES (?,?,?,?)').run(sample.incident,
+            this.earliestSample(JSON.parse(earlier.body) as Evidence), sample.evidenceThrough, closureCheckAt);
         }
       }
       return true;
@@ -311,6 +315,10 @@ export class RefundObserver {
     return Boolean(previous.backlogRun && previous.recoveryRun && current.backlogRun !== previous.backlogRun &&
       current.recoveryRun !== previous.recoveryRun) && current.recovery!.at > previous.recovery!.at &&
       current.backlog.every(sample => sample.at > previous.backlog.find(other => other.channel === sample.channel)!.at);
+  }
+
+  private earliestSample(evidence: Evidence): number {
+    return Math.min(evidence.recovery!.at, ...evidence.backlog.map(sample => sample.at));
   }
 
   private latestEvaluation(): Pick<Evaluation, 'at' | 'status'> | undefined {

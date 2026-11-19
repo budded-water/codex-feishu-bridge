@@ -439,6 +439,26 @@ test('existing subscription state migrates the idle floor without breaking the p
   } finally { db.close(); }
 });
 
+test('migrating a legacy handoff discards the idle floor so the next firing finds its separating evaluation', t => {
+  const { directory, open } = setup(t);
+  const observer = open();
+  observer.acceptWindow(100, 151, [{ id: 'first', at: 120, status: 'firing' }], 160);
+  observer.observe(observer.nextSample(1060)!, 1060, { backlog: [] });
+  const handedOff = observer.report().incident!.id;
+  observer.close();
+
+  const legacy = new DatabaseSync(join(directory, 'refund-observer.db'));
+  legacy.exec('ALTER TABLE source ADD COLUMN idle_floor INTEGER; UPDATE source SET idle_floor=4500;');
+  legacy.close();
+  const upgraded = open();
+  t.after(() => upgraded.close());
+  upgraded.retainNotification({ id: 'new-episode', at: 5010 }, 5100);
+  assert.equal(upgraded.discoveryCursor(), 151);
+  upgraded.acceptWindow(151, 1051, [{ id: 'separating-quiet', at: 500, status: 'inactive' }], 5100);
+  assert.notEqual(upgraded.report().incident?.id, handedOff);
+  assert.equal(upgraded.report().incident?.opened, 5010);
+});
+
 test('a delayed subscription catch-up after human handoff preserves the new incident observation budget', async t => {
   const observer = setup(t).open();
   t.after(() => observer.close());
@@ -496,13 +516,13 @@ test('subscription schedules one persisted closure overlap that can undo a deliv
   const poll = (now: number) => pollRefundObserver(reopened, { binding }, { now, subscription: true,
     read: async (_config, kind, from, to) => {
       calls.push([kind, from, to]);
-      return JSON.stringify(response([{ AlertID: 'late-conflict', AlertName: binding.rule, AlertStatus: 'error', __time__: '1003' }]));
+      return JSON.stringify(response([{ AlertID: 'late-firing', AlertName: binding.rule, AlertStatus: 'firing', __time__: '850' }]));
     },
   });
   await poll(1184);
   assert.equal(calls.length, 0);
   await poll(2000);
-  assert.deepEqual(calls, [['evaluations', 884, 1004]]);
+  assert.deepEqual(calls, [['evaluations', 419, 1004]]);
   assert.equal(reopened.through(), 1005);
   assert.equal(reopened.report().incident?.id, incident);
   assert.equal(reopened.pendingNotices()[0]?.state, 'needs-attention');
@@ -559,11 +579,19 @@ test('a scheduled poll after disabling the subscription reads from the saved SLS
 
   const observer = open();
   t.after(() => observer.close());
-  await pollRefundObserver(observer, { binding }, { now: 500, read: async (_config, kind, from, to) => {
+  const poll = () => pollRefundObserver(observer, { binding }, { now: 2000, read: async (_config, kind, from, to) => {
     if (kind === 'evidence') return JSON.stringify(response([]));
-    assert.deepEqual([from, to], [100, 440]);
-    return JSON.stringify(response([{ AlertID: 'previous', AlertName: binding.rule, AlertStatus: 'inactive', __time__: '200' }]));
+    if (from === 100) {
+      assert.equal(to, 1000);
+      return JSON.stringify(response([{ AlertID: 'previous', AlertName: binding.rule, AlertStatus: 'inactive', __time__: '200' }]));
+    }
+    return JSON.stringify(response([]));
   } });
-  assert.equal(observer.through(), 440);
+  assert.equal(await poll(), false);
+  assert.equal(await poll(), false);
+  assert.equal(await poll(), true);
+  assert.equal(observer.through(), 1940);
   assert.equal(observer.report().evaluations, 2);
+  assert.deepEqual(observer.report().incident?.observations.map(row => row.slot), [0]);
+  assert.deepEqual(observer.report().incident?.followups, [2300, 2900]);
 });

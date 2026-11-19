@@ -90,7 +90,7 @@ When a dedicated SMQ source is configured, the gateway SHALL receive only matchi
 #### Scenario: A closure evaluation arrives late
 
 - **WHEN** a subscription observation confirms recovery
-- **THEN** the observer retains one bounded overlap recheck of the closure window across restart
+- **THEN** the observer retains one recheck from the earliest healthy follow-up sample to the final evidence cutoff, with bounded reads and restart-safe progress
 - **AND** a conflicting late evaluation returns the original incident to human handoff
 
 #### Scenario: The previous observer opens the retained ledger
@@ -102,9 +102,10 @@ When a dedicated SMQ source is configured, the gateway SHALL receive only matchi
 
 - **WHEN** a scheduled observer starts after subscription mode retained an unread notification
 - **THEN** the scheduled observer starts from the saved SLS cursor
-- **AND** the subscription idle floor cannot discard unread history
+- **AND** the subscription idle floor cannot discard unread history, and an incident without samples starts its budget once the pending firing is covered
 
 #### Scenario: A queued firing invalidates a previous closure
 
 - **WHEN** a queued firing returns a resolved incident to human handoff
 - **THEN** the observer retains unread history to distinguish the next firing from that incident
+- **AND** migration discards a legacy idle floor when the latest incident needs human handoff

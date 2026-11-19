@@ -18,10 +18,10 @@ export async function pollRefundObserver(observer: RefundObserver, config: Obser
   if (subscription) {
     const closure = observer.nextClosureCheck(now);
     if (closure) {
-      const from = Math.max(config.binding.start, closure.through - overlapSeconds);
-      observer.acceptWindow(from, closure.through,
-        readEvaluations(await read(config, 'evaluations', from, closure.through), config.binding), now);
-      observer.finishClosureCheck(closure.incident);
+      const to = Math.min(closure.through, closure.checkpoint + maxCatchupSeconds);
+      observer.acceptWindow(closure.checkpoint, to,
+        readEvaluations(await read(config, 'evaluations', closure.checkpoint, to), config.binding), now);
+      observer.advanceClosureCheck(closure.incident, to);
     }
     if (!canContinue()) return false;
     if (!observer.nextSample(now, true) && !observer.notificationReadDue(now - logDelaySeconds)) return true;
@@ -35,8 +35,8 @@ export async function pollRefundObserver(observer: RefundObserver, config: Obser
   if (!canContinue()) return false;
   // If discovery is still catching up, do not close using incomplete incident history.
   const caughtUp = to >= now - logDelaySeconds;
-  if (caughtUp && subscription) observer.finishNotificationReads(now);
-  const sample = caughtUp ? observer.nextSample(now, subscription) : undefined;
+  if (caughtUp && observer.notificationReadDue(to)) observer.finishNotificationReads(now);
+  const sample = caughtUp ? observer.nextSample(now, true) : undefined;
   if (sample) {
     let evidence: Evidence = { backlog: [] };
     const from = Math.max(0, now - 5 * 60);
