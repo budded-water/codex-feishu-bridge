@@ -171,7 +171,7 @@ export class RefundObserver {
 
     // Window overlap may deliver the intervening quiet evaluation after the next firing.
     // Check the accepted history after all rows in the window have been recorded.
-    const { at: quiet } = this.db.prepare(`SELECT MAX(q.at) AS at FROM evaluations AS q
+    const { at: quiet } = this.db.prepare(`SELECT MIN(q.at) AS at FROM evaluations AS q
       WHERE q.status='inactive' AND q.at>? AND q.at<?
         AND NOT EXISTS (SELECT 1 FROM evaluations AS other WHERE other.at=q.at AND other.status!='inactive')`)
       .get(final.firing, latest.last_firing) as { at: number | null };

@@ -371,13 +371,20 @@ test('a new firing after a late inactive boundary gets its own incident after a 
     ], 1160);
     assert.equal(reopened.pendingNotices().length, 0);
     assert.equal(reopened.nextSample(1160), undefined);
-    reopened.acceptWindow(1100, 1171, [{ id: 'quiet', at: 1110, status: 'inactive' }], 1180);
+    const overlap = [
+      { id: 'quiet', at: 1110, status: 'inactive' },
+      { id: 'later-quiet', at: 1170, status: 'inactive' },
+      { id: 'later-firing', at: 1200, status: 'firing' },
+    ] as const;
+    reopened.acceptWindow(1100, 1211, [...overlap], 1220);
     const next = reopened.pendingNotices()[0]!;
     assert.equal(next.state, 'open');
     assert.notEqual(next.incident, handled);
-    assert.equal(reopened.nextSample(1180)?.incident, next.incident);
-    reopened.acceptWindow(1100, 1171, [{ id: 'quiet', at: 1110, status: 'inactive' }], 1190);
+    assert.equal(reopened.nextSample(1220)?.incident, next.incident);
+    assert.equal(reopened.report().incident?.opened, 1140);
+    assert.equal(reopened.report().incident?.lastFiring, 1200);
+    reopened.acceptWindow(1100, 1211, [...overlap], 1230);
     assert.deepEqual(reopened.pendingNotices(), [next]);
-    assert.equal(reopened.report().handoffs[0]?.id, handled);
+    assert.deepEqual({ ...reopened.report().handoffs[0] }, { id: handled, opened: 120, lastFiring: 1080 });
   } finally { reopened.close(); }
 });
