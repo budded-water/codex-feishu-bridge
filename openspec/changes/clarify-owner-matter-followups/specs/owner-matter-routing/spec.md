@@ -49,6 +49,7 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 - **THEN** the gateway SHALL retain the original reply and confirmed answer identity and require a choice before admitting any work
 - **AND** selecting the answer's matter SHALL use the existing verified task-reply checks and original conversation
 - **AND** selecting another candidate SHALL admit a new ordinary request in that matter using the submitted content without importing the quoted answer or its conversation history
+- **AND** a refused follow-up SHALL consume the selected response once without changing the current focus
 - **AND** exact replies to the owner's original task SHALL retain their existing semantics
 
 #### Scenario: A short unanchored follow-up arrives after switching
@@ -96,4 +97,5 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 
 - **WHEN** the gateway opens an existing state database
 - **THEN** the prior default conversation and its requests, native thread and references SHALL retain their identities
+- **AND** previously confirmed selections SHALL stay confirmed through the schema upgrade
 - **AND** the canonical project guard SHALL still prevent overlapping work across matters using that resource

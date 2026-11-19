@@ -261,11 +261,14 @@ export class OwnerMatters {
           if (sourceMatter === click.choice) {
             if (this.state.confirmedAnswer(original) !== answerExecution) return;
             const reply = this.admission.store.acceptTaskReply(original, scope.project, answerExecution);
-            return reply?.status === 'task-reply' ? true : undefined;
+            if (reply?.status !== 'task-reply') return;
+            return this.admission.store.requestForMessage(original) ? 'admitted' : 'refused';
           }
         }
         const admission = this.admission.receive(original, conversation(click.choice), input);
-        return 'request' in admission && admission.status !== 'duplicate' ? true : undefined;
+        if ('request' in admission && admission.status !== 'duplicate') {
+          return admission.status === 'blocked' ? 'refused' : 'admitted';
+        }
       });
       return consumed ? { status: 'accepted', flush: true } : { status: 'rejected' };
     });

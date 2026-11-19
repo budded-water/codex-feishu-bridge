@@ -67,29 +67,38 @@ test('verified input, immutable identity and source intent persist through reope
   assert.throws(() => new PilotAdmission(h.state, { ...h.scope, hubInstance: 'another-hub' }), /another installation/);
 });
 
-test('adding answer-conflict identity preserves existing held matter cards and their choices', t => {
+test('upgrading matter routing preserves existing cards and already confirmed focus', t => {
   const h = setup(t);
   const original = h.accept('first');
   const scope = { owner: ownerKey(original.message), project: original.project };
   const matters = h.gateway.store.matters;
   const named = matters.create(scope, { ...original.message, id: 'create-matter' }, 'Release');
   const message = { ...original.message, id: 'held-before-upgrade', text: 'Continue' };
+  h.accept('off-focus-before-confirmation');
   const held = matters.hold(scope, message, [named.id, 'default']);
   matters.projected(held.id);
   const old = new DatabaseSync(join(h.state, 'handoff.db'));
-  try { old.exec('ALTER TABLE matter_inputs DROP COLUMN answer_execution'); }
+  try {
+    old.exec(`ALTER TABLE matter_inputs DROP COLUMN answer_execution;
+      UPDATE matter_focus SET previous_choice=NULL, switch_after=(SELECT rowid FROM requests ORDER BY rowid LIMIT 1)`);
+  }
   finally { old.close(); }
 
   const store = h.reopen().store;
   assert.deepEqual(store.matters.held(message, scope.project), held);
   assert.equal(store.matters.unprojected().length, 0);
+  assert.equal(store.matters.focus(scope), named.id);
+  assert.equal(store.matters.alternateFocusForFollowup(scope), undefined);
+  store.accept({ ...original.message, id: 'off-focus-after-upgrade' }, 'New context', scope.project);
+  assert.equal(store.matters.alternateFocusForFollowup(scope), 'default');
   const chosen = store.matters.consume(scope, held.id, named.id, (input, text, answerExecution) => {
     assert.equal(answerExecution, undefined);
     const result = store.accept(input, text ?? input.text, scope.project, undefined, named.id);
     assert.ok('request' in result);
-    return result.request;
+    return 'admitted';
   });
-  assert.equal(chosen?.conversation, named.id);
+  assert.equal(chosen, 'admitted');
+  assert.equal(store.requestForMessage(message)?.conversation, named.id);
   assert.equal(store.request(original.id)?.conversation, original.conversation);
 });
 

@@ -7,6 +7,7 @@ export const DEFAULT_MATTER = 'default';
 export const DEFAULT_MATTER_TITLE = '默认对话';
 export type Matter = { id: string; title: string };
 type Scope = { owner: string; project: string };
+type ChoiceOutcome = 'admitted' | 'refused';
 export type MatterNotice = {
   message: IncomingMessage; text: string;
   card?: Omit<MatterPresentation, 'tenant' | 'chat' | 'user' | 'text'>;
@@ -64,7 +65,12 @@ export class MatterStore {
         if (!focusColumns.some(c => c.name === 'previous_choice')) db.exec('ALTER TABLE matter_focus ADD COLUMN previous_choice TEXT');
         if (!focusColumns.some(c => c.name === 'switch_after')) db.exec('ALTER TABLE matter_focus ADD COLUMN switch_after INTEGER NOT NULL DEFAULT 0');
         const inputColumns = db.prepare('PRAGMA table_info(matter_inputs)').all() as { name: string }[];
-        if (!inputColumns.some(c => c.name === 'answer_execution')) db.exec('ALTER TABLE matter_inputs ADD COLUMN answer_execution TEXT');
+        if (!inputColumns.some(c => c.name === 'answer_execution')) {
+          // The old gateway did not advance the watermark when reconfirming a selection.
+          // Preserve explicitly confirmed choices through the upgrade.
+          db.exec(`ALTER TABLE matter_inputs ADD COLUMN answer_execution TEXT;
+            UPDATE matter_focus SET switch_after=(SELECT COALESCE(MAX(rowid),0) FROM requests) WHERE previous_choice IS NULL`);
+        }
       });
     } finally { db.exec('PRAGMA foreign_keys=ON'); }
   }
@@ -213,7 +219,8 @@ export class MatterStore {
     this.db.prepare('UPDATE matter_inputs SET projected=1 WHERE id=?').run(id);
   }
 
-  consume<T>(scope: Scope, id: string, choice: string, submit: (original: IncomingMessage, input?: string, answerExecution?: string) => T | undefined): T | undefined {
+  consume(scope: Scope, id: string, choice: string,
+    submit: (original: IncomingMessage, input?: string, answerExecution?: string) => ChoiceOutcome | undefined): ChoiceOutcome | undefined {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT message,choices,input,chosen,answer_execution FROM matter_inputs WHERE id=? AND owner=? AND project=?')
         .get(id, scope.owner, scope.project) as { message: string; choices: string; input: string | null; chosen: string | null; answer_execution: string | null } | undefined;
@@ -228,7 +235,7 @@ export class MatterStore {
         this.db.prepare('UPDATE matter_inputs SET chosen=NULL WHERE id=?').run(id);
         return;
       }
-      this.setFocus(scope, choice, true);
+      if (value === 'admitted') this.setFocus(scope, choice, true);
       return value;
     });
   }

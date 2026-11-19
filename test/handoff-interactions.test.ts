@@ -1038,22 +1038,24 @@ test('pilot English help is local, deduplicated and available while paused; reti
   assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.withdrawals().length, 0); assert.equal(h.codex.calls.length, 0);
 });
 
+async function completeRequest(h: ReturnType<typeof setup>, id: string, run: number) {
+  const issued = h.admission.store.reserve(id, run);
+  assert.equal(issued.kind, 'start');
+  if (issued.kind !== 'start') throw Error('Expected assignment');
+  const count = h.codex.calls.filter(call => call.method === 'turn/start').length;
+  const running = h.native.run(issued.permit);
+  const turns = () => h.codex.calls.filter(call => call.method === 'turn/start');
+  await until(() => turns().length > count);
+  const params = turns().at(-1)!.params;
+  const thread = String(params.threadId);
+  const sequence = h.codex.calls.filter(call => ['thread/start', 'turn/start'].includes(call.method)).length;
+  h.codex.complete(thread, 'turn-' + sequence);
+  await running;
+  return params;
+}
+
 test('switching matters starts separate native threads and quoting the older task resumes its original thread', async t => {
   const h = setup(t);
-  const complete = async (request: { id: string }, run: number) => {
-    const issued = h.admission.store.reserve(request.id, run);
-    assert.equal(issued.kind, 'start');
-    if (issued.kind !== 'start') throw Error('Expected assignment');
-    const count = h.codex.calls.filter(call => call.method === 'turn/start').length;
-    const running = h.native.run(issued.permit);
-    const turns = () => h.codex.calls.filter(call => call.method === 'turn/start');
-    await until(() => turns().length > count);
-    const thread = String(turns().at(-1)!.params.threadId);
-    const sequence = h.codex.calls.filter(call => ['thread/start', 'turn/start'].includes(call.method)).length;
-    h.codex.complete(thread, 'turn-' + sequence);
-    await running;
-    return thread;
-  };
 
   const newRefund = h.actor('/matter-new 退款调查');
   h.interactions.receive(newRefund);
@@ -1064,7 +1066,7 @@ test('switching matters starts separate native threads and quoting the older tas
   const initial = h.actor('只查询当前退款积压');
   const a = h.interactions.receive(initial);
   assert.ok('request' in a);
-  const threadA = await complete(a.request, 101);
+  const threadA = (await completeRequest(h, a.request.id, 101)).threadId;
   await drain(h);
   const answerA = h.sent.find(row => row.options?.replyTo === initial.id && row.text === 'Done')!;
   assert.ok(answerA);
@@ -1075,7 +1077,7 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.ok('request' in b);
   assert.notEqual(a.request.conversation, b.request.conversation);
   assert.equal(a.request.project, b.request.project);
-  const threadB = await complete(b.request, 102);
+  const threadB = (await completeRequest(h, b.request.id, 102)).threadId;
   assert.notEqual(threadA, threadB);
 
   await h.restart();
@@ -1083,7 +1085,7 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.equal(h.interactions.receive(quote).status, 'task-reply');
   const followup = h.admission.store.requestForMessage(quote)!;
   assert.equal(followup.conversation, a.request.conversation);
-  assert.equal(await complete(followup, 103), threadA);
+  assert.equal((await completeRequest(h, followup.id, 103)).threadId, threadA);
   const answerQuote = h.actor('刚才那个方案呢？', { parentId: 'delivered-' + answerA.id });
   for (const actor of [{ ...answerQuote, user: 'ou_admin' }, { ...answerQuote, chat: 'other' }, { ...answerQuote, tenant: 'other' }]) {
     assert.equal(h.interactions.receive(actor).status, 'ignored');
@@ -1092,7 +1094,7 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.equal(h.interactions.receive(answerQuote).status, 'task-reply');
   const answerFollowup = h.admission.store.requestForMessage(answerQuote)!;
   assert.equal(answerFollowup.conversation, a.request.conversation);
-  assert.equal(await complete(answerFollowup, 104), threadA);
+  assert.equal((await completeRequest(h, answerFollowup.id, 104)).threadId, threadA);
   assert.equal(h.interactions.receive(answerQuote).status, 'ignored');
   await drain(h);
   assert.equal(h.sent.filter(row => row.options?.replyTo === answerQuote.id && row.text.includes('事项 · 退款调查')).length, 1);
@@ -1206,11 +1208,10 @@ test('conflicting answer titles and PRs wait for a verified choice and keep the 
   const titleConflict = h.actor('Solura 发版：核对放行条件', { parentId });
   const prConflict = h.actor('查一下 ' + pr, { parentId });
   const originalTask = h.actor(titleConflict.text, { parentId: active.message.id });
-  assert.equal(h.interactions.receive(originalTask).status, 'task-reply', 'an exact original-task reply still wins');
-  assert.equal(h.admission.store.requestForMessage(originalTask)?.conversation, active.request.conversation);
+  const rejectedConflict = h.actor('Solura 发版：' + 'x'.repeat(29_980), { parentId });
   const count = h.admission.store.requests().length;
 
-  for (const message of [titleConflict, prConflict]) {
+  for (const message of [titleConflict, prConflict, rejectedConflict]) {
     assert.equal(h.interactions.receive(message).status, 'matter-choice');
     assert.deepEqual(h.admission.store.matters.held(message, h.admission.project)?.choices, [active.request.conversation, release]);
     assert.equal(h.admission.store.requestForMessage(message), undefined);
@@ -1226,6 +1227,14 @@ test('conflicting answer titles and PRs wait for a verified choice and keep the 
     return { id: card.id, event: randomUUID(), tenant: card.tenant, user: card.user, chat: card.chat,
       message: 'delivered-' + row.id, choice };
   };
+  const refused = click(rejectedConflict, active.request.conversation);
+  assert.equal(h.interactions.matterAction(refused), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(rejectedConflict), undefined);
+  assert.equal(h.admission.store.taskReply(JSON.stringify([rejectedConflict.tenant, rejectedConflict.id]))?.kind, 'rejected');
+  assert.equal(h.admission.store.matters.focus({ owner: ownerKey(active.message), project: h.admission.project }), release);
+  await drain(h);
+  assert.ok(h.sent.some(row => row.options?.replyTo === rejectedConflict.id && row.text.includes('追问内容过长')));
+
   const source = click(titleConflict, active.request.conversation);
   assert.equal(h.interactions.matterAction({ ...source, event: randomUUID(), user: 'ou_admin' }), 'rejected');
   assert.equal(h.interactions.matterAction(source), 'accepted');
@@ -1244,10 +1253,22 @@ test('conflicting answer titles and PRs wait for a verified choice and keep the 
   assert.equal(h.admission.store.taskReply(JSON.stringify([prConflict.tenant, prConflict.id])), undefined);
   await h.restart();
   assert.equal(h.interactions.matterAction(source), 'accepted', 'the original callback result is retained');
+  assert.equal(h.interactions.matterAction(refused), 'accepted');
+  assert.equal(h.interactions.matterAction({ ...refused, event: randomUUID(), choice: release }), 'rejected');
   assert.equal(h.interactions.matterAction({ ...target, event: randomUUID(), choice: active.request.conversation }), 'rejected');
   assert.equal(h.admission.store.requests().length, count + 2);
   assert.equal(h.admission.store.matters.focus({ owner: ownerKey(active.message), project: h.admission.project }), release);
   assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, 1);
+
+  const sourceTurn = await completeRequest(h, followup.id, 2);
+  assert.equal(sourceTurn.threadId, active.thread);
+  assert.deepEqual(sourceTurn.input, [{ type: 'text', text: followup.input, text_elements: [] }]);
+  const targetTurn = await completeRequest(h, admitted.id, 3);
+  assert.notEqual(targetTurn.threadId, active.thread);
+  assert.deepEqual(targetTurn.input, [{ type: 'text', text: prConflict.text, text_elements: [] }]);
+
+  assert.equal(h.interactions.receive(originalTask).status, 'task-reply', 'an exact original-task reply still wins');
+  assert.equal(h.admission.store.requestForMessage(originalTask)?.conversation, active.request.conversation);
 });
 
 test('an ordinary answer becomes a reply anchor only when its Feishu delivery is confirmed', async t => {
