@@ -1248,6 +1248,26 @@ test('withdrawal does not change the admission history of a matter switch', asyn
   }
 });
 
+test('confirming the current matter resolves its vague-follow-up guard across restart', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  assert.ok('request' in h.interactions.receive(h.actor('查询退款记录')));
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const list = h.actor('/matters');
+  h.interactions.receive(list);
+  await drain(h);
+  const message = h.sent.find(row => row.options?.replyTo === list.id)!;
+  const card = message.options!.matterCard!;
+  const current = card.choices.find(choice => choice.label === '当前 · Solura 发版')!;
+  const click = { id: card.id, event: randomUUID(), tenant: card.tenant, user: card.user, chat: card.chat,
+    message: 'delivered-' + message.id, choice: current.id };
+  assert.equal(h.interactions.matterAction(click), 'accepted');
+  await h.restart();
+  const followup = h.interactions.receive(h.actor('继续上一步'));
+  assert.ok('request' in followup);
+  assert.equal(followup.request.conversation, current.id);
+});
+
 test('a confirmed no-answer status is not an ordinary answer anchor', async t => {
   const h = setup(t);
   h.interactions.receive(h.actor('/matter-new 退款调查'));

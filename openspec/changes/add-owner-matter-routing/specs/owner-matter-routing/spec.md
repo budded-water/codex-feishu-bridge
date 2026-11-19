@@ -47,7 +47,7 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 
 - **WHEN** the owner switches away from a matter with admitted work and sends a short vague continuation before admitting a task in the selected matter
 - **THEN** the gateway SHALL persist the original message and offer the previous and current matters before execution
-- **AND** a verified selection, a valid explicit destination, or a new task already admitted to the selected matter SHALL permit ordinary continuation without re-asking about that switch
+- **AND** a verified routing choice, explicit confirmation of the current selection, a valid explicit destination, or a new task already admitted to the selected matter SHALL permit ordinary continuation without re-asking about that switch
 - **AND** a later withdrawal SHALL preserve the task's original admission for this routing decision
 
 #### Scenario: A quoted reference is awaiting confirmation

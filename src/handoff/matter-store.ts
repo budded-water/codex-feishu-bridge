@@ -100,7 +100,11 @@ export class MatterStore {
 
   private setFocus(scope: Scope, choice: string, clarified = false): void {
     const previous = this.focus(scope);
-    if (!clarified && previous === choice) return;
+    if (previous === choice) {
+      this.db.prepare('UPDATE matter_focus SET previous_choice=NULL WHERE owner=? AND project=?')
+        .run(scope.owner, scope.project);
+      return;
+    }
     const from = previous ?? DEFAULT_MATTER;
     this.db.prepare(`INSERT INTO matter_focus(owner,project,choice,previous_choice,switch_after)
       VALUES (?,?,?,?,(SELECT COALESCE(MAX(rowid),0) FROM requests))
