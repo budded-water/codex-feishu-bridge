@@ -350,7 +350,7 @@ console.log(JSON.stringify({ meta: {progress,isAccurate:true,count:entries.lengt
   assert.equal(JSON.parse(malformed.stdout).incident.observations[0].reason, 'invalid-or-incomplete-source');
 });
 
-test('a new firing after an inactive boundary gets its own incident after a published human handoff', t => {
+test('a new firing after a late inactive boundary gets its own incident after a published human handoff', t => {
   const { open } = setup(t);
   const observer = open();
   let handled: string;
@@ -367,13 +367,17 @@ test('a new firing after an inactive boundary gets its own incident after a publ
   try {
     reopened.acceptWindow(151, 1151, [
       { id: 'continuing-firing', at: 1080, status: 'firing' },
-      { id: 'quiet', at: 1110, status: 'inactive' },
       { id: 'new-firing', at: 1140, status: 'firing' },
     ], 1160);
+    assert.equal(reopened.pendingNotices().length, 0);
+    assert.equal(reopened.nextSample(1160), undefined);
+    reopened.acceptWindow(1100, 1171, [{ id: 'quiet', at: 1110, status: 'inactive' }], 1180);
     const next = reopened.pendingNotices()[0]!;
     assert.equal(next.state, 'open');
     assert.notEqual(next.incident, handled);
-    assert.equal(reopened.nextSample(1160)?.incident, next.incident);
+    assert.equal(reopened.nextSample(1180)?.incident, next.incident);
+    reopened.acceptWindow(1100, 1171, [{ id: 'quiet', at: 1110, status: 'inactive' }], 1190);
+    assert.deepEqual(reopened.pendingNotices(), [next]);
     assert.equal(reopened.report().handoffs[0]?.id, handled);
   } finally { reopened.close(); }
 });

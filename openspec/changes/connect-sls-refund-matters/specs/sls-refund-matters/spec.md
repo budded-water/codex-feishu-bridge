@@ -25,7 +25,7 @@ The gateway SHALL associate each incident with one scoped matter and use durable
 
 #### Scenario: A separate firing after human handoff
 
-- **WHEN** an inactive evaluation separates a later firing from an earlier incident that already needs attention
+- **WHEN** the accepted evaluation history contains an inactive result, including one read after its later firing, that separates a later firing from an earlier incident that already needs attention
 - **THEN** the later firing starts a new observation budget and matter
 - **AND** the earlier handoff disposition is preserved
 
@@ -39,6 +39,11 @@ The gateway SHALL associate each incident with one scoped matter and use durable
 - **WHEN** the enrolled owner replies to a confirmed incident card without conflicting explicit targets
 - **THEN** the request uses that matter and carries the historical observation as reference
 - **AND** a conflicting explicit target requires the existing owner choice
+
+#### Scenario: Visible card without delivery confirmation
+
+- **WHEN** a new quote has no confirmed target and an alert card in the same conversation has no delivery confirmation
+- **THEN** the gateway asks for a fresh plain request and leaves active task controls unchanged
 
 #### Scenario: No owner message
 

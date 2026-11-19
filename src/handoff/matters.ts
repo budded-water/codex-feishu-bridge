@@ -189,8 +189,8 @@ export class OwnerMatters {
     const scope = this.scope(message), store = this.admission.store.matters;
     if (this.state.matterReference(message) || this.address(message) ||
       pullRequests(message.text).some(ref => store.bound(scope, ref))) return true;
-    if (message.parentId) return Boolean(this.hasNamedMatters(message) &&
-      !this.state.referencedTask(message.parentId, scope.owner));
+    if (message.parentId) return !this.state.referencedTask(message.parentId, scope.owner) &&
+      (this.hasNamedMatters(message) || this.state.pendingRefundReference(message));
     const focus = store.focus(scope);
     return Boolean(focus && focus !== DEFAULT_MATTER && /^只(?:看|统计|查询|分析|读取)/.test(message.text.trim()) &&
       !this.admission.store.unsettled().some(execution => execution.status === 'active'));
@@ -223,7 +223,11 @@ export class OwnerMatters {
 
     const address = this.address(message);
     if (!address && this.admission.projectAddress(message.text)?.outsidePilot) return submit();
-    const targets = this.explicitTargets(message, this.state.matterReference(message)?.anchor, address?.matter);
+    const reference = this.state.matterReference(message);
+    if (!reference && this.state.pendingRefundReference(message)) {
+      return this.requireResend(message, '还有告警卡片在确认投递。请稍后重发这条引用，或去掉引用并写明事项。');
+    }
+    const targets = this.explicitTargets(message, reference?.anchor, address?.matter);
     if (targets.length === 1) return submit(targets[0], address?.input);
     if (targets.length > 1) return this.holdConflict(message, targets, address?.input);
 

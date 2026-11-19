@@ -1891,12 +1891,23 @@ test('refund milestones retain one private matter across failed projection ackno
   const thread = String(h.codex.calls.find(call => call.method === 'turn/start')!.params.threadId);
   assert.equal(h.interactions.receive(h.actor('/steer apply elsewhere', { parentId: 'delivered-' + first.id })).status, 'rejected');
   assert.equal(h.interactions.receive(h.actor('/steer focus the report', { parentId: 'unrelated-message' })).status, 'control');
-  h.codex.complete(thread, 'turn-2');
-  await running;
-
   fixture.frames.slice(1).forEach((_frame: unknown, index: number) => apply(index + 1));
   project();
+  let interactedBeforeAcknowledgement = false;
+  h.setSend(async (chat, text, id, options) => {
+    h.sent.push({ chat, text, id, options });
+    const message = 'delivered-' + id;
+    if (options?.matterCard?.source === 'sls-refund') {
+      interactedBeforeAcknowledgement = true;
+      assert.equal(h.interactions.receive(h.actor('Could you explain?', { parentId: message })).status, 'matter-choice');
+      assert.equal(h.interactions.receive(h.actor('/steer check recovery', { parentId: message })).status, 'rejected');
+    }
+    return message;
+  });
   await drain(h);
+  assert.ok(interactedBeforeAcknowledgement);
+  h.codex.complete(thread, 'turn-2');
+  await running;
   assert.equal(cards().length, 2);
   assert.match(cards()[1]!.options!.matterCard!.title, /观测确认恢复/);
   assert.equal(cards()[1]!.options!.matterCard!.anchor, matter);

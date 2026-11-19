@@ -575,6 +575,14 @@ export class State {
     });
   }
 
+  pendingRefundReference(message: IncomingMessage): boolean {
+    if (!message.parentId) return false;
+    return Boolean(this.db.prepare(`SELECT 1 FROM matter_cards WHERE message IS NULL
+      AND json_extract(payload,'$.source')='sls-refund' AND json_extract(payload,'$.tenant')=?
+      AND json_extract(payload,'$.user')=? AND json_extract(payload,'$.chat')=? LIMIT 1`)
+      .get(message.tenant, message.user, message.chat));
+  }
+
   matterReference(message: IncomingMessage): MatterPresentation | undefined {
     const card = message.parentId ? this.confirmedMatter(message.parentId, message) : undefined;
     return card?.anchor ? card : undefined;

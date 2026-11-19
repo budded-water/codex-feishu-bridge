@@ -127,6 +127,7 @@ export class RefundObserver {
         if (event.status === 'firing') newest = Math.max(newest, event.at);
       }
 
+      this.splitAfterHandoff(now);
       if (to > previous) this.db.prepare('UPDATE source SET through=? WHERE id=1').run(to);
     });
   }
@@ -154,15 +155,33 @@ export class RefundObserver {
     }
     if (!firing || at <= latestFiring) return;
     const latest = this.latestIncident();
-    const recoveredBetweenFirings = latest?.state === 'needs-attention' && this.db.prepare(`
-      SELECT 1 FROM evaluations AS quiet WHERE quiet.status='inactive' AND quiet.at>? AND quiet.at<?
-      AND NOT EXISTS (SELECT 1 FROM evaluations AS other WHERE other.at=quiet.at AND other.status!='inactive')
-      LIMIT 1`).get(latest.last_firing, at);
-    if (latest && latest.state !== 'resolved' && !recoveredBetweenFirings) {
+    if (latest && latest.state !== 'resolved') {
       this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(at, latest.id);
     } else {
       this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), at, at, now);
     }
+  }
+
+  private splitAfterHandoff(now: number): void {
+    const latest = this.latestIncident();
+    if (latest?.state !== 'needs-attention') return;
+    const final = this.db.prepare('SELECT firing, COALESCE(evidence_through,observed+1) AS horizon FROM observations WHERE incident=? AND slot=2')
+      .get(latest.id) as { firing: number; horizon: number } | undefined;
+    if (!final || latest.last_firing < final.horizon) return;
+
+    // Window overlap may deliver the intervening quiet evaluation after the next firing.
+    // Check the accepted history after all rows in the window have been recorded.
+    const { at: quiet } = this.db.prepare(`SELECT MAX(q.at) AS at FROM evaluations AS q
+      WHERE q.status='inactive' AND q.at>? AND q.at<?
+        AND NOT EXISTS (SELECT 1 FROM evaluations AS other WHERE other.at=q.at AND other.status!='inactive')`)
+      .get(final.firing, latest.last_firing) as { at: number | null };
+    if (quiet === null) return;
+    const { opened } = this.db.prepare("SELECT MIN(at) AS opened FROM evaluations WHERE status='firing' AND at>?")
+      .get(quiet) as { opened: number };
+    const { last } = this.db.prepare("SELECT MAX(at) AS last FROM evaluations WHERE status='firing' AND at<?")
+      .get(quiet) as { last: number };
+    this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(last, latest.id);
+    this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), opened, latest.last_firing, now);
   }
 
   private latestIncident(): Incident | undefined {
