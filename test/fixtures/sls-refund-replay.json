@@ -1,0 +1,172 @@
+{
+  "provenance": "The initial firing is modeled on the owner-provided refund alert. Timestamps, source/evaluation IDs, follow-ups and diagnostic counters are synthetic.",
+  "source": {
+    "region": "cn-hangzhou",
+    "project": "fixture-observability",
+    "rule": "fixture-merchant-refund-backlog-age",
+    "start": 1699999940
+  },
+  "frames": [
+    {
+      "from": 1699999940,
+      "to": 1700000001,
+      "now": 1700000075,
+      "evaluations": {
+        "meta": {
+          "progress": "Complete",
+          "isAccurate": true,
+          "count": 1
+        },
+        "data": [
+          {
+            "AlertID": "fixture-alert-1",
+            "AlertName": "fixture-merchant-refund-backlog-age",
+            "AlertStatus": "firing",
+            "__time__": "1700000000"
+          }
+        ]
+      },
+      "evidence": {
+        "meta": {
+          "progress": "Complete",
+          "isAccurate": true,
+          "count": 3
+        },
+        "data": [
+          {
+            "__time__": "1700000065",
+            "content": "{\"event\":\"merchant_refund_backlog\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"channel\":\"wechat_pay\",\"run_id\":\"fixture-inspection-1700000065\",\"pending\":1,\"queryable\":1,\"missing_channel_identity\":0,\"oldest_age_seconds\":961}"
+          },
+          {
+            "__time__": "1700000065",
+            "content": "{\"event\":\"merchant_refund_backlog\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"channel\":\"alipay\",\"run_id\":\"fixture-inspection-1700000065\",\"pending\":0,\"queryable\":0,\"missing_channel_identity\":0,\"oldest_age_seconds\":0}"
+          },
+          {
+            "__time__": "1700000065",
+            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0}"
+          }
+        ]
+      }
+    },
+    {
+      "from": 1699999950,
+      "to": 1700000049,
+      "now": 1700000110,
+      "evaluations": {
+        "meta": {
+          "progress": "Complete",
+          "isAccurate": true,
+          "count": 2
+        },
+        "data": [
+          {
+            "AlertID": "fixture-alert-1",
+            "AlertName": "fixture-merchant-refund-backlog-age",
+            "AlertStatus": "firing",
+            "__time__": "1700000000"
+          },
+          {
+            "AlertID": "fixture-alert-2",
+            "AlertName": "fixture-merchant-refund-backlog-age",
+            "AlertStatus": "firing",
+            "__time__": "1700000040"
+          }
+        ]
+      }
+    },
+    {
+      "from": 1700000030,
+      "to": 1700000361,
+      "now": 1700000375,
+      "evaluations": {
+        "meta": {
+          "progress": "Complete",
+          "isAccurate": true,
+          "count": 2
+        },
+        "data": [
+          {
+            "AlertID": "fixture-alert-2",
+            "AlertName": "fixture-merchant-refund-backlog-age",
+            "AlertStatus": "firing",
+            "__time__": "1700000040"
+          },
+          {
+            "AlertID": "fixture-quiet-1",
+            "AlertName": "fixture-merchant-refund-backlog-age",
+            "AlertStatus": "inactive",
+            "__time__": "1700000340"
+          }
+        ]
+      },
+      "evidence": {
+        "meta": {
+          "progress": "Complete",
+          "isAccurate": true,
+          "count": 3
+        },
+        "data": [
+          {
+            "__time__": "1700000370",
+            "content": "{\"event\":\"merchant_refund_backlog\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"channel\":\"wechat_pay\",\"run_id\":\"fixture-inspection-1700000370\",\"pending\":0,\"queryable\":0,\"missing_channel_identity\":0,\"oldest_age_seconds\":0}"
+          },
+          {
+            "__time__": "1700000370",
+            "content": "{\"event\":\"merchant_refund_backlog\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"channel\":\"alipay\",\"run_id\":\"fixture-inspection-1700000370\",\"pending\":0,\"queryable\":0,\"missing_channel_identity\":0,\"oldest_age_seconds\":0}"
+          },
+          {
+            "__time__": "1700000370",
+            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0}"
+          }
+        ]
+      }
+    },
+    {
+      "from": 1700000340,
+      "to": 1700000936,
+      "now": 1700000975,
+      "evaluations": {
+        "meta": {
+          "progress": "Complete",
+          "isAccurate": true,
+          "count": 2
+        },
+        "data": [
+          {
+            "AlertID": "fixture-quiet-1",
+            "AlertName": "fixture-merchant-refund-backlog-age",
+            "AlertStatus": "inactive",
+            "__time__": "1700000340"
+          },
+          {
+            "AlertID": "fixture-quiet-2",
+            "AlertName": "fixture-merchant-refund-backlog-age",
+            "AlertStatus": "inactive",
+            "__time__": "1700000920"
+          }
+        ]
+      },
+      "evidence": {
+        "meta": {
+          "progress": "Complete",
+          "isAccurate": true,
+          "count": 3
+        },
+        "data": [
+          {
+            "__time__": "1700000970",
+            "content": "{\"event\":\"merchant_refund_backlog\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"channel\":\"wechat_pay\",\"run_id\":\"fixture-inspection-1700000970\",\"pending\":0,\"queryable\":0,\"missing_channel_identity\":0,\"oldest_age_seconds\":0}"
+          },
+          {
+            "__time__": "1700000970",
+            "content": "{\"event\":\"merchant_refund_backlog\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"channel\":\"alipay\",\"run_id\":\"fixture-inspection-1700000970\",\"pending\":0,\"queryable\":0,\"missing_channel_identity\":0,\"oldest_age_seconds\":0}"
+          },
+          {
+            "__time__": "1700000970",
+            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0}"
+          }
+        ]
+      }
+    }
+  ]
+}
