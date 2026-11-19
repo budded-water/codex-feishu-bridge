@@ -16,13 +16,13 @@ The managed gateway SHALL allow the enrolled private owner to create and select 
 
 #### Scenario: A trusted reference takes precedence
 
-- **WHEN** an ordinary message includes a confirmed matter-card reference, an exact matter title or a registered GitHub pull request for a different matter
+- **WHEN** an ordinary message includes a confirmed matter-card reference, an exact matter title or a registered GitHub pull request that resolves to one matter without a conflicting verified reference
 - **THEN** the new request SHALL use the explicitly resolved matter regardless of the current selection
 - **AND** exact replies to original tasks SHALL preserve existing queue merge, live steer and settled follow-up semantics
 
 #### Scenario: An owner replies to a confirmed final answer
 
-- **WHEN** the owner replies with a new ordinary question to a confirmed successful ordinary Bot answer, including while another matter is selected
+- **WHEN** the owner replies with a new ordinary question to a confirmed successful ordinary Bot answer, including while another matter is selected, and the reply contains no conflicting exact title or registered PR
 - **THEN** the gateway SHALL use the original task's confirmed conversation and schedule a follow-up turn through the existing task-reply path
 - **AND** an unconfirmed delivery, other chat or actor, prompt, status fallback, or special procedure SHALL NOT become an ordinary answer anchor
 - **AND** a request explicitly targeting a registered project outside the pilot SHALL still be refused
@@ -48,12 +48,28 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 - **THEN** the gateway SHALL hold the message for a confirmed choice
 - **AND** a read-only request addressed to a confirmed matter card SHALL use the matter route, while a reply to an exact original task retains task-control behavior
 
+#### Scenario: A confirmed answer and the reply text disagree
+
+- **WHEN** the owner replies to a confirmed ordinary final answer and an exact title or registered PR in the reply addresses another matter
+- **THEN** the gateway SHALL retain the original reply and confirmed answer identity and require a choice before admitting any work
+- **AND** selecting the answer's matter SHALL use the existing verified task-reply checks and original conversation
+- **AND** selecting another candidate SHALL admit a new ordinary request in that matter using the submitted content without importing the quoted answer or its conversation history
+- **AND** a refused follow-up SHALL consume the selected response once without changing the current focus
+- **AND** exact replies to the owner's original task SHALL retain their existing semantics
+
 #### Scenario: A short unanchored follow-up arrives after switching
 
-- **WHEN** the owner switches away from a matter with admitted work and sends a short vague continuation before admitting a task in the selected matter
-- **THEN** the gateway SHALL persist the original message and offer the previous and current matters before execution
-- **AND** a verified routing choice, explicit confirmation of the current selection, a valid explicit destination, or a new task already admitted to the selected matter SHALL permit ordinary continuation without re-asking about that switch
+- **WHEN** the owner switches matters and sends a recognized short unanchored continuation before admitting new ordinary work, and the latest admitted ordinary request predating the switch belongs to a different matter
+- **THEN** the gateway SHALL persist the original message and offer the recent and current matters before execution
+- **AND** a verified routing choice, explicit confirmation of the current selection, a valid explicit destination, or a new ordinary task already admitted to the selected matter SHALL permit ordinary continuation without re-asking about that switch
 - **AND** a later withdrawal SHALL preserve the task's original admission for this routing decision
+
+#### Scenario: The most recent admitted ordinary task used a different matter
+
+- **WHEN** the owner sends a recognized short unanchored continuation and the latest ordinary owner-private request admitted since the latest selection or confirmation used a different matter than the current selection
+- **THEN** the gateway SHALL hold the input for a choice between the two matters
+- **AND** the gateway SHALL use durable admission order, excluding specialized procedures and delivery timing
+- **AND** an explicitly addressed request SHALL NOT implicitly switch the current selection
 
 #### Scenario: A quoted reference is awaiting confirmation
 
@@ -86,4 +102,5 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 
 - **WHEN** the gateway opens an existing state database
 - **THEN** the prior default conversation and its requests, native thread and references SHALL retain their identities
+- **AND** previously confirmed selections SHALL stay confirmed through the schema upgrade
 - **AND** the canonical project guard SHALL still prevent overlapping work across matters using that resource
