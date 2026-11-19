@@ -2,7 +2,7 @@
 
 OpenSpec records execution, orchestration, authorization, interaction, recovery and evidence contracts. It is a development workflow; pinned Autoloop remains the deployed pilot scheduler.
 
-## Current checkpoint — 2026-11-18
+## Current checkpoint — 2026-11-19
 
 Completed bounded changes have been synchronized into delivered main specifications and archived. Their requirement/scenario bodies are preserved from the delivered deltas; each new main spec has a completed Purpose. Relocated Markdown references are rebased. Archived plans/tasks retain their historical status statements and evidence limits; they are not current merge or deployment instructions.
 
@@ -19,6 +19,7 @@ Completed bounded changes have been synchronized into delivered main specificati
 | Bounded verification repair | [bounded-verification-repair](specs/bounded-verification-repair/spec.md) | [Repair](changes/archive/2026-11-16-add-bounded-verification-repair/tasks.md) |
 | Read-only verification findings | [verification-findings](specs/verification-findings/spec.md) | [Findings](changes/archive/2026-11-16-add-verification-findings/tasks.md) |
 | Owner task replies | [owner-task-replies](specs/owner-task-replies/spec.md) | [Quoted replies](changes/archive/2026-11-18-route-owner-task-replies/tasks.md) |
+| Owner matter routing | [owner-matter-routing](specs/owner-matter-routing/spec.md) | [Named matters](changes/archive/2026-11-19-add-owner-matter-routing/tasks.md) |
 | Owner task progress | [owner-task-progress](specs/owner-task-progress/spec.md) | [Task progress](changes/archive/2026-11-16-add-owner-task-progress/tasks.md) |
 | Browser access handoff | [browser-access-handoff](specs/browser-access-handoff/spec.md) | [Browser handoff](changes/archive/2026-11-18-add-browser-access-handoff/tasks.md) |
 
