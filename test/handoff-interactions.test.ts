@@ -1217,6 +1217,37 @@ test('an ordinary answer becomes a reply anchor only when its Feishu delivery is
   } finally { transport.close(); }
 });
 
+test('withdrawal does not change the admission history of a matter switch', async t => {
+  for (const withdrawPrior of [true, false]) {
+    const h = setup(t);
+    h.config.approvalUsers = ['ou_owner'];
+    h.config.approvalChat = 'chat';
+    h.interactions.receive(h.actor('/matter-new 退款调查'));
+    const prior = h.interactions.receive(h.actor('查询退款的积压情况'));
+    assert.ok('request' in prior);
+    h.interactions.receive(h.actor('/matter-new Solura 发版'));
+    const scope = { owner: ownerKey(prior.request.message), project: h.admission.project };
+    const selected = h.admission.store.matters.focus(scope)!;
+    if (withdrawPrior) {
+      assert.equal(h.interactions.receive(h.actor('/withdraw ' + prior.request.execution)).status, 'withdrawn');
+    } else {
+      const current = h.interactions.receive(h.actor('检查本次发布的构建记录'));
+      assert.ok('request' in current);
+      assert.equal(h.interactions.receive(h.actor('/withdraw ' + current.request.execution)).status, 'withdrawn');
+    }
+    await h.restart();
+    const question = h.actor('继续上一步');
+    const routed = h.interactions.receive(question);
+    if (withdrawPrior) {
+      assert.equal(routed.status, 'matter-choice');
+      assert.deepEqual(h.admission.store.matters.held(question, scope.project)?.choices, [selected, prior.request.conversation]);
+    } else {
+      assert.ok('request' in routed);
+      assert.equal(routed.request.conversation, selected);
+    }
+  }
+});
+
 test('a confirmed no-answer status is not an ordinary answer anchor', async t => {
   const h = setup(t);
   h.interactions.receive(h.actor('/matter-new 退款调查'));

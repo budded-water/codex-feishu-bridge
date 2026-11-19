@@ -87,13 +87,14 @@ export class MatterStore {
   }
 
   previousFocusForFollowup(scope: Scope): string | undefined {
+    // A submission records original admission even after the request is withdrawn.
     return (this.db.prepare(`SELECT f.previous_choice AS choice FROM matter_focus f WHERE f.owner=? AND f.project=?
-      AND EXISTS (SELECT 1 FROM requests r JOIN conversations c ON c.id=r.conversation
+      AND EXISTS (SELECT 1 FROM requests r JOIN submissions s ON s.request=r.id JOIN conversations c ON c.id=r.conversation
         WHERE c.owner=f.owner AND c.project=f.project AND COALESCE(CASE WHEN c.title IS NOT NULL THEN c.id END,?)=f.previous_choice
-        AND r.blocked IS NULL AND r.rowid<=f.switch_after)
-      AND NOT EXISTS (SELECT 1 FROM requests r JOIN conversations c ON c.id=r.conversation
+        AND r.rowid<=f.switch_after)
+      AND NOT EXISTS (SELECT 1 FROM requests r JOIN submissions s ON s.request=r.id JOIN conversations c ON c.id=r.conversation
         WHERE c.owner=f.owner AND c.project=f.project AND COALESCE(CASE WHEN c.title IS NOT NULL THEN c.id END,?)=f.choice
-        AND r.blocked IS NULL AND r.rowid>f.switch_after)`)
+        AND r.rowid>f.switch_after)`)
       .get(scope.owner, scope.project, DEFAULT_MATTER, DEFAULT_MATTER) as { choice: string } | undefined)?.choice;
   }
 
