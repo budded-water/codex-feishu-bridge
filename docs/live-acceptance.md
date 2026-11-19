@@ -1,5 +1,21 @@
 # Live acceptance evidence
 
+## 2026-11-19 M6 owner-private matter routing
+
+The M6 gateway and Worker assignment runner adopted [PR #51](https://github.com/budded-water/codex-feishu-bridge/pull/51) at reviewed head `ca1960dabb4e7ba1b41fbb23c68bd60928c5c66d`. The merge commit has the same source tree. The candidate passed 408 local tests, exact-head GitHub CI and an independent complete-diff review. The pinned Node build and Codex protocol checks passed before installation.
+
+The managed cutover drained admission and Hub work, verified that both prior processes exited, and captured 1,200 hashed files. Integrity and foreign-key checks passed on five isolated SQLite copies, including the Hub with its pinned index function. Before reopening admission, the new gateway connected to Feishu and the Worker registered a fresh heartbeat with the pinned Hub. The default conversation, prior task/delivery mappings and 201 sealed native files retained their identities and bytes.
+
+The first genuine owner task produced one labeled matter receipt and the expected ordinary final answer. Official Feishu reads and the matching Hub, native journal and transport records verified the request and both deliveries.
+
+After the owner switched to a second matter, a short unquoted follow-up stayed unadmitted and produced a confirmed interactive card offering both matters. The owner replied directly to the first matter’s Bot answer while the second matter remained selected. The quoted follow-up produced one labeled receipt and a new turn on the first matter’s existing native thread. Official Feishu reads matched the exact parent message and both deliveries. A separate task in the second matter used a distinct native thread and its own labeled receipt.
+
+After the first clarification card was selected, the original held message produced one request and one Hub run in the selected matter’s existing thread. A subsequent idle gateway restart retained the named matters, their native thread bindings, the selection decision and the registered test PR object. The pinned Hub and Worker stayed online throughout the gateway restart.
+
+After restart, the owner sent a message containing the registered fixture PR URL while the first matter was selected. It reached the second matter’s original thread. A reply to the owner’s original first-matter task also reached that matter’s original thread. Six verified tasks each had one matched Hub run with zero retries, a settled native checkpoint, one labeled receipt and the expected Feishu answer. The owner restored and reconfirmed the default selection. Admission was open and drained, with its original default thread and prior sealed evidence intact.
+
+The campaign used one enrolled private chat and a synthetic PR URL to check routing. The private rollout, gateway restart and platform evidence remain in the deployment inventory.
+
 ## 2026-11-18 M6 owner-private quoted task replies
 
 The M6 gateway and Worker assignment runner adopted [PR #49](https://github.com/budded-water/codex-feishu-bridge/pull/49) at reviewed artifact `cb13911672f5029b21a7a7c0afb26dfcb1dc184c`. The first attempt restored the original bindings and reopened admission when the new Worker heartbeat did not appear within the initial readiness window. The retry used a window that covers the pinned Hub's 60-second heartbeat storage interval and the Worker's 50-second long poll, and required a Worker check-in newer than the new Hub start.
