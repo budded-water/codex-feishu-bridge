@@ -147,9 +147,12 @@ export class AdmissionStore {
   bindChannel(kind: string, externalId: string): void {
     this.transaction(() => {
       this.db.prepare('INSERT OR IGNORE INTO channel_binding VALUES (?,?)').run(kind, externalId);
-      const saved = this.db.prepare('SELECT external_id FROM channel_binding WHERE kind=?').get(kind) as { external_id: string };
-      if (saved.external_id !== externalId) throw new Error('Channel identity changed');
+      if (!this.channelBound(kind, externalId)) throw new Error('Channel identity changed');
     });
+  }
+
+  channelBound(kind: string, externalId: string): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM channel_binding WHERE kind=? AND external_id=?').get(kind, externalId));
   }
 
   request(id: string): RequestRecord | undefined {

@@ -68,6 +68,10 @@ export class RefundObserver {
             firing INTEGER NOT NULL, body TEXT NOT NULL, assessment TEXT NOT NULL,
             evidence_through INTEGER, PRIMARY KEY(incident,slot)
           );
+          CREATE TABLE IF NOT EXISTS incident_notices (
+            incident TEXT REFERENCES incidents(id), state TEXT NOT NULL, card TEXT NOT NULL UNIQUE,
+            projected INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(incident,state)
+          );
         `);
         const columns = this.db.prepare('PRAGMA table_info(observations)').all() as { name: string }[];
         if (!columns.some(column => column.name === 'evidence_through')) {
@@ -123,6 +127,7 @@ export class RefundObserver {
         if (event.status === 'firing') newest = Math.max(newest, event.at);
       }
 
+      this.splitAfterHandoff(now);
       if (to > previous) this.db.prepare('UPDATE source SET through=? WHERE id=1').run(to);
     });
   }
@@ -155,6 +160,28 @@ export class RefundObserver {
     } else {
       this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), at, at, now);
     }
+  }
+
+  private splitAfterHandoff(now: number): void {
+    const latest = this.latestIncident();
+    if (latest?.state !== 'needs-attention') return;
+    const final = this.db.prepare('SELECT firing, COALESCE(evidence_through,observed+1) AS horizon FROM observations WHERE incident=? AND slot=2')
+      .get(latest.id) as { firing: number; horizon: number } | undefined;
+    if (!final || latest.last_firing < final.horizon) return;
+
+    // Window overlap may deliver the intervening quiet evaluation after the next firing.
+    // Check the accepted history after all rows in the window have been recorded.
+    const { at: quiet } = this.db.prepare(`SELECT MIN(q.at) AS at FROM evaluations AS q
+      WHERE q.status='inactive' AND q.at>? AND q.at<?
+        AND NOT EXISTS (SELECT 1 FROM evaluations AS other WHERE other.at=q.at AND other.status!='inactive')`)
+      .get(final.firing, latest.last_firing) as { at: number | null };
+    if (quiet === null) return;
+    const { opened } = this.db.prepare("SELECT MIN(at) AS opened FROM evaluations WHERE status='firing' AND at>?")
+      .get(quiet) as { opened: number };
+    const { last } = this.db.prepare("SELECT MAX(at) AS last FROM evaluations WHERE status='firing' AND at<?")
+      .get(quiet) as { last: number };
+    this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(last, latest.id);
+    this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), opened, latest.last_firing, now);
   }
 
   private latestIncident(): Incident | undefined {
@@ -210,14 +237,37 @@ export class RefundObserver {
       (status='inactive') ASC LIMIT 1`).get() as Pick<Evaluation, 'at' | 'status'> | undefined;
   }
 
-  report() {
-    const latest = this.latestIncident();
-    const observations = latest ? (this.db.prepare('SELECT slot,observed,body,assessment,evidence_through FROM observations WHERE incident=? ORDER BY slot')
-      .all(latest.id) as { slot: number; observed: number; body: string; assessment: string; evidence_through: number | null }[])
+  private observations(incident: string) {
+    return (this.db.prepare('SELECT slot,observed,body,assessment,evidence_through FROM observations WHERE incident=? ORDER BY slot')
+      .all(incident) as { slot: number; observed: number; body: string; assessment: string; evidence_through: number | null }[])
       .map(({ slot, observed, body, assessment, evidence_through }) => {
         const { backlog, recovery } = JSON.parse(body) as Evidence;
         return { slot, observed, evidenceThrough: evidence_through, ...JSON.parse(assessment) as Assessment, evidence: { backlog, recovery } };
-      }) : [];
+      });
+  }
+
+  pendingNotices() {
+    return this.transaction(() => {
+      const incidents = this.db.prepare(`SELECT i.* FROM incidents i LEFT JOIN incident_notices n
+        ON n.incident=i.id AND n.state=i.state WHERE COALESCE(n.projected,0)=0 ORDER BY i.rowid LIMIT 10`).all() as Incident[];
+      return incidents.map(incident => {
+        this.db.prepare('INSERT OR IGNORE INTO incident_notices(incident,state,card) VALUES (?,?,?)')
+          .run(incident.id, incident.state, randomUUID());
+        const { card } = this.db.prepare('SELECT card FROM incident_notices WHERE incident=? AND state=?')
+          .get(incident.id, incident.state) as { card: string };
+        return { card, incident: incident.id, state: incident.state, lastFiring: incident.last_firing,
+          observation: this.observations(incident.id).at(-1) };
+      });
+    });
+  }
+
+  noticeProjected(card: string): void {
+    this.db.prepare('UPDATE incident_notices SET projected=1 WHERE card=?').run(card);
+  }
+
+  report() {
+    const latest = this.latestIncident();
+    const observations = latest ? this.observations(latest.id) : [];
     const evaluations = (this.db.prepare('SELECT COUNT(*) AS total FROM evaluations').get() as { total: number }).total;
     const handoffs = this.db.prepare("SELECT id,opened,last_firing AS lastFiring FROM incidents WHERE state='needs-attention' ORDER BY rowid DESC LIMIT 10").all();
     return {

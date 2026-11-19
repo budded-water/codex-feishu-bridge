@@ -564,8 +564,28 @@ export class State {
     return p?.id === click.id && p.choices.some(c => c.id === click.choice) ? p : undefined;
   }
 
-  matterReference(message: IncomingMessage): string | undefined {
-    return message.parentId ? this.confirmedMatter(message.parentId, message)?.anchor : undefined;
+  enqueueRefundMatter(card: MatterPresentation): void {
+    if (card.source !== 'sls-refund') throw Error('Expected refund incident card');
+    this.transaction(() => {
+      const row = this.db.prepare('SELECT payload FROM matter_cards WHERE id=?').get(card.id) as { payload: string } | undefined;
+      if (!row) return this.send(card.chat, card.text, { matterCard: card });
+      const previous = parseMatterPresentation(JSON.parse(row.payload));
+      if (previous.source !== card.source || previous.anchor !== card.anchor || previous.tenant !== card.tenant ||
+        previous.user !== card.user || previous.chat !== card.chat) throw Error('Refund card identity conflicts');
+    });
+  }
+
+  pendingRefundReference(message: IncomingMessage): boolean {
+    if (!message.parentId) return false;
+    return Boolean(this.db.prepare(`SELECT 1 FROM matter_cards WHERE message IS NULL
+      AND json_extract(payload,'$.source')='sls-refund' AND json_extract(payload,'$.tenant')=?
+      AND json_extract(payload,'$.user')=? AND json_extract(payload,'$.chat')=? LIMIT 1`)
+      .get(message.tenant, message.user, message.chat));
+  }
+
+  matterReference(message: IncomingMessage): MatterPresentation | undefined {
+    const card = message.parentId ? this.confirmedMatter(message.parentId, message) : undefined;
+    return card?.anchor ? card : undefined;
   }
 
   taskView(click: TaskRefreshClick): TaskPresentation | undefined {

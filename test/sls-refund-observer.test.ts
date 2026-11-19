@@ -349,3 +349,42 @@ console.log(JSON.stringify({ meta: {progress,isAccurate:true,count:entries.lengt
   assert.ok(!(malformed.stdout + malformed.stderr).includes('PRIVATE_MALFORMED_OUTPUT'));
   assert.equal(JSON.parse(malformed.stdout).incident.observations[0].reason, 'invalid-or-incomplete-source');
 });
+
+test('a new firing after a late inactive boundary gets its own incident after a published human handoff', t => {
+  const { open } = setup(t);
+  const observer = open();
+  let handled: string;
+  try {
+    observer.acceptWindow(100, 151, [{ id: 'first-firing', at: 120, status: 'firing' }], 160);
+    assert.ok(observer.observe(observer.nextSample(1060)!, 1060, { backlog: [] }));
+    const notice = observer.pendingNotices()[0]!;
+    assert.equal(notice.state, 'needs-attention');
+    handled = notice.incident;
+    observer.noticeProjected(notice.card);
+  } finally { observer.close(); }
+
+  const reopened = open();
+  try {
+    reopened.acceptWindow(151, 1151, [
+      { id: 'continuing-firing', at: 1080, status: 'firing' },
+      { id: 'new-firing', at: 1140, status: 'firing' },
+    ], 1160);
+    assert.equal(reopened.pendingNotices().length, 0);
+    assert.equal(reopened.nextSample(1160), undefined);
+    const overlap = [
+      { id: 'quiet', at: 1110, status: 'inactive' },
+      { id: 'later-quiet', at: 1170, status: 'inactive' },
+      { id: 'later-firing', at: 1200, status: 'firing' },
+    ] as const;
+    reopened.acceptWindow(1100, 1211, [...overlap], 1220);
+    const next = reopened.pendingNotices()[0]!;
+    assert.equal(next.state, 'open');
+    assert.notEqual(next.incident, handled);
+    assert.equal(reopened.nextSample(1220)?.incident, next.incident);
+    assert.equal(reopened.report().incident?.opened, 1140);
+    assert.equal(reopened.report().incident?.lastFiring, 1200);
+    reopened.acceptWindow(1100, 1211, [...overlap], 1230);
+    assert.deepEqual(reopened.pendingNotices(), [next]);
+    assert.deepEqual({ ...reopened.report().handoffs[0] }, { id: handled, opened: 120, lastFiring: 1080 });
+  } finally { reopened.close(); }
+});

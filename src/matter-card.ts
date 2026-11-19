@@ -9,6 +9,7 @@ export interface MatterPresentation {
   title: string; text: string; action: 'switch' | 'route';
   choices: { id: string; label: string }[];
   anchor?: string;
+  source?: 'sls-refund';
 }
 export interface MatterClick {
   id: string; event: string; tenant: string; user: string; chat: string; message: string; choice: string;
@@ -20,6 +21,7 @@ export function parseMatterPresentation(input: unknown): MatterPresentation {
     !bounded(p.title,100) || !bounded(p.text,1000) || (p.action !== 'switch' && p.action !== 'route') ||
     !Array.isArray(p.choices) || p.choices.length < 1 || p.choices.length > 7 ||
     p.choices.some(choice => !target(record(choice).id) || !bounded(record(choice).label,120)) ||
+    (p.source !== undefined && (p.source !== 'sls-refund' || !p.anchor || p.anchor === 'default')) ||
     (p.anchor !== undefined && (p.action !== 'switch' || !target(p.anchor) || p.anchor !== record(p.choices[0]).id || p.choices.length !== 1))) {
     throw Error('Invalid matter card');
   }

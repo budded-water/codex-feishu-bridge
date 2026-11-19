@@ -4,6 +4,8 @@ The optional P3 registry adds task-bound verification state and a terminal nativ
 
 The migration tools prepare one-host pilot state and manage the runtime admission gate. Keep the private plan, compatible bridge artifacts and bundle together throughout the handoff. The [P1 tasks](../openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/tasks.md) track native interactive acceptance, independent review, service inventory and owner-authorized live acceptance.
 
+Managed [SLS refund observation](sls-refund-observer.md) adds an optional SQLite evidence directory to the pilot inventory. The closed-state rollback archive retains its database, along with the handoff and transport ledgers. Keep this evidence private.
+
 ## Prepare the private plan
 
 Use the actual legacy bridge configuration and registered pilot project. Select a separate pilot data directory and a fresh bundle directory whose parent already exists. The migration copies completed legacy data into the bundle and pilot transport store. Treat the bundle as private application data because it contains messages, account IDs and native execution references.

@@ -8,4 +8,4 @@
 
 - [x] 2.1 Check the exact deployed SLS rule, source access and query response boundaries.
 - [x] 2.2 Run a bounded read-only observation of the registered rule and record its observed scope.
-- [ ] 2.3 Separately review persistent scheduling and authenticated machine-source admission before connecting this observer to the gateway, Codex or Feishu.
+- [ ] 2.3 Review persistent scheduling and authenticated delivery through the [managed SLS matter change](../connect-sls-refund-matters/tasks.md). Authorize machine-source task admission separately if it is introduced.

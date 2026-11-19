@@ -43,6 +43,9 @@ export class MatterStore {
             owner TEXT NOT NULL, project TEXT NOT NULL, choice TEXT NOT NULL,
             previous_choice TEXT, switch_after INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner,project)
           );
+          CREATE TABLE IF NOT EXISTS refund_incident_matters (
+            conversation TEXT PRIMARY KEY REFERENCES conversations(id)
+          );
           CREATE TABLE IF NOT EXISTS matter_objects (
             owner TEXT NOT NULL, project TEXT NOT NULL, ref TEXT NOT NULL, conversation TEXT NOT NULL REFERENCES conversations(id),
             PRIMARY KEY(owner,project,ref)
@@ -85,9 +88,27 @@ export class MatterStore {
       .get(scope.owner, scope.project, title) as Matter | undefined;
   }
 
-  list(scope: Scope, limit: number, offset = 0): Matter[] {
-    return this.db.prepare('SELECT id,title FROM conversations WHERE owner=? AND project=? AND title IS NOT NULL ORDER BY rowid DESC LIMIT ? OFFSET ?')
-      .all(scope.owner, scope.project, limit, offset) as Matter[];
+  list(scope: Scope, limit: number, offset = 0, includeAlertMatters = true): Matter[] {
+    return this.db.prepare(`SELECT id,title FROM conversations WHERE owner=? AND project=? AND title IS NOT NULL
+      AND (? OR NOT EXISTS (SELECT 1 FROM refund_incident_matters WHERE conversation=id))
+      ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(scope.owner, scope.project, Number(includeAlertMatters), limit, offset) as Matter[];
+  }
+
+  ensureRefundIncident(scope: Scope, incident: string): Matter {
+    return this.transaction(() => {
+      const existing = this.db.prepare('SELECT 1 FROM refund_incident_matters WHERE conversation=?').get(incident);
+      if (existing) {
+        const matter = this.owned(scope, incident);
+        if (!matter) throw Error('Refund incident matter scope changed');
+        return matter;
+      }
+      const title = '退款告警 ' + incident;
+      // A manually created title must never inherit the incident's trusted card association.
+      this.db.prepare('INSERT INTO conversations(id,owner,project,title) VALUES (?,?,?,?)')
+        .run(incident, scope.owner, scope.project, this.named(scope, title) ? 'SLS ' + title : title);
+      this.db.prepare('INSERT INTO refund_incident_matters VALUES (?)').run(incident);
+      return this.owned(scope, incident)!;
+    });
   }
 
   focus(scope: Scope): string | undefined {

@@ -11,6 +11,8 @@ import { AutoloopSource, SourceOutbox } from './source.js';
 import { PilotInteractions } from './interactions.js';
 import { pilotMaintenance } from './maintenance.js';
 import { verificationProfiles } from './verification-profile.js';
+import { managedRefundObserver, type ManagedRefundObserver } from './refund-monitor.js';
+import { parseObserverConfig } from '../sls-refund/sls-source.js';
 
 export async function startPilot(config: Config, auth: { appId: string; appSecret: string }, configPath: string): Promise<void> {
   process.umask(0o077);
@@ -22,6 +24,8 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   const hubUrl = value.hubUrl;
   const sourceKey = process.env.HANDOFF_SOURCE_KEY;
   const profiles = verificationProfiles(value.verificationProfiles);
+  const refund = value.slsRefundObserver === undefined ? undefined : parseObserverConfig(value.slsRefundObserver, 'live');
+  let observer: ManagedRefundObserver | undefined;
   let shutdown: (() => Promise<void>) | undefined;
   let compromised = false;
   const lease = await acquireRoot(config.stateDirectory, 'pilot', directory, () => { compromised = true; void shutdown?.(); });
@@ -36,6 +40,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   shutdown = () => closing ??= (async () => {
     stopping = true;
     feishu.close();
+    await observer?.close();
     await opening?.catch(() => {});
     await interactions?.close();
     native?.closePermissions();
@@ -65,8 +70,19 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     if (stopping) return;
     if (compromised) throw new Error('Consumer ownership unavailable');
     lease.assertHeld();
-    await feishu.start(message => { interactions!.receive(message); void interactions!.flush().catch(() => {}); },
+    await feishu.start(message => {
+      if (stopping) return;
+      if (refund) admission!.confirmOwnerPrivateChat(message);
+      interactions!.receive(message);
+      void interactions!.flush().catch(() => {});
+    },
       click => interactions!.cardAction(click), click => interactions!.taskRefresh(click), click => interactions!.reviewAction(click), click => interactions!.matterAction(click));
+    if (stopping) return;
+    if (refund) {
+      lease.assertHeld();
+      observer = managedRefundObserver(refund, admission!, interactions!.transport.state, () => lease.assertHeld());
+      observer.start();
+    }
     console.log('Pilot gateway connected under managed ownership');
   } catch (error) {
     const intentionalStop = stopping;
