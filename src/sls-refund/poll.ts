@@ -3,7 +3,7 @@ import { readEvaluations, readEvidence, readSls, type ObserverConfig } from './s
 
 const overlapSeconds = 120;
 const maxCatchupSeconds = 15 * 60;
-const logDelaySeconds = 60;
+export const logDelaySeconds = 60;
 
 export function evidenceFrom(value: unknown): Evidence {
   if (value === undefined) return { backlog: [] };
@@ -12,10 +12,21 @@ export function evidenceFrom(value: unknown): Evidence {
 }
 
 export async function pollRefundObserver(observer: RefundObserver, config: ObserverConfig,
-  { now = Math.floor(Date.now() / 1000), read = readSls, canContinue = () => true }:
-  { now?: number; read?: typeof readSls; canContinue?: () => boolean } = {}): Promise<boolean> {
+  { now = Math.floor(Date.now() / 1000), read = readSls, canContinue = () => true, subscription = false }:
+  { now?: number; read?: typeof readSls; canContinue?: () => boolean; subscription?: boolean } = {}): Promise<boolean> {
   if (config.binding.start > now - logDelaySeconds) throw new Error('Live observation start has not reached the ingestion delay');
-  const cursor = observer.through();
+  if (subscription) {
+    const closure = observer.nextClosureCheck(now);
+    if (closure) {
+      const to = Math.min(closure.through, closure.checkpoint + maxCatchupSeconds);
+      observer.acceptWindow(closure.checkpoint, to,
+        readEvaluations(await read(config, 'evaluations', closure.checkpoint, to), config.binding), now);
+      observer.advanceClosureCheck(closure.incident, to);
+    }
+    if (!canContinue()) return false;
+    if (!observer.nextSample(now, true) && !observer.notificationReadDue(now - logDelaySeconds)) return true;
+  }
+  const cursor = subscription ? observer.discoveryCursor() : observer.through();
   const to = Math.min(now - logDelaySeconds, cursor + maxCatchupSeconds);
   if (to > cursor) {
     const from = Math.max(config.binding.start, cursor - overlapSeconds);
@@ -23,7 +34,9 @@ export async function pollRefundObserver(observer: RefundObserver, config: Obser
   }
   if (!canContinue()) return false;
   // If discovery is still catching up, do not close using incomplete incident history.
-  const sample = to >= now - logDelaySeconds ? observer.nextSample(now) : undefined;
+  const caughtUp = to >= now - logDelaySeconds;
+  if (caughtUp && observer.notificationReadDue(to)) observer.finishNotificationReads(now);
+  const sample = caughtUp ? observer.nextSample(now, true) : undefined;
   if (sample) {
     let evidence: Evidence = { backlog: [] };
     const from = Math.max(0, now - 5 * 60);
@@ -31,7 +44,7 @@ export async function pollRefundObserver(observer: RefundObserver, config: Obser
       try { evidence = evidenceFrom(await read(config, 'evidence', from, sample.evidenceThrough)); }
       catch { evidence = { backlog: [], unavailable: 'source-query-failed' }; }
     }
-    observer.observe(sample, now, evidence);
+    observer.observe(sample, now, evidence, subscription ? now + overlapSeconds : undefined);
   }
-  return to >= now - logDelaySeconds;
+  return caughtUp;
 }

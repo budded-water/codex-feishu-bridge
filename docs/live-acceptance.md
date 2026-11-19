@@ -1,5 +1,15 @@
 # Live acceptance evidence
 
+## 2026-11-19 M6 SLS refund subscription
+
+An isolated cloud queue received a scoped fixture firing through SLS and EventBridge. The fixture checked the notification fields and scoped receive and acknowledgment behavior. The authorized M6 cutover retained the original alert email action, verified unattended SLS read access and checked the captured state before reopening admission. The gateway consumed and acknowledged real notifications from the dedicated queue. Multiple firings were recorded against one incident.
+
+An actual owner-private `/status` established the private card destination. Feishu acknowledged a `需人工核对` incident card. Selecting the card's matter changed the owner selection with zero new task requests. The default selection was restored and reconfirmed. Two later replies to the same delivered card each carried the historical observation into the incident matter. Both results reached Feishu. The distinct native turns used one thread, and the second result used a marker from the first turn. Quoting the card preserved the default selection.
+
+This run verified alert delivery and owner-initiated continuation. The last observation lacked a complete fresh sample, so the incident required human inspection. Refund jobs, financial state and production release are outside the acceptance scope. Scoped backup, native execution and delivery evidence remain in private deployment inventory. See [PR #57](https://github.com/budded-water/codex-feishu-bridge/pull/57).
+
+This live record applies to the candidate activated before the PR closeout. The subsequent observer compatibility, catch-up timing and late-evaluation fixes are covered by offline regression tests. They require their own deployment verification.
+
 ## 2026-11-19 M6 matter follow-up rollout
 
 The M6 gateway and Worker runner adopted [PR #53](https://github.com/budded-water/codex-feishu-bridge/pull/53) at reviewed head `6f00eff0fd224cb7c2dd18c30f390069e10bcf77`. The merged tree matched the reviewed artifact. The final candidate passed 411 tests, 17 strict OpenSpec checks, the pinned Hub and Worker verifiers, and exact-head CI and independent review. The deployment build used the pinned Node runtime, locked dependencies and the installed Codex protocol smoke check.

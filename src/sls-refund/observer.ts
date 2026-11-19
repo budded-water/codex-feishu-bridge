@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { openPrivateDatabase } from '../private-database.js';
 
@@ -57,6 +57,12 @@ export class RefundObserver {
         this.db.exec(`
           CREATE TABLE IF NOT EXISTS source (id INTEGER PRIMARY KEY CHECK(id=1), binding TEXT NOT NULL, through INTEGER NOT NULL);
           CREATE TABLE IF NOT EXISTS evaluations (id TEXT PRIMARY KEY, at INTEGER NOT NULL, status TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS refund_notifications (
+            id TEXT PRIMARY KEY, at INTEGER NOT NULL, scanned INTEGER NOT NULL DEFAULT 0
+          );
+          CREATE TABLE IF NOT EXISTS refund_subscription (
+            id INTEGER PRIMARY KEY CHECK(id=1), idle_floor INTEGER NOT NULL
+          );
           CREATE TABLE IF NOT EXISTS incidents (
             id TEXT PRIMARY KEY, opened INTEGER NOT NULL, last_firing INTEGER NOT NULL,
             detected INTEGER NOT NULL, state TEXT NOT NULL
@@ -72,13 +78,25 @@ export class RefundObserver {
             incident TEXT REFERENCES incidents(id), state TEXT NOT NULL, card TEXT NOT NULL UNIQUE,
             projected INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(incident,state)
           );
+          CREATE TABLE IF NOT EXISTS refund_closure_checks (
+            incident TEXT PRIMARY KEY REFERENCES incidents(id), checkpoint INTEGER NOT NULL,
+            through INTEGER NOT NULL, due INTEGER NOT NULL
+          );
         `);
         const columns = this.db.prepare('PRAGMA table_info(observations)').all() as { name: string }[];
         if (!columns.some(column => column.name === 'evidence_through')) {
           this.db.exec('ALTER TABLE observations ADD COLUMN evidence_through INTEGER');
         }
+        const sourceColumns = this.db.prepare('PRAGMA table_info(source)').all() as { name: string }[];
+        if (sourceColumns.some(column => column.name === 'idle_floor')) {
+          // The deployed candidate used a column the previous observer cannot open.
+          this.db.exec(`INSERT OR REPLACE INTO refund_subscription
+            SELECT id,idle_floor FROM source WHERE idle_floor IS NOT NULL
+            AND (SELECT state FROM incidents ORDER BY rowid DESC LIMIT 1) IS NOT 'needs-attention';
+            ALTER TABLE source DROP COLUMN idle_floor;`);
+        }
         const identity = JSON.stringify([binding.mode, binding.region, binding.project, binding.rule, binding.start]);
-        this.db.prepare('INSERT OR IGNORE INTO source VALUES (1,?,?)').run(identity, binding.start);
+        this.db.prepare('INSERT OR IGNORE INTO source(id,binding,through) VALUES (1,?,?)').run(identity, binding.start);
         const found = this.db.prepare('SELECT binding FROM source WHERE id=1').get() as { binding: string };
         if (found.binding !== identity) throw new Error('Observer state belongs to a different source or starting point');
       });
@@ -104,6 +122,66 @@ export class RefundObserver {
     return (this.db.prepare('SELECT through FROM source WHERE id=1').get() as { through: number }).through;
   }
 
+  discoveryCursor(): number {
+    return (this.db.prepare(`SELECT MAX(through,COALESCE((SELECT idle_floor FROM refund_subscription WHERE id=1),through))
+      AS cursor FROM source WHERE id=1`)
+      .get() as { cursor: number }).cursor;
+  }
+
+  retainNotification(notification: { id: string; at: number }, now: number): void {
+    if (!/^[a-zA-Z0-9_.:-]{1,160}$/.test(notification.id) || !isSecond(notification.at) || !isSecond(now) ||
+      notification.at < this.binding.start || notification.at > now) throw new Error('Invalid firing notification');
+    const id = 'notification:' + createHash('sha256').update(notification.id).digest('hex');
+    this.transaction(() => {
+      const saved = this.db.prepare('SELECT at FROM refund_notifications WHERE id=?').get(id) as { at: number } | undefined;
+      if (saved) {
+        if (saved.at !== notification.at) throw new Error('A firing notification ID changed its meaning');
+        return;
+      }
+      const latest = this.db.prepare("SELECT MAX(at) AS at FROM evaluations WHERE status='firing'").get() as { at: number | null };
+      const prior = this.latestIncident();
+      this.db.prepare('INSERT INTO refund_notifications(id,at) VALUES (?,?)').run(id, notification.at);
+      this.db.prepare("INSERT INTO evaluations VALUES (?,?,'firing')").run(id, notification.at);
+      this.reconcileEvaluation({ id, at: notification.at, status: 'firing' }, now, latest.at ?? -1);
+      if ((!prior || prior.state === 'resolved') && this.latestIncident()?.id !== prior?.id) {
+        // A prior handoff needs continuous history to distinguish a new firing.
+        // The idle floor only changes where a read starts.
+        const floor = Math.max(this.binding.start, now - 120);
+        this.db.prepare(`INSERT INTO refund_subscription VALUES (1,?)
+          ON CONFLICT(id) DO UPDATE SET idle_floor=MAX(idle_floor,excluded.idle_floor)`).run(floor);
+      }
+      this.splitAfterHandoff(now);
+    });
+  }
+
+  notificationReadDue(before: number): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM refund_notifications WHERE scanned=0 AND at<? LIMIT 1').get(before));
+  }
+
+  finishNotificationReads(now: number): void {
+    this.transaction(() => {
+      const through = this.through();
+      // Catch-up may cross many windows before the first sample is trustworthy.
+      this.db.prepare(`UPDATE incidents SET detected=? WHERE state='open'
+        AND NOT EXISTS (SELECT 1 FROM observations WHERE incident=incidents.id)
+        AND EXISTS (SELECT 1 FROM refund_notifications WHERE scanned=0 AND at>=incidents.opened AND at<?)`)
+        .run(now, through);
+      this.db.prepare('UPDATE refund_notifications SET scanned=1 WHERE scanned=0 AND at<?').run(through);
+    });
+  }
+
+  nextClosureCheck(now: number): { incident: string; checkpoint: number; through: number } | undefined {
+    return this.db.prepare('SELECT incident,checkpoint,through FROM refund_closure_checks WHERE due<=? ORDER BY due,incident LIMIT 1')
+      .get(now) as { incident: string; checkpoint: number; through: number } | undefined;
+  }
+
+  advanceClosureCheck(incident: string, checkpoint: number): void {
+    this.transaction(() => {
+      this.db.prepare('UPDATE refund_closure_checks SET checkpoint=? WHERE incident=?').run(checkpoint, incident);
+      this.db.prepare('DELETE FROM refund_closure_checks WHERE incident=? AND checkpoint>=through').run(incident);
+    });
+  }
+
   acceptWindow(from: number, to: number, evaluations: Evaluation[], now: number): void {
     if (![from, to, now].every(isSecond) || from < this.binding.start || from >= to || to > now ||
       evaluations.some(event => !isSecond(event.at) || event.at < from || event.at >= to ||
@@ -112,7 +190,7 @@ export class RefundObserver {
     }
     this.transaction(() => {
       const previous = this.through();
-      if (from > previous) throw new Error('The evaluation window would skip unread history');
+      if (from > this.discoveryCursor()) throw new Error('The evaluation window would skip unread history');
 
       const latest = this.db.prepare("SELECT MAX(at) AS at FROM evaluations WHERE status='firing'").get() as { at: number | null };
       let newest = latest.at ?? -1;
@@ -128,7 +206,10 @@ export class RefundObserver {
       }
 
       this.splitAfterHandoff(now);
-      if (to > previous) this.db.prepare('UPDATE source SET through=? WHERE id=1').run(to);
+      if (to > previous) {
+        this.db.prepare('UPDATE source SET through=? WHERE id=1').run(to);
+        this.db.prepare('DELETE FROM refund_subscription WHERE idle_floor<=?').run(to);
+      }
     });
   }
 
@@ -143,8 +224,7 @@ export class RefundObserver {
       ORDER BY i.rowid DESC LIMIT 1`).get(at, at) as
       { id: string; through: number; body: string } | undefined;
     if (closed) {
-      const earlier = JSON.parse(closed.body) as Evidence;
-      const firstHealthy = Math.min(earlier.recovery!.at, ...earlier.backlog.map(sample => sample.at));
+      const firstHealthy = this.earliestSample(JSON.parse(closed.body) as Evidence);
       if (firing ? at >= firstHealthy : at === closed.through - 1) {
         // Late data can invalidate a confirmed recovery without creating a
         // second incident or granting another automatic observation budget.
@@ -188,12 +268,13 @@ export class RefundObserver {
     return this.db.prepare('SELECT * FROM incidents ORDER BY rowid DESC LIMIT 1').get() as Incident | undefined;
   }
 
-  nextSample(now: number): DueSample | undefined {
+  nextSample(now: number, requireFirstFiringCoverage = false): DueSample | undefined {
     const incident = this.latestIncident();
     if (!incident || incident.state !== 'open' || now < incident.detected) return;
     const slot: Slot = now >= incident.detected + followups[2] ? 2 : now >= incident.detected + followups[1] ? 1 : 0;
     const saved = this.db.prepare('SELECT MAX(slot) AS slot FROM observations WHERE incident=?').get(incident.id) as { slot: number | null };
     if (saved.slot !== null && saved.slot >= slot) return;
+    if (requireFirstFiringCoverage && saved.slot === null && this.through() <= incident.last_firing) return;
     // Use an already accepted history horizon for the final slot. The newest
     // inactive evaluation must also be at or after any evidence used to close.
     const latest = this.latestEvaluation();
@@ -204,7 +285,7 @@ export class RefundObserver {
     return { incident: incident.id, slot, firing: incident.last_firing, dueAt: incident.detected + followups[slot], evidenceThrough };
   }
 
-  observe(expected: DueSample, now: number, evidence: Evidence): boolean {
+  observe(expected: DueSample, now: number, evidence: Evidence, closureCheckAt?: number): boolean {
     return this.transaction(() => {
       const sample = this.nextSample(now);
       if (!sample || sample.incident !== expected.incident || sample.slot !== expected.slot || sample.firing !== expected.firing ||
@@ -221,6 +302,10 @@ export class RefundObserver {
           (JSON.parse(earlier.assessment) as Assessment).state === 'healthy' &&
           this.samplesAdvance(JSON.parse(earlier.body) as Evidence, evidence);
         this.db.prepare('UPDATE incidents SET state=? WHERE id=?').run(resolved ? 'resolved' : 'needs-attention', sample.incident);
+        if (resolved && closureCheckAt !== undefined) {
+          this.db.prepare('INSERT INTO refund_closure_checks VALUES (?,?,?,?)').run(sample.incident,
+            this.earliestSample(JSON.parse(earlier.body) as Evidence), sample.evidenceThrough, closureCheckAt);
+        }
       }
       return true;
     });
@@ -230,6 +315,10 @@ export class RefundObserver {
     return Boolean(previous.backlogRun && previous.recoveryRun && current.backlogRun !== previous.backlogRun &&
       current.recoveryRun !== previous.recoveryRun) && current.recovery!.at > previous.recovery!.at &&
       current.backlog.every(sample => sample.at > previous.backlog.find(other => other.channel === sample.channel)!.at);
+  }
+
+  private earliestSample(evidence: Evidence): number {
+    return Math.min(evidence.recovery!.at, ...evidence.backlog.map(sample => sample.at));
   }
 
   private latestEvaluation(): Pick<Evaluation, 'at' | 'status'> | undefined {

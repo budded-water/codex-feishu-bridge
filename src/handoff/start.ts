@@ -13,6 +13,7 @@ import { pilotMaintenance } from './maintenance.js';
 import { verificationProfiles } from './verification-profile.js';
 import { managedRefundObserver, type ManagedRefundObserver } from './refund-monitor.js';
 import { parseObserverConfig } from '../sls-refund/sls-source.js';
+import { parseRefundQueueSettings, refundQueue } from '../sls-refund/smq.js';
 
 export async function startPilot(config: Config, auth: { appId: string; appSecret: string }, configPath: string): Promise<void> {
   process.umask(0o077);
@@ -25,6 +26,8 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   const sourceKey = process.env.HANDOFF_SOURCE_KEY;
   const profiles = verificationProfiles(value.verificationProfiles);
   const refund = value.slsRefundObserver === undefined ? undefined : parseObserverConfig(value.slsRefundObserver, 'live');
+  const queueSettings = refund && parseRefundQueueSettings(record(value.slsRefundObserver).smq, refund.binding.region);
+  const queue = queueSettings && refund?.aliyun && refundQueue(queueSettings, refund.binding, refund.aliyun.executable);
   let observer: ManagedRefundObserver | undefined;
   let shutdown: (() => Promise<void>) | undefined;
   let compromised = false;
@@ -80,7 +83,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     if (stopping) return;
     if (refund) {
       lease.assertHeld();
-      observer = managedRefundObserver(refund, admission!, interactions!.transport.state, () => lease.assertHeld());
+      observer = managedRefundObserver(refund, admission!, interactions!.transport.state, () => lease.assertHeld(), queue);
       observer.start();
     }
     console.log('Pilot gateway connected under managed ownership');

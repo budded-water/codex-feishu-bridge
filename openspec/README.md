@@ -22,14 +22,16 @@ Completed bounded changes have been synchronized into delivered main specificati
 | Owner matter routing | [owner-matter-routing](specs/owner-matter-routing/spec.md) | [Named matters](changes/archive/2026-11-19-add-owner-matter-routing/tasks.md) |
 | Owner task progress | [owner-task-progress](specs/owner-task-progress/spec.md) | [Task progress](changes/archive/2026-11-16-add-owner-task-progress/tasks.md) |
 | Browser access handoff | [browser-access-handoff](specs/browser-access-handoff/spec.md) | [Browser handoff](changes/archive/2026-11-18-add-browser-access-handoff/tasks.md) |
+| SLS refund observation | [sls-refund-observer](specs/sls-refund-observer/spec.md) | [Standalone observer](changes/archive/2026-11-19-add-sls-refund-observer/tasks.md) |
+| SLS refund matters and subscription | [sls-refund-matters](specs/sls-refund-matters/spec.md) | [Managed matters](changes/archive/2026-11-19-connect-sls-refund-matters/tasks.md), [SMQ subscription](changes/archive/2026-11-19-subscribe-sls-refund-events/tasks.md) |
 
 These are implemented contracts with bounded evidence, not universal live acceptance. Owner-private operation is observed on one M6 deployment. Other typed-English, colleague/group, host-login/wake/network and additional fault families retain the limits in [live acceptance](../docs/live-acceptance.md) and [operation](../docs/operation.md).
 
 The delivered [matter follow-up refinement](changes/archive/2026-11-19-clarify-owner-matter-followups/tasks.md) covers short continuations and conflicting answer references. The [M6 acceptance](../docs/live-acceptance.md#2026-11-19-m6-matter-follow-up-rollout) verifies both choices and the resumed threads.
 
-## Active SLS observer
+## Delivered SLS observer and subscription
 
-The [SLS refund observer](changes/add-sls-refund-observer/proposal.md) covers standalone replay, bounded read-only observation and durable follow-up evidence. The [managed SLS matter change](changes/connect-sls-refund-matters/proposal.md) adds scheduled observation and durable owner-private cards. Its [tasks](changes/connect-sls-refund-matters/tasks.md) distinguish implementation and M6 activation from future external-source task admission.
+The subscription, read-only observation, owner-private card delivery and quoted Codex continuation were verified on the managed M6 pilot. See the [dated acceptance record](../docs/live-acceptance.md#2026-11-19-m6-sls-refund-subscription) for the scope and observed incident disposition.
 
 ## Active P3 change
 

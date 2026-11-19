@@ -7,5 +7,5 @@
 
 ## 2. Managed activation
 
-- [ ] 2.1 Verify the private unattended source profile and M6 backup inventory.
-- [ ] 2.2 Activate the approved deployment and verify real card delivery and owner-thread continuation.
+- [x] 2.1 Verify the private unattended source profile and M6 backup inventory.
+- [x] 2.2 Activate the approved deployment and verify real card delivery and owner-thread continuation. See the [M6 acceptance record](../../../../docs/live-acceptance.md#2026-11-19-m6-sls-refund-subscription).
