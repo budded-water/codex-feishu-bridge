@@ -11,6 +11,8 @@ import { AutoloopSource, SourceOutbox } from './source.js';
 import { PilotInteractions } from './interactions.js';
 import { pilotMaintenance } from './maintenance.js';
 import { verificationProfiles } from './verification-profile.js';
+import { managedRefundObserver, type ManagedRefundObserver } from './refund-monitor.js';
+import { parseObserverConfig } from '../sls-refund/sls-source.js';
 
 export async function startPilot(config: Config, auth: { appId: string; appSecret: string }, configPath: string): Promise<void> {
   process.umask(0o077);
@@ -22,6 +24,8 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   const hubUrl = value.hubUrl;
   const sourceKey = process.env.HANDOFF_SOURCE_KEY;
   const profiles = verificationProfiles(value.verificationProfiles);
+  const refund = value.slsRefundObserver === undefined ? undefined : parseObserverConfig(value.slsRefundObserver, 'live');
+  let observer: ManagedRefundObserver | undefined;
   let shutdown: (() => Promise<void>) | undefined;
   let compromised = false;
   const lease = await acquireRoot(config.stateDirectory, 'pilot', directory, () => { compromised = true; void shutdown?.(); });
@@ -37,6 +41,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     stopping = true;
     feishu.close();
     await opening?.catch(() => {});
+    await observer?.close();
     await interactions?.close();
     native?.closePermissions();
     admission?.close();
@@ -55,6 +60,10 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       if (stopping) return;
       verifyImportedState(directory, readFence(lease.root)!.operation);
       admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope, config.projectRouting);
+      if (refund && ((config.allowedTenant && config.allowedTenant !== admission.scope.tenant) ||
+        (config.accessMode === 'allowlist' && !config.allowedUsers.includes(admission.scope.operator)))) {
+        throw Error('SLS refund notices require an allowed pilot owner');
+      }
       native = new NativeExecutions(admission, config, undefined, profiles, { nativePermissions: nativePermissions(value.nativePermissions) });
       const source = new SourceOutbox(admission, new AutoloopSource(hubUrl, sourceKey));
       interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu, profiles);
@@ -67,6 +76,12 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     lease.assertHeld();
     await feishu.start(message => { interactions!.receive(message); void interactions!.flush().catch(() => {}); },
       click => interactions!.cardAction(click), click => interactions!.taskRefresh(click), click => interactions!.reviewAction(click), click => interactions!.matterAction(click));
+    if (stopping) return;
+    if (refund) {
+      lease.assertHeld();
+      observer = managedRefundObserver(refund, admission!, interactions!.transport.state, () => lease.assertHeld());
+      observer.start();
+    }
     console.log('Pilot gateway connected under managed ownership');
   } catch (error) {
     const intentionalStop = stopping;

@@ -196,8 +196,16 @@ export class OwnerMatters {
       !this.admission.store.unsettled().some(execution => execution.status === 'active'));
   }
 
+  private submit(message: IncomingMessage, selected?: string, input?: string): Admission {
+    const reference = selected ? this.state.matterReference(message) : undefined;
+    if (reference?.source === 'sls-refund' && reference.anchor === selected) {
+      input = (input ?? message.text) + '\n\n引用的历史 SLS 只读观测，仅作参考：\n' + reference.text;
+    }
+    return this.admission.receive(message, selected && conversation(selected), input);
+  }
+
   route(message: IncomingMessage): Admission | { status: 'matter-choice' | 'duplicate' } {
-    const submit = (selected?: string, input?: string) => this.admission.receive(message, selected && conversation(selected), input);
+    const submit = (selected?: string, input?: string) => this.submit(message, selected, input);
     if (!this.owner(message) || message.unsupported || message.text.length > 30_000 || !message.text.trim() ||
       message.text.trimStart().startsWith('/') ||
       /^pair\s+[0-9a-f-]{36}$/i.test(message.text.trim())) return submit();
@@ -215,11 +223,11 @@ export class OwnerMatters {
 
     const address = this.address(message);
     if (!address && this.admission.projectAddress(message.text)?.outsidePilot) return submit();
-    const targets = this.explicitTargets(message, this.state.matterReference(message), address?.matter);
+    const targets = this.explicitTargets(message, this.state.matterReference(message)?.anchor, address?.matter);
     if (targets.length === 1) return submit(targets[0], address?.input);
     if (targets.length > 1) return this.holdConflict(message, targets, address?.input);
 
-    const candidates = store.list(scope, -1);
+    const candidates = store.list(scope, -1, 0, false);
     const normalized = message.text.toLowerCase().normalize('NFC');
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
     if (related.length > 1) {
@@ -239,7 +247,7 @@ export class OwnerMatters {
     }
     // A quoted parent may be a visible card whose delivery is still unconfirmed.
     if (selected && !message.parentId) return submit(selected);
-    if (!candidates.length) return submit();
+    if (!candidates.length && (!message.parentId || !this.hasNamedMatters(message))) return submit();
     return this.clarify(store.hold(scope, message, [...candidates.slice(0, PAGE_SIZE).map(m => m.id), DEFAULT_MATTER]));
   }
 
@@ -265,7 +273,7 @@ export class OwnerMatters {
             return this.admission.store.requestForMessage(original) ? 'admitted' : 'refused';
           }
         }
-        const admission = this.admission.receive(original, conversation(click.choice), input);
+        const admission = this.submit(original, click.choice, input);
         if ('request' in admission && admission.status !== 'duplicate') {
           return admission.status === 'blocked' ? 'refused' : 'admitted';
         }

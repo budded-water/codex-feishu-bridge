@@ -16,6 +16,10 @@ import { readJournal } from '../src/handoff/journal.js';
 import { matterCard, normalizeMatterClick } from '../src/matter-card.js';
 import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
 
+import { ManagedRefundObserver, projectRefundNotices } from '../src/handoff/refund-monitor.js';
+import { RefundObserver } from '../src/sls-refund/observer.js';
+import { parseObserverConfig, readEvaluations, readEvidence } from '../src/sls-refund/sls-source.js';
+
 class ManagedFake extends FakeCodex implements ManagedCodex {
   async start() { this.ready = true; this.generation = randomUUID(); }
   async close() { this.exit(); }
@@ -1819,4 +1823,122 @@ test('explicit steering in a named private chat requires the quoted running task
   assert.equal(steers[0]?.params.expectedTurnId, active.turn);
   h.codex.complete(active.thread, active.turn);
   await active.running;
+});
+
+test('refund milestones retain one private matter across failed projection acknowledgement and resume its native thread', async t => {
+  const h = setup(t);
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/sls-refund-replay.json', import.meta.url), 'utf8'));
+  const config = parseObserverConfig(fixture.source, 'replay');
+  const directory = join(h.config.stateDirectory, 'sls-refund');
+  let observer = new RefundObserver(directory, config.binding);
+  t.after(() => observer.close());
+  function apply(index: number) {
+    const frame = fixture.frames[index];
+    observer.acceptWindow(frame.from, frame.to, readEvaluations(frame.evaluations, config.binding), frame.now);
+    const sample = observer.nextSample(frame.now);
+    if (sample) observer.observe(sample, frame.now, readEvidence(frame.evidence));
+  }
+  function project() { projectRefundNotices(observer, h.admission, h.interactions.transport.state); }
+
+  apply(0);
+  const loseAck = t.mock.method(observer, 'noticeProjected', () => { throw Error('lost projection acknowledgement'); });
+  assert.throws(project, /lost projection acknowledgement/);
+  loseAck.mock.restore();
+  observer.close();
+  observer = new RefundObserver(directory, config.binding);
+  await h.restart();
+  project();
+  await drain(h);
+  const cards = () => h.sent.filter(item => item.options?.matterCard?.source === 'sls-refund');
+  assert.equal(cards().length, 1);
+  const first = cards()[0]!;
+  const matter = first.options!.matterCard!.anchor!;
+  assert.equal(first.chat, h.admission.scope.chat);
+  assert.equal(first.options?.replyTo, undefined);
+  assert.match(first.text, /微信支付 · 待处理 1/);
+  assert.doesNotMatch(first.text, /run_id|backlog-fixture/);
+  assert.equal(h.admission.store.requests().length, 0);
+  assert.equal(h.codex.calls.length, 0);
+  const scope = { owner: ownerKey(h.actor('')), project: h.admission.project };
+  assert.equal(h.admission.store.matters.focus(scope), undefined);
+  const ordinary = h.interactions.receive(h.actor('Check local setup'));
+  assert.ok('request' in ordinary);
+  assert.notEqual(ordinary.request.conversation, matter);
+
+  assert.equal(h.interactions.receive(h.actor('Explain', { user: 'ou_other', parentId: 'delivered-' + first.id })).status, 'ignored');
+  const reply = h.interactions.receive(h.actor('Explain the observed backlog', { parentId: 'delivered-' + first.id }));
+  assert.ok('request' in reply);
+  assert.equal(reply.request.conversation, matter);
+  assert.match(reply.request.input, /历史 SLS 只读观测/);
+  assert.match(reply.request.input, /微信支付 · 待处理 1/);
+  const firstGrant = h.admission.store.reserve(reply.request.id, 81);
+  assert.equal(firstGrant.kind, 'start');
+  if (firstGrant.kind !== 'start') throw Error('Expected incident turn');
+  const running = h.native.run(firstGrant.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  const thread = String(h.codex.calls.find(call => call.method === 'turn/start')!.params.threadId);
+  h.codex.complete(thread, 'turn-2');
+  await running;
+
+  fixture.frames.slice(1).forEach((_frame: unknown, index: number) => apply(index + 1));
+  project();
+  await drain(h);
+  assert.equal(cards().length, 2);
+  assert.match(cards()[1]!.options!.matterCard!.title, /观测确认恢复/);
+  assert.equal(cards()[1]!.options!.matterCard!.anchor, matter);
+  assert.equal(h.admission.store.requests().length, 2);
+  await h.restart();
+  const followup = h.interactions.receive(h.actor('Summarize the recovery', { parentId: 'delivered-' + cards()[1]!.id }));
+  assert.ok('request' in followup);
+  assert.equal(followup.request.conversation, matter);
+  const nextGrant = h.admission.store.reserve(followup.request.id, 82);
+  assert.equal(nextGrant.kind, 'start');
+  if (nextGrant.kind !== 'start') throw Error('Expected incident follow-up turn');
+  const resumed = h.native.run(nextGrant.permit);
+  await until(() => h.codex.calls.filter(call => call.method === 'turn/start').length === 2);
+  assert.equal(h.codex.calls.find(call => call.method === 'thread/resume')?.params.threadId, thread);
+  await h.native.stop();
+  await resumed;
+});
+
+test('managed refund observation retries a failed read and defers notifications through maintenance and shutdown', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = setup(t);
+  const config = parseObserverConfig({ region: 'fixture', project: 'fixture', rule: 'refund', start: 100 }, 'replay');
+  const observer = new RefundObserver(join(h.config.stateDirectory, 'sls-refund'), config.binding);
+  const error = t.mock.method(console, 'error', () => {});
+  let iterations = 0;
+  let finishRead: () => void = () => {};
+  const monitor = new ManagedRefundObserver(observer, config, h.admission, h.interactions.transport.state, () => {}, async () => {
+    iterations++;
+    if (iterations === 1) throw Error('read failed');
+    await new Promise<void>(resolve => { finishRead = resolve; });
+    if (iterations === 2) observer.acceptWindow(100, 160, [{ id: 'firing', at: 140, status: 'firing' }], 200);
+    return true;
+  });
+  t.after(async () => { finishRead(); await monitor.close(); });
+  const settle = () => new Promise<void>(resolve => setImmediate(resolve));
+  monitor.start();
+  await settle();
+  assert.equal(error.mock.callCount(), 1);
+  t.mock.timers.tick(120_000);
+  assert.equal(iterations, 2);
+  t.mock.timers.tick(240_000);
+  assert.equal(iterations, 2);
+  h.admission.store.maintenance.quiesce();
+  finishRead();
+  await settle();
+  t.mock.timers.tick(120_000);
+  await settle();
+  assert.equal(iterations, 2);
+  assert.ok(observer.report().incident);
+  assert.equal(h.interactions.transport.state.drainStatus().outbox, 0);
+  h.admission.store.maintenance.resume();
+  t.mock.timers.tick(120_000);
+  assert.equal(iterations, 3);
+  const closing = monitor.close();
+  finishRead();
+  await closing;
+  assert.equal(h.interactions.transport.state.drainStatus().outbox, 0);
+  assert.equal(h.admission.store.requests().length, 0);
 });

@@ -1,0 +1,85 @@
+import { join } from 'node:path';
+import type { State } from '../state.js';
+import { ownerKey } from '../types.js';
+import { RefundObserver } from '../sls-refund/observer.js';
+import { pollRefundObserver } from '../sls-refund/poll.js';
+import type { ObserverConfig } from '../sls-refund/sls-source.js';
+import type { PilotAdmission } from './gateway.js';
+
+const intervalMs = 120_000;
+const milestone = { open: '持续观测中', resolved: '观测确认恢复', 'needs-attention': '需人工核对' };
+const outcomes = { completed: '完成', degraded: '降级', failed: '失败', timeout: '超时', overlap_skipped: '因重叠跳过' };
+const timestamp = (seconds: number) => new Date(seconds * 1000).toISOString().replace('.000Z', 'Z');
+
+export function projectRefundNotices(observer: RefundObserver, admission: PilotAdmission, transport: State): void {
+  if (admission.store.maintenance.paused) return;
+  const { tenant, operator: user, chat } = admission.scope;
+  const scope = { owner: ownerKey({ tenant, user, chat }), project: admission.project };
+  for (const notice of observer.pendingNotices()) {
+    const matter = admission.store.matters.ensureRefundIncident(scope, notice.incident);
+    const report = ['最后触发 ' + timestamp(notice.lastFiring)];
+    const sample = notice.observation;
+    if (!sample) report.push('暂未采集到复查样本。');
+    else {
+      report.push('观察时间 ' + timestamp(sample.observed));
+      if (sample.state === 'unavailable') {
+        report.push(sample.reason === 'source-query-failed' ? '诊断查询失败。' : '样本缺失、过期或不完整。');
+      } else {
+        for (const row of sample.evidence.backlog) {
+          const channel = row.channel === 'wechat_pay' ? '微信支付' : '支付宝';
+          report.push(`${channel} · 待处理 ${row.pending} · 可查询 ${row.queryable} · 缺渠道身份 ${row.missing} · 最久 ${row.oldestSeconds} 秒`);
+        }
+        const job = sample.evidence.recovery!;
+        report.push(`恢复 Job · ${outcomes[job.outcome]} · 查询错误 ${job.queryErrors} · 推迟 ${job.deferred}`);
+      }
+    }
+    if (notice.state === 'needs-attention') report.push('当前证据未能确认恢复。');
+
+    const text = report.join('\n');
+    transport.enqueueRefundMatter({ id: notice.card, tenant, user, chat, title: '商家退款 · ' + milestone[notice.state],
+      text: text + '\n\n回复这张卡片可在同一事项里追问。', source: 'sls-refund', action: 'switch', anchor: matter.id, choices: [{ id: matter.id, label: '切到此事项' }] });
+    observer.noticeProjected(notice.card);
+  }
+}
+
+export class ManagedRefundObserver {
+  private timer?: NodeJS.Timeout;
+  private work?: Promise<void>;
+  private stopping = false;
+
+  constructor(private observer: RefundObserver, private config: ObserverConfig, private admission: PilotAdmission,
+    private transport: State, private assertHeld: () => void, private poll = pollRefundObserver) {}
+
+  start(): void {
+    if (this.work || this.timer || this.stopping) throw Error('SLS refund observer already started or stopped');
+    this.schedule();
+  }
+
+  private schedule(): void {
+    this.work = this.cycle().catch(() => console.error('SLS refund cycle unavailable; retained state will be retried')).finally(() => {
+      this.work = undefined;
+      if (!this.stopping) this.timer = setTimeout(() => { this.timer = undefined; this.schedule(); }, intervalMs);
+    });
+  }
+
+  private async cycle(): Promise<void> {
+    if (this.admission.store.maintenance.paused) return;
+    this.assertHeld();
+    if (!await this.poll(this.observer, this.config) || this.stopping) return;
+    this.assertHeld();
+    projectRefundNotices(this.observer, this.admission, this.transport);
+  }
+
+  async close(): Promise<void> {
+    if (this.stopping) { await this.work; return; }
+    this.stopping = true;
+    clearTimeout(this.timer);
+    await this.work;
+    this.observer.close();
+  }
+}
+
+export function managedRefundObserver(config: ObserverConfig, admission: PilotAdmission, transport: State, assertHeld: () => void) {
+  return new ManagedRefundObserver(new RefundObserver(join(admission.stateDirectory, 'sls-refund'), config.binding),
+    config, admission, transport, assertHeld);
+}

@@ -407,6 +407,14 @@ export function inspectLegacy(plan: MigrationPlan) {
 // Archive only closed, admission-bound native artifacts; UI-eval report assets remain project-owned.
 export function archiveNativeEvidence(pilotDirectory: string, archive: string): Record<string, string> {
   const nativeFiles: Record<string, string> = {};
+  const refunds = join(pilotDirectory, 'sls-refund');
+  if (existsSync(refunds)) {
+    const file = 'refund-observer.db';
+    if (!lstatSync(refunds).isDirectory() || readdirSync(refunds).some(n => n !== file) ||
+      !lstatSync(join(refunds, file)).isFile()) throw Error('Unsettled SLS refund observer state');
+    mkdirSync(join(archive, 'sls-refund'), { mode: 0o700 });
+    nativeFiles['sls-refund/' + file] = copyClosed(join(refunds, file), join(archive, 'sls-refund', file));
+  }
   const permissions = join(pilotDirectory, 'permissions');
   if (existsSync(permissions)) {
     if (!lstatSync(permissions).isDirectory() || lstatSync(permissions).isSymbolicLink() || readdirSync(permissions).some(n => n !== 'bridge.db')) throw Error('Unsettled permission audit state');
