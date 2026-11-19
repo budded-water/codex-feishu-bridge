@@ -1,6 +1,6 @@
 # Implementation and acceptance status
 
-The owner matter-routing change adds named conversations, direct references and choice cards. Source implementation and live Feishu acceptance are tracked separately in [OpenSpec](../openspec/changes/add-owner-matter-routing/tasks.md).
+The owner matter-routing change adds named conversations, direct references, answer-based replies, matter receipts and choice cards. Source implementation and live Feishu acceptance are tracked separately in [OpenSpec](../openspec/changes/add-owner-matter-routing/tasks.md).
 
 Owner-private Feishu quoted-task replies are deployed on the managed M6 gateway and Worker. A genuine owner chat verified merging before assignment, steering the exact running turn, and a linked follow-up in the same Codex thread. The [delivered specification](../openspec/specs/owner-task-replies/spec.md) records the contract and the [dated rollout record](live-acceptance.md#2026-11-18-m6-owner-private-quoted-task-replies) records the tested scope.
 

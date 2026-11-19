@@ -5,8 +5,9 @@
 - [x] 1.3 Verify migration, replay, owner scope and two-conversation continuity at their boundaries.
 - [x] 1.4 Pass repository checks and strict OpenSpec validation.
 - [ ] 1.5 Verify independent review and CI on the current PR head.
+- [x] 1.6 Implement verified Bot answer quotes, receipts with the admitted matter, and post-switch clarification.
 
 ## 2. Deployment and owner acceptance
 
 - [ ] 2.1 Deploy the reviewed artifact through the authorized managed cutover.
-- [ ] 2.2 Verify two threads in a genuine private chat, old task replies, object routing, one-shot clarification and restart continuity.
+- [ ] 2.2 Verify two threads in a genuine private chat, original task and Bot answer replies, matter receipts, object routing, post-switch clarification and restart continuity.

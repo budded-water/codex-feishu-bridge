@@ -15,6 +15,17 @@ The managed gateway SHALL allow the enrolled private owner to create and select 
 - **THEN** the new request SHALL use the explicitly resolved matter regardless of the current selection
 - **AND** exact replies to original tasks SHALL preserve existing queue merge, live steer and settled follow-up semantics
 
+#### Scenario: An owner replies to a confirmed final answer
+
+- **WHEN** the owner replies with a new ordinary question to a confirmed successful ordinary Bot answer, including while another matter is selected
+- **THEN** the gateway SHALL use the original task's confirmed conversation and schedule a follow-up turn through the existing task-reply path
+- **AND** an unconfirmed delivery, other chat or actor, prompt, or special procedure SHALL NOT become an ordinary answer anchor
+
+#### Scenario: The receipt identifies the admitted matter
+
+- **WHEN** an ordinary request is accepted in a chat with named matters
+- **THEN** the gateway SHALL include the actual admitted matter or default conversation in a single receipt, independent of the current selection
+
 ### Requirement: Ambiguous tasks require explicit selection
 
 The managed gateway SHALL persist ambiguous inputs before offering owner-scoped choices. It SHALL allow only confirmed choices from the same tenant, user, chat and message to consume the original input.
@@ -30,6 +41,12 @@ The managed gateway SHALL persist ambiguous inputs before offering owner-scoped 
 - **WHEN** the confirmed matter card, exact title or registered PR resolves to different matters in a new message
 - **THEN** the gateway SHALL hold the message for a confirmed choice
 - **AND** a read-only request addressed to a confirmed matter card SHALL use the matter route, while a reply to an exact original task retains task-control behavior
+
+#### Scenario: A short unanchored follow-up arrives after switching
+
+- **WHEN** the owner switches away from a matter with admitted work and sends a short vague continuation before admitting a task in the selected matter
+- **THEN** the gateway SHALL persist the original message and offer the previous and current matters before execution
+- **AND** a verified selection, a valid explicit destination, or a new task already admitted to the selected matter SHALL permit ordinary continuation without re-asking about that switch
 
 #### Scenario: A quoted reference is awaiting confirmation
 

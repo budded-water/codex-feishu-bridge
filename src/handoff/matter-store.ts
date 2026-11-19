@@ -4,6 +4,7 @@ import { ownerKey, type IncomingMessage } from '../types.js';
 import type { MatterPresentation } from '../matter-card.js';
 
 export const DEFAULT_MATTER = 'default';
+export const DEFAULT_MATTER_TITLE = '默认对话';
 export type Matter = { id: string; title: string };
 type Scope = { owner: string; project: string };
 export type MatterNotice = {
@@ -38,7 +39,8 @@ export class MatterStore {
         }
         db.exec(`
           CREATE TABLE IF NOT EXISTS matter_focus (
-            owner TEXT NOT NULL, project TEXT NOT NULL, choice TEXT NOT NULL, PRIMARY KEY(owner,project)
+            owner TEXT NOT NULL, project TEXT NOT NULL, choice TEXT NOT NULL,
+            previous_choice TEXT, switch_after INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner,project)
           );
           CREATE TABLE IF NOT EXISTS matter_objects (
             owner TEXT NOT NULL, project TEXT NOT NULL, ref TEXT NOT NULL, conversation TEXT NOT NULL REFERENCES conversations(id),
@@ -57,6 +59,9 @@ export class MatterStore {
           );
           CREATE INDEX IF NOT EXISTS unprojected_matter_notices ON matter_notices(origin) WHERE projected=0;
         `);
+        const focusColumns = db.prepare('PRAGMA table_info(matter_focus)').all() as { name: string }[];
+        if (!focusColumns.some(c => c.name === 'previous_choice')) db.exec('ALTER TABLE matter_focus ADD COLUMN previous_choice TEXT');
+        if (!focusColumns.some(c => c.name === 'switch_after')) db.exec('ALTER TABLE matter_focus ADD COLUMN switch_after INTEGER NOT NULL DEFAULT 0');
       });
     } finally { db.exec('PRAGMA foreign_keys=ON'); }
   }
@@ -81,9 +86,26 @@ export class MatterStore {
       .get(scope.owner, scope.project) as { choice: string } | undefined)?.choice;
   }
 
-  private setFocus(scope: Scope, choice: string): void {
-    this.db.prepare(`INSERT INTO matter_focus VALUES (?,?,?) ON CONFLICT(owner,project) DO UPDATE SET choice=excluded.choice`)
-      .run(scope.owner, scope.project, choice);
+  previousFocusForFollowup(scope: Scope): string | undefined {
+    return (this.db.prepare(`SELECT f.previous_choice AS choice FROM matter_focus f WHERE f.owner=? AND f.project=?
+      AND EXISTS (SELECT 1 FROM requests r JOIN conversations c ON c.id=r.conversation
+        WHERE c.owner=f.owner AND c.project=f.project AND COALESCE(CASE WHEN c.title IS NOT NULL THEN c.id END,?)=f.previous_choice
+        AND r.blocked IS NULL AND r.rowid<=f.switch_after)
+      AND NOT EXISTS (SELECT 1 FROM requests r JOIN conversations c ON c.id=r.conversation
+        WHERE c.owner=f.owner AND c.project=f.project AND COALESCE(CASE WHEN c.title IS NOT NULL THEN c.id END,?)=f.choice
+        AND r.blocked IS NULL AND r.rowid>f.switch_after)`)
+      .get(scope.owner, scope.project, DEFAULT_MATTER, DEFAULT_MATTER) as { choice: string } | undefined)?.choice;
+  }
+
+  private setFocus(scope: Scope, choice: string, clarified = false): void {
+    const previous = this.focus(scope);
+    if (!clarified && previous === choice) return;
+    const from = previous ?? DEFAULT_MATTER;
+    this.db.prepare(`INSERT INTO matter_focus(owner,project,choice,previous_choice,switch_after)
+      VALUES (?,?,?,?,(SELECT COALESCE(MAX(rowid),0) FROM requests))
+      ON CONFLICT(owner,project) DO UPDATE SET choice=excluded.choice,
+        previous_choice=excluded.previous_choice,switch_after=excluded.switch_after`)
+      .run(scope.owner, scope.project, choice, clarified || from === choice ? null : from);
   }
 
   decide<T>(message: IncomingMessage, work: () => T): T {
@@ -196,7 +218,7 @@ export class MatterStore {
         this.db.prepare('UPDATE matter_inputs SET chosen=NULL WHERE id=?').run(id);
         return;
       }
-      this.setFocus(scope, choice);
+      this.setFocus(scope, choice, true);
       return value;
     });
   }

@@ -93,7 +93,7 @@ export class PilotInteractions {
     const command = /^\/(?:help|status|stop|steer|approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
     if (ordinaryOwner && message.parentId && !message.unsupported &&
       message.text.length <= 30_000 && message.text.trim() && !message.text.trimStart().startsWith('/') && natural !== 'stop') {
-      const reply = this.admission.store.acceptTaskReply(message, this.admission.project);
+      const reply = this.admission.store.acceptTaskReply(message, this.admission.project, this.transport.state.confirmedAnswer(message));
       if (reply) return reply;
     }
     if (!command && (!natural || (natural === 'steer' && this.matters.overridesNaturalSteer(message)))) {
@@ -118,7 +118,7 @@ export class PilotInteractions {
       this.transport.state.send(message.chat,
         present('使用帮助',
           section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。', '在本人私聊回复原任务消息，可补充正在等待或执行的任务，或追问已结束的任务。']),
-          section('按事项接续', ['- `/matter-new 事项名称` 新建并切换 · `/matters` 查看及切换', '- `/matter-bind PR链接` 绑定已选中的事项；也可以用「事项名：任务」或回复事项卡片直达']),
+          section('按事项接续', ['- `/matter-new 事项名称` 新建并切换 · `/matters` 查看及切换', '- 可回复 Bot 的普通最终答案，或用「事项名：任务」、事项卡片、已绑定的 PR 直达', '- `/matter-bind PR链接` 绑定已选中的事项']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
           section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/rules` 原生规则 · `/reviews` 非通过审查记录', '- `/browser-retry 编号 local-change-confirmed` 本机处理后检查并续接普通任务', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
           Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',

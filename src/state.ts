@@ -96,12 +96,14 @@ export class State {
       if (!taskColumns.some(column => column.name === 'routing_origin')) this.db.exec('ALTER TABLE tasks ADD COLUMN routing_origin TEXT');
       const outboxColumns = this.db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[];
       if (!outboxColumns.some(column => column.name === 'task')) this.db.exec('ALTER TABLE outbox ADD COLUMN task TEXT');
-      for (const [name, definition] of Object.entries({ reply_to: 'TEXT', mentions: 'TEXT', response_task: 'TEXT', final: 'INTEGER DEFAULT 0', prompt_id: 'TEXT', approval: 'TEXT', update_message: 'TEXT', approval_view: 'TEXT', task_view: 'TEXT', review_card: 'TEXT', matter_card: 'TEXT' })) {
+      for (const [name, definition] of Object.entries({ reply_to: 'TEXT', mentions: 'TEXT', response_task: 'TEXT', final: 'INTEGER DEFAULT 0', prompt_id: 'TEXT', approval: 'TEXT', update_message: 'TEXT', approval_view: 'TEXT', task_view: 'TEXT', review_card: 'TEXT', matter_card: 'TEXT', ordinary_answer: 'INTEGER NOT NULL DEFAULT 0' })) {
         if (!outboxColumns.some(column => column.name === name)) this.db.exec(`ALTER TABLE outbox ADD COLUMN ${name} ${definition}`);
       }
       this.db.exec('CREATE TABLE IF NOT EXISTS task_messages (message TEXT PRIMARY KEY, task TEXT REFERENCES tasks(id), chat TEXT)');
       if (!taskColumns.some(column => column.name === 'trigger_message')) this.db.exec('ALTER TABLE tasks ADD COLUMN trigger_message TEXT');
-      if (!(this.db.prepare('PRAGMA table_info(task_messages)').all() as {name:string}[]).some(column=>column.name==='chat')) this.db.exec('ALTER TABLE task_messages ADD COLUMN chat TEXT');
+      const messageColumns = this.db.prepare('PRAGMA table_info(task_messages)').all() as { name: string }[];
+      if (!messageColumns.some(column => column.name === 'chat')) this.db.exec('ALTER TABLE task_messages ADD COLUMN chat TEXT');
+      if (!messageColumns.some(column => column.name === 'ordinary_answer')) this.db.exec('ALTER TABLE task_messages ADD COLUMN ordinary_answer INTEGER NOT NULL DEFAULT 0');
       for (const field of ['created_at','routing_at','routed_at','execution_at','finished_at','feedback_at','delivered_at']) {
         if (!taskColumns.some(column => column.name === field)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${field} INTEGER`);
       }
@@ -142,7 +144,7 @@ export class State {
     }
   }
 
-  projectAssignedTask(request: RequestRecord, project: string, directory: string, status: string): void {
+  projectAssignedTask(request: RequestRecord, project: string, directory: string, status: string, matterLabel?: string): void {
     this.transaction(() => {
       this.db.prepare('INSERT OR IGNORE INTO sessions(id,owner,tenant,user,chat,project,directory) VALUES (?,?,?,?,?,?,?)')
         .run(request.conversation, ownerKey(request.message), request.message.tenant, request.message.user, request.message.chat, project, directory);
@@ -153,12 +155,17 @@ export class State {
       if (!['queued', 'running'].includes(status)) this.db.prepare("UPDATE approvals SET status='invalidated' WHERE task=? AND status='pending'").run(request.execution);
       if (fresh && request.blocked !== OWNER_WITHDRAWN && request.blocked !== QUOTED_CONVERSATION_CHANGED) {
         if (request.blocked) this.send(request.message.chat, '前一个任务的结果尚未确认，当前请求没有开始。请先核对实际结果。', { replyTo: request.message.id });
-        else this.db.prepare('INSERT INTO feedback(task,message) VALUES (?,?)').run(request.execution, this.replyTarget(request.execution)!);
+        else {
+          this.db.prepare('INSERT INTO feedback(task,message,fallback) VALUES (?,?,?)')
+            .run(request.execution, this.replyTarget(request.execution)!, matterLabel ? 1 : 0);
+          if (matterLabel) this.send(request.message.chat, '已收到 · ' + matterLabel, { replyTo: request.message.id });
+        }
       }
     });
   }
 
-  projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }, verification?: string, browserNotice?: string): void {
+  projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }, verification?: string,
+    browserNotice?: string, ordinaryAnswer = false): void {
     this.transaction(() => {
       for (const prompt of projection.prompts) {
         this.db.prepare(`INSERT INTO approvals(id,task,method,status,created,expires,actor) VALUES (?,?,'native-projection',?,?,?,?)
@@ -170,9 +177,10 @@ export class State {
           if (projection.sealed) this.db.prepare('UPDATE projected_deliveries SET live=0 WHERE id=?').run(row.id);
           continue;
         }
-        this.db.prepare(`INSERT INTO outbox(id,chat,body,reply_to,mentions,response_task,final,prompt_id,task)
-          VALUES (?,?,?,?,?,?,?,?,?)`).run(row.id, row.chat, this.redact(row.body), row.reply_to, row.mentions,
-          request.execution, row.final, row.prompt_id ? request.execution + ':' + row.prompt_id : null, row.transient ? request.execution : null);
+        this.db.prepare(`INSERT INTO outbox(id,chat,body,reply_to,mentions,response_task,final,prompt_id,task,ordinary_answer)
+          VALUES (?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.chat, this.redact(row.body), row.reply_to, row.mentions,
+          request.execution, row.final, row.prompt_id ? request.execution + ':' + row.prompt_id : null, row.transient ? request.execution : null,
+          ordinaryAnswer && row.final && row.chat === request.message.chat ? 1 : 0);
         if (row.approval) {
           const p = this.redactApproval(row.approval);
           this.db.prepare('UPDATE outbox SET approval=? WHERE id=?').run(JSON.stringify(p), row.id);
@@ -426,6 +434,13 @@ export class State {
       WHERE sessions.owner=? AND (tasks.trigger_message=? OR feedback.message=? OR (task_messages.message=? AND task_messages.chat=sessions.chat)) LIMIT 1`).get(owner,message,message,message) as {id:string}|undefined)?.id;
   }
 
+  confirmedAnswer(message: IncomingMessage): string | undefined {
+    if (!message.parentId || message.chatType !== 'p2p') return;
+    return (this.db.prepare(`SELECT m.task FROM task_messages m JOIN tasks t ON t.id=m.task JOIN sessions s ON s.id=t.session
+      WHERE m.message=? AND m.ordinary_answer=1 AND m.chat=? AND s.owner=?`)
+      .get(message.parentId, message.chat, ownerKey(message)) as { task: string } | undefined)?.task;
+  }
+
   latest(session: string): { status: string; input: string } | undefined {
     return this.db.prepare(`SELECT status,input FROM tasks WHERE ((routing_origin IS NULL OR routed=1) AND session=?) OR (routed=0 AND routing_origin=?) ORDER BY sequence DESC LIMIT 1`).get(session,session) as {status:string;input:string}|undefined;
   }
@@ -636,7 +651,23 @@ export class State {
   }
 
   delivered(id: string, message?: string): void {
-    const card = this.db.prepare('SELECT update_message,approval_view,task_view,review_card,matter_card FROM outbox WHERE id=?').get(id) as { update_message: string | null; approval_view: string | null; task_view: string | null; review_card: string | null; matter_card: string | null } | undefined;
+    const card = this.db.prepare('SELECT update_message,approval_view,task_view,review_card,matter_card,ordinary_answer,response_task,chat FROM outbox WHERE id=?').get(id) as {
+      update_message: string | null; approval_view: string | null; task_view: string | null; review_card: string | null; matter_card: string | null;
+      ordinary_answer: number; response_task: string | null; chat: string;
+    } | undefined;
+    if (card?.ordinary_answer && card.response_task) {
+      if (!message) throw new Error('Answer delivery has no confirmed message ID');
+      this.transaction(() => {
+        const saved = this.db.prepare(`INSERT INTO task_messages(message,task,chat,ordinary_answer) VALUES (?,?,?,1)
+          ON CONFLICT(message) DO UPDATE SET ordinary_answer=1
+          WHERE task=excluded.task AND chat=excluded.chat AND ordinary_answer=1`)
+          .run(message, card.response_task, card.chat);
+        if (!saved.changes) throw new Error('Answer delivery identity changed');
+        this.db.prepare('UPDATE tasks SET delivered_at=COALESCE(delivered_at,?) WHERE id=?').run(Date.now(), card.response_task);
+        this.db.prepare('DELETE FROM outbox WHERE id=?').run(id);
+      });
+      return;
+    }
     if (card?.matter_card) {
       if (!message) throw new Error('Matter card delivery has no confirmed message ID');
       this.transaction(() => {

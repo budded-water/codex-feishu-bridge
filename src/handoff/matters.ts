@@ -4,12 +4,13 @@ import type { State } from '../state.js';
 import type { CardResult } from '../approval.js';
 import type { MatterClick, MatterPresentation } from '../matter-card.js';
 import type { Admission, PilotAdmission } from './gateway.js';
-import { DEFAULT_MATTER, type HeldMatter, type MatterNotice } from './matter-store.js';
+import { DEFAULT_MATTER, DEFAULT_MATTER_TITLE, type HeldMatter, type MatterNotice } from './matter-store.js';
 
 const PAGE_SIZE = 6;
 const USAGE = '发送 /matter-new 事项名称 新建并切换。发送 /matters 查看事项和默认对话。已选中事项可用 /matter-bind GitHub PR 链接 绑定对象。';
-const defaultChoice = { id: DEFAULT_MATTER, label: '默认对话' };
+const defaultChoice = { id: DEFAULT_MATTER, label: DEFAULT_MATTER_TITLE };
 const conversation = (id: string) => id === DEFAULT_MATTER ? undefined : id;
+const vagueFollowup = /^(?:(?:那|就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?|(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?|(?:那个|上一步)(?:呢|怎么样了))[\s。？！.!?…]*$/u;
 
 function pullRequest(value: string): string | undefined {
   const path = /^https:\/\/github\.com(?::443)?\/([^?#\s]+)(?:[?#]\S*)?$/i.exec(value)?.[1];
@@ -198,6 +199,10 @@ export class OwnerMatters {
     }
 
     const selected = store.focus(scope);
+    if (selected && !message.parentId && vagueFollowup.test(message.text.trim())) {
+      const previous = store.previousFocusForFollowup(scope);
+      if (previous) return this.clarify(store.hold(scope, message, [selected, previous]));
+    }
     // A quoted parent may be a visible card whose delivery is still unconfirmed.
     if (selected && !message.parentId) return submit(selected);
     if (!candidates.length) return submit();

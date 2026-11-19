@@ -1063,6 +1063,10 @@ test('switching matters starts separate native threads and quoting the older tas
   const a = h.interactions.receive(initial);
   assert.ok('request' in a);
   const threadA = await complete(a.request, 101);
+  await drain(h);
+  const answerA = h.sent.find(row => row.options?.replyTo === initial.id && row.text === 'Done')!;
+  assert.ok(answerA);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === initial.id && row.text === '已收到 · 退款调查').length, 1);
 
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
   const b = h.interactions.receive(h.actor('检查待发布版本'));
@@ -1078,6 +1082,20 @@ test('switching matters starts separate native threads and quoting the older tas
   const followup = h.admission.store.requestForMessage(quote)!;
   assert.equal(followup.conversation, a.request.conversation);
   assert.equal(await complete(followup, 103), threadA);
+  const answerQuote = h.actor('刚才那个方案呢？', { parentId: 'delivered-' + answerA.id });
+  for (const actor of [{ ...answerQuote, user: 'ou_admin' }, { ...answerQuote, chat: 'other' }, { ...answerQuote, tenant: 'other' }]) {
+    assert.equal(h.interactions.receive(actor).status, 'ignored');
+    assert.equal(h.interactions.transport.state.confirmedAnswer(actor), undefined);
+  }
+  assert.equal(h.interactions.receive(answerQuote).status, 'task-reply');
+  const answerFollowup = h.admission.store.requestForMessage(answerQuote)!;
+  assert.equal(answerFollowup.conversation, a.request.conversation);
+  assert.equal(await complete(answerFollowup, 104), threadA);
+  assert.equal(h.interactions.receive(answerQuote).status, 'ignored');
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === answerQuote.id && row.text.includes('事项 · 退款调查')).length, 1);
+  const receipt = h.sent.find(row => row.options?.replyTo === initial.id && row.text === '已收到 · 退款调查')!;
+  assert.equal(h.interactions.transport.state.confirmedAnswer(h.actor('再看看', { parentId: 'delivered-' + receipt.id })), undefined);
   const cardReply = h.interactions.receive(h.actor('只查询最近的发布记录', { parentId: 'delivered-' + card.id }));
   assert.ok('request' in cardReply);
   assert.equal(cardReply.request.conversation, a.request.conversation);
@@ -1085,6 +1103,97 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.ok('request' in plain);
   assert.equal(plain.request.conversation, b.request.conversation);
   assert.equal(h.codex.calls.filter(call => call.method === 'thread/start').length, 2);
+});
+
+test('the first vague follow-up after a switch waits for the prior or current matter', async t => {
+  const h = setup(t);
+  const original = h.interactions.receive(h.actor('先检查退款方案'));
+  assert.ok('request' in original);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  const backToDefault = h.actor('刚才那个？');
+  assert.equal(h.interactions.receive(backToDefault).status, 'matter-choice');
+  const a = h.interactions.receive(h.actor('退款调查：收集微信渠道错误'));
+  assert.ok('request' in a, 'an explicit title bypasses the ambiguous follow-up guard');
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const scope = { owner: ownerKey(backToDefault), project: h.admission.project };
+  const release = h.admission.store.matters.focus(scope)!;
+  const other = h.interactions.receive(h.actor('退款调查：继续核对退款资料'));
+  assert.ok('request' in other);
+  assert.equal(other.request.conversation, a.request.conversation);
+  const vague = h.actor('继续上一步');
+  assert.equal(h.interactions.receive(vague).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(vague), undefined);
+  await h.restart();
+  await drain(h);
+  const defaultMessage = h.sent.find(row => row.options?.replyTo === backToDefault.id)!;
+  const defaultCard = defaultMessage.options!.matterCard!;
+  assert.ok(defaultCard.choices.some(choice => choice.id === 'default'));
+  const card = h.sent.find(row => row.options?.replyTo === vague.id)!;
+  const view = card.options!.matterCard!;
+  assert.deepEqual(view.choices.map(choice => choice.id), [release, a.request.conversation]);
+  const count = h.admission.store.requests().length;
+  const click = { id: view.id, event: randomUUID(), tenant: view.tenant, user: view.user, chat: view.chat,
+    message: 'delivered-' + card.id, choice: a.request.conversation };
+  assert.equal(h.interactions.matterAction(click), 'accepted');
+  assert.equal(h.interactions.matterAction(click), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(vague)?.conversation, a.request.conversation);
+  assert.equal(h.admission.store.requests().length, count + 1);
+  assert.equal(h.interactions.receive(vague).status, 'duplicate');
+  const keepGoing = h.interactions.receive(h.actor('继续上一步'));
+  assert.ok('request' in keepGoing);
+  assert.equal(keepGoing.request.conversation, a.request.conversation);
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === vague.id && row.text === '已收到 · 退款调查').length, 1);
+  assert.equal(h.interactions.matterAction({ ...click, id: defaultCard.id, event: randomUUID(),
+    message: 'delivered-' + defaultMessage.id, choice: 'default' }), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(backToDefault)?.conversation, original.request.conversation);
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === backToDefault.id && row.text === '已收到 · 默认对话').length, 1);
+  assert.equal(h.codex.calls.length, 0);
+});
+
+test('an ordinary answer becomes a reply anchor only when its Feishu delivery is confirmed', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  const active = await h.launch();
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const attempted: string[] = [];
+  let confirmed = false;
+  h.setSend(async (chat, text, id, options) => {
+    h.sent.push({ chat, text, id, options });
+    if (text !== 'Refund answer before confirmation') return 'delivered-' + id;
+    attempted.push(id);
+    return confirmed ? 'refund-answer-message' : undefined;
+  });
+  h.codex.complete(active.thread, active.turn, 'completed', 'Refund answer before confirmation');
+  await active.running;
+  await drain(h);
+  const early = h.actor('这个呢？', { parentId: 'refund-answer-message' });
+  assert.equal(h.interactions.transport.state.confirmedAnswer(early), undefined);
+  assert.equal(h.interactions.receive(early).status, 'matter-choice');
+  const first = attempted[0];
+  assert.ok(first);
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  try {
+    transport.exec(`CREATE TRIGGER fail_answer_binding BEFORE INSERT ON task_messages WHEN NEW.ordinary_answer=1
+      BEGIN SELECT RAISE(ABORT,'fixture answer binding failure'); END;`);
+    confirmed = true;
+    transport.exec('UPDATE outbox SET next=0');
+    await drain(h);
+    assert.equal(h.interactions.transport.state.confirmedAnswer(early), undefined);
+    assert.ok(transport.prepare('SELECT 1 FROM outbox WHERE id=?').get(first));
+    transport.exec('DROP TRIGGER fail_answer_binding');
+    transport.exec('UPDATE outbox SET next=0');
+    await h.restart();
+    await drain(h);
+    assert.ok(attempted.length >= 3 && attempted.every(id => id === first));
+    assert.equal(h.interactions.transport.state.confirmedAnswer(early), active.request.execution);
+    assert.equal(h.interactions.receive(early).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(early), undefined);
+    const fresh = h.actor('这个呢？', { parentId: 'refund-answer-message' });
+    assert.equal(h.interactions.receive(fresh).status, 'task-reply');
+    assert.equal(h.admission.store.requestForMessage(fresh)?.conversation, active.request.conversation);
+  } finally { transport.close(); }
 });
 
 test('registered PRs take precedence and an ambiguous input is published once after a confirmed choice', async t => {
@@ -1135,6 +1244,7 @@ test('registered PRs take precedence and an ambiguous input is published once af
     assert.ok('request' in unrelated);
     assert.equal(unrelated.request.conversation, bView.anchor);
   }
+  await drain(h);
 
   const deferred = h.actor('昨天那个发版再查一下');
   assert.equal(h.interactions.receive(deferred).status, 'matter-choice');
@@ -1171,7 +1281,7 @@ test('registered PRs take precedence and an ambiguous input is published once af
   const switched = click(bCard, bView.anchor!);
   assert.equal(h.interactions.matterAction(switched), 'accepted');
   assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), choice: bView.anchor! }), 'rejected');
-  const next = h.interactions.receive(h.actor('继续'));
+  const next = h.interactions.receive(h.actor('检查这个版本的构建配置'));
   assert.ok('request' in next);
   assert.equal(next.request.conversation, bView.anchor);
   const count = h.admission.store.requests().length;

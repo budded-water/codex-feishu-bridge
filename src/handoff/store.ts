@@ -209,17 +209,24 @@ export class AdmissionStore {
     return row && { ...row, message: JSON.parse(row.message) as IncomingMessage };
   }
 
-  acceptTaskReply(message: IncomingMessage, project: string) {
+  hasDedicatedContinuation(execution: string): boolean {
+    return Boolean(this.verification(execution) || this.repairs.get(execution) ||
+      this.permissionRetry(execution) || this.browserRetry(execution));
+  }
+
+  acceptTaskReply(message: IncomingMessage, project: string, answerExecution?: string) {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.taskReply(origin) || this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin, origin) ||
         this.retained(message)) return { status: 'duplicate' as const };
       if (this.matters.held(message, project) || this.matters.notice(message)) return;
       const quotedOrigin = JSON.stringify([message.tenant, message.parentId]);
-      const source = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
-        WHERE r.origin=? AND c.owner=? AND r.project=? AND json_extract(r.message,'$.chatType')='p2p'`)
-        .get(quotedOrigin, ownerKey(message), project) as { id: string } | undefined;
+      const source = this.db.prepare(`SELECT r.id,r.origin FROM requests r JOIN conversations c ON c.id=r.conversation
+        WHERE (r.origin=? OR r.execution=?) AND c.owner=? AND r.project=? AND json_extract(r.message,'$.chatType')='p2p'
+        ORDER BY (r.origin=?) DESC LIMIT 1`)
+        .get(quotedOrigin, answerExecution ?? null, ownerKey(message), project, quotedOrigin) as { id: string; origin: string } | undefined;
       if (!source) return;
+      const fromAnswer = source.origin !== quotedOrigin;
       const request = this.request(source.id)!;
       const execution = this.execution(request.execution);
       const text = '用户补充要求：\n' + message.text;
@@ -231,16 +238,15 @@ export class AdmissionStore {
       };
       if (this.maintenance.paused || request.blocked || this.submission(request.id)?.status === 'blocked' || this.uncertainProject(project)) {
         save('rejected', '当前任务无法接收补充。请查看原任务状态后再发送新消息。');
-      } else if (this.verification(request.execution) || this.repairs.get(request.execution) ||
-        this.permissionRetry(request.execution) || this.browserRetry(request.execution)) {
+      } else if (this.hasDedicatedContinuation(request.execution)) {
         save('rejected', '这条任务使用专用验证、修复或续接流程。请使用原任务的操作入口，或发送新的普通任务。');
-      } else if (!execution) {
+      } else if (!fromAnswer && !execution) {
         if (combined.length > 30_000) save('rejected', '合并后的任务过长。这条补充未加入，请缩短后再回复。');
         else {
           this.db.prepare('UPDATE requests SET input=? WHERE id=?').run(combined, request.id);
           save('merged', '已补到原任务，将一起执行。');
         }
-      } else if (execution.status === 'active') {
+      } else if (!fromAnswer && execution?.status === 'active') {
         if (message.text.length > 29_993) save('rejected', '补充内容过长，请缩短后再回复。');
         else {
           this.acceptControl(execution.id, message);
