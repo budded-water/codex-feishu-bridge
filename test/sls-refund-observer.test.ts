@@ -388,3 +388,22 @@ test('a new firing after a late inactive boundary gets its own incident after a 
     assert.deepEqual({ ...reopened.report().handoffs[0] }, { id: handled, opened: 120, lastFiring: 1080 });
   } finally { reopened.close(); }
 });
+
+test('a delayed queue firing after a human handoff preserves unread history needed to separate episodes', t => {
+  const { open } = setup(t);
+  const observer = open();
+  try {
+    observer.acceptWindow(100, 151, [{ id: 'first-firing', at: 120, status: 'firing' }], 160);
+    assert.ok(observer.observe(observer.nextSample(1060)!, 1060, { backlog: [] }));
+    assert.equal(observer.report().incident?.state, 'needs-attention');
+    const handedOff = observer.report().incident!.id;
+    observer.retainNotification({ id: 'later-queued-firing', at: 1140 }, 2000);
+    assert.equal(observer.discoveryCursor(), 151);
+    observer.acceptWindow(151, 600, [{ id: 'intervening-inactive', at: 500, status: 'inactive' }], 2000);
+    const current = observer.report().incident!;
+    assert.notEqual(current.id, handedOff);
+    assert.equal(current.state, 'open');
+    assert.equal(current.opened, 1140);
+    assert.equal(observer.report().handoffs[0]?.id, handedOff);
+  } finally { observer.close(); }
+});

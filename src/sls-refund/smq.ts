@@ -8,12 +8,16 @@ const exec = promisify(execFile);
 const require = createRequire(import.meta.url);
 const waitSeconds = 20;
 const refreshMarginMs = 60_000;
+const queueTimeoutMs = (waitSeconds + 5) * 1000;
 const providerId = /^[a-zA-Z0-9_.:-]{1,160}$/;
 
 export type RefundQueueSettings = { account: string; name: string; profile: string; roleArn: string };
 export type FiringNotification = { id: string; at: number };
 export type RefundDelivery = FiringNotification & { receipt: string };
-export type RefundQueue = { receive(): Promise<RefundDelivery | undefined>; acknowledge(receipt: string): Promise<void> };
+export type RefundQueue = {
+  receive(canContinue?: () => boolean): Promise<RefundDelivery | undefined>;
+  acknowledge(receipt: string, canContinue?: () => boolean): Promise<void>;
+};
 
 type SmqResponse = { code: number; body?: unknown };
 type SmqClient = {
@@ -58,8 +62,12 @@ export function readRefundDelivery(body: unknown, binding: Binding, account: str
 
 export function refundQueue(settings: RefundQueueSettings, binding: Binding, executable: string): RefundQueue {
   const sdk = require.resolve('@alicloud/mns');
-  // The vendor SDK's debug logger includes request signing headers.
-  if (createRequire(sdk)('debug').enabled('mns:client')) throw new Error('Disable MNS SDK debug logging before using the refund queue');
+  // The SDK and its HTTP transport can log signing headers and receipts.
+  const sdkRequire = createRequire(sdk);
+  const transportDebug = createRequire(sdkRequire.resolve('httpx'))('debug');
+  if (sdkRequire('debug').enabled('mns:client') || transportDebug.enabled('httpx:header') || transportDebug.enabled('httpx:body')) {
+    throw new Error('Disable SMQ SDK and transport debug logging before using the refund queue');
+  }
   const Mns = require(sdk) as SmqConstructor;
   const { account, name, profile, roleArn } = settings, { region } = binding;
   let session: { client: SmqClient; expires: number } | undefined;
@@ -80,15 +88,16 @@ export function refundQueue(settings: RefundQueueSettings, binding: Binding, exe
       }
       const endpoint = `https://${account}.mns.${region}.aliyuncs.com`;
       const smq = new Mns(account, { endpoint, accessKeyId: AccessKeyId, accessKeySecret: AccessKeySecret,
-        securityToken: SecurityToken, connectTimeout: 5_000, readTimeout: 25_000 });
+        securityToken: SecurityToken, connectTimeout: queueTimeoutMs, readTimeout: queueTimeoutMs });
       session = { client: smq, expires };
       return smq;
     } catch { throw new Error('Refund queue role unavailable'); }
   }
 
   return {
-    async receive() {
+    async receive(canContinue = () => true) {
       const smq = await client();
+      if (!canContinue()) return;
       let response: SmqResponse;
       try { response = await smq.receiveMessage(name, waitSeconds); }
       catch (error) {
@@ -98,9 +107,11 @@ export function refundQueue(settings: RefundQueueSettings, binding: Binding, exe
       if (response.code !== 200) throw new Error('Unconfirmed refund queue response');
       return readRefundDelivery(response.body, binding, account, Math.floor(Date.now() / 1000));
     },
-    async acknowledge(receipt) {
+    async acknowledge(receipt, canContinue = () => true) {
+      const smq = await client();
+      if (!canContinue()) return;
       try {
-        const response = await (await client()).deleteMessage(name, encodeURIComponent(receipt));
+        const response = await smq.deleteMessage(name, encodeURIComponent(receipt));
         if (response.code !== 204) throw new Error('Unconfirmed acknowledgement');
       } catch { throw new Error('Refund queue acknowledgement unavailable'); }
     },

@@ -8,6 +8,7 @@ import type { ObserverConfig } from '../sls-refund/sls-source.js';
 import type { PilotAdmission } from './gateway.js';
 
 const intervalMs = 120_000;
+const retryMs = 15_000;
 const milestone = { open: '持续观测中', resolved: '观测确认恢复', 'needs-attention': '需人工核对' };
 const outcomes = { completed: '完成', degraded: '降级', failed: '失败', timeout: '超时', overlap_skipped: '因重叠跳过' };
 const timestamp = (seconds: number) => new Date(seconds * 1000).toISOString().replace('.000Z', 'Z');
@@ -47,6 +48,7 @@ export class ManagedRefundObserver {
   private timer?: NodeJS.Timeout;
   private work?: Promise<void>;
   private stopping = false;
+  private retryObservationAt = 0;
 
   constructor(private observer: RefundObserver, private config: ObserverConfig, private admission: PilotAdmission,
     private transport: State, private assertHeld: () => void, private poll = pollRefundObserver, private queue?: RefundQueue) {}
@@ -60,7 +62,7 @@ export class ManagedRefundObserver {
     let delay = this.queue ? 1_000 : intervalMs;
     this.work = this.cycle().catch(() => {
       console.error('SLS refund cycle unavailable; retained state will be retried');
-      if (this.queue) delay = 15_000;
+      if (this.queue) delay = retryMs;
     }).finally(() => {
       this.work = undefined;
       if (!this.stopping) this.timer = setTimeout(() => { this.timer = undefined; this.schedule(); }, delay);
@@ -82,19 +84,23 @@ export class ManagedRefundObserver {
 
   private async subscriptionCycle(queue: RefundQueue): Promise<void> {
     const now = Math.floor(Date.now() / 1000);
-    try {
-      if (this.observer.nextSample(now) || this.observer.notificationReadDue(now - logDelaySeconds)) {
-        const caughtUp = await this.poll(this.observer, this.config, { canContinue: () => this.canContinue() });
-        if (caughtUp && this.canContinue()) this.observer.finishNotificationReads();
+    const canContinue = () => this.canContinue();
+    if (Date.now() >= this.retryObservationAt &&
+      (this.observer.nextSample(now) || this.observer.notificationReadDue(now - logDelaySeconds))) {
+      try {
+        const caughtUp = await this.poll(this.observer, this.config, { canContinue });
+        if (caughtUp && canContinue()) this.observer.finishNotificationReads();
+      } catch {
+        this.retryObservationAt = Date.now() + retryMs;
+        console.error('SLS refund evidence unavailable; queue intake continues');
       }
-    } finally {
-      if (this.canContinue()) projectRefundNotices(this.observer, this.admission, this.transport);
     }
-    if (!this.canContinue()) return;
-    const delivery = await queue.receive();
-    if (!delivery || !this.canContinue()) return;
+    if (!canContinue()) return;
+    projectRefundNotices(this.observer, this.admission, this.transport);
+    const delivery = await queue.receive(canContinue);
+    if (!delivery || !canContinue()) return;
     this.observer.retainNotification(delivery, Math.floor(Date.now() / 1000));
-    await queue.acknowledge(delivery.receipt);
+    await queue.acknowledge(delivery.receipt, canContinue);
   }
 
   async close(): Promise<void> {

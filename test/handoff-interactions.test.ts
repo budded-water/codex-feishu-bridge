@@ -2086,3 +2086,40 @@ test('SMQ receipt arriving during maintenance remains available for redelivery',
   assert.equal(h.interactions.transport.state.drainStatus().outbox, 0);
   await monitor.close();
 });
+
+test('unavailable SLS evidence does not block the next durable SMQ firing', async t => {
+  const now = 1_700_001_000;
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: now * 1000 });
+  const h = setup(t);
+  h.admission.confirmOwnerPrivateChat(h.actor('/status'));
+  const config = parseObserverConfig({ region: 'fixture', project: 'fixture', rule: 'refund', start: now - 360 }, 'replay');
+  const ledger = new RefundObserver(join(h.config.stateDirectory, 'sls-refund'), config.binding);
+  let receives = 0, reads = 0;
+  const acknowledged: string[] = [];
+  t.mock.method(console, 'error', () => {});
+  const monitor = new ManagedRefundObserver(ledger, config, h.admission, h.interactions.transport.state, () => {},
+    async () => { reads++; throw Error('SLS unreachable'); }, {
+      receive: async () => {
+        const sequence = ++receives;
+        if (sequence <= 2) return { id: 'firing-' + sequence, at: now - 90 + sequence, receipt: String(sequence) };
+      },
+      acknowledge: async receipt => { acknowledged.push(receipt); },
+    });
+  t.after(() => monitor.close());
+  monitor.start();
+  const settle = () => new Promise<void>(resolve => setImmediate(resolve));
+  await settle();
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.deepEqual(acknowledged, ['1', '2']);
+  assert.equal(ledger.report().evaluations, 2);
+  assert.equal(reads, 1);
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.equal(receives, 3);
+  assert.equal(reads, 1);
+  await drain(h);
+  assert.equal(h.sent.filter(message => message.options?.matterCard?.source === 'sls-refund').length, 1);
+  assert.equal(h.admission.store.requests().length, 0);
+  await monitor.close();
+});

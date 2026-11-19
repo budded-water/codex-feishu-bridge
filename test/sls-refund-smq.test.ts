@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,16 +50,33 @@ test('the official SMQ SDK uses the bound endpoint and scoped temporary session 
     ['Empty', '', 204],
     ['Error', '<Code>MessageNotExist</Code><Message>Empty</Message><RequestId>example</RequestId><HostId>example</HostId>', 404],
   ] as const;
-  t.mock.method(httpx, 'request', async (url: string, options: { method: string; headers: Record<string, string> }) => {
-    const [tag, inner, code] = fixtureXml[requests.length]!;
+  let served = 0;
+  const server = createServer((_request, response) => {
+    const [tag, inner, code] = fixtureXml[served++]!;
+    const send = () => response.writeHead(code, { 'content-type': 'text/xml' })
+      .end(inner ? '<' + tag + '>' + inner + '</' + tag + '>' : '');
+    if (code === 404) setTimeout(send, 5_200);
+    else send();
+  });
+  await new Promise<void>((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const request = httpx.request.bind(httpx);
+  t.mock.method(httpx, 'request', (url: string, options: { method: string; headers: Record<string, string> }) => {
     requests.push({ url, method: options.method });
     assert.equal(options.headers['security-token'], 'fixture-token');
-    return { statusCode: code, headers: { 'content-type': 'text/xml' }, fixture: inner ? '<' + tag + '>' + inner + '</' + tag + '>' : '' };
+    const parsed = new URL(url);
+    return request('http://127.0.0.1:' + address.port + parsed.pathname + parsed.search, options);
   });
-  t.mock.method(httpx, 'read', async (response: { fixture: string }) => response.fixture);
   const settings = parseRefundQueueSettings({ account, name: 'fixture-refund-alerts', profile: 'fixture-role-source',
     roleArn: 'acs:ram::' + account + ':role/fixture-smq-consumer' }, binding.region)!;
   const queue = refundQueue(settings, binding, executable);
+  let running = true;
+  const pending = queue.receive(() => running);
+  running = false;
+  assert.equal(await pending, undefined);
+  assert.equal(requests.length, 0);
   const delivery = await queue.receive();
   assert.deepEqual(delivery, { id: envelope.id, at: cloud.data.alert_time, receipt });
   await queue.acknowledge(receipt);
@@ -77,4 +95,21 @@ test('the official SMQ SDK uses the bound endpoint and scoped temporary session 
     Effect: 'Allow', Action: ['mns:ReceiveMessage', 'mns:DeleteMessage'],
     Resource: ['acs:mns:cn-hangzhou:' + account + ':/queues/' + settings.name + '/messages'],
   }] });
+});
+
+test('signed queue requests are disabled when only the HTTP transport debug namespace is enabled', t => {
+  const require = createRequire(import.meta.url);
+  const sdkRequire = createRequire(require.resolve('@alicloud/mns'));
+  const debug = createRequire(sdkRequire.resolve('httpx'))('debug');
+  const original = process.env.DEBUG;
+  t.after(() => {
+    debug.enable(original ?? '');
+    if (original === undefined) delete process.env.DEBUG;
+  });
+  const settings = { account, name: 'fixture-refund-alerts', profile: 'example',
+    roleArn: 'acs:ram::' + account + ':role/fixture-smq-consumer' };
+  for (const namespace of ['httpx:header', 'httpx:body']) {
+    debug.enable(namespace);
+    assert.throws(() => refundQueue(settings, binding, '/fixture/unused-cli'), /SDK and transport debug logging/);
+  }
 });

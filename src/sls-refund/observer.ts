@@ -125,8 +125,10 @@ export class RefundObserver {
         return;
       }
       const latest = this.db.prepare("SELECT MAX(at) AS at FROM evaluations WHERE status='firing'").get() as { at: number | null };
-      if (this.latestIncident()?.state !== 'open' && notification.at > (latest.at ?? -1)) {
-        // This is a lower bound for the next read, not completed history coverage.
+      const prior = this.latestIncident();
+      if ((!prior || prior.state === 'resolved') && notification.at > (latest.at ?? -1)) {
+        // A prior handoff needs continuous history to distinguish a new firing.
+        // The idle floor only changes where a read starts.
         const floor = Math.max(this.binding.start, now - 120);
         this.db.prepare('UPDATE source SET idle_floor=MAX(COALESCE(idle_floor,through),?) WHERE id=1').run(floor);
       }
