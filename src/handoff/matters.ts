@@ -10,7 +10,12 @@ const PAGE_SIZE = 6;
 const USAGE = '发送 /matter-new 事项名称 新建并切换。发送 /matters 查看事项和默认对话。已选中事项可用 /matter-bind GitHub PR 链接 绑定对象。';
 const defaultChoice = { id: DEFAULT_MATTER, label: DEFAULT_MATTER_TITLE };
 const conversation = (id: string) => id === DEFAULT_MATTER ? undefined : id;
-const vagueFollowup = /^(?:(?:那|就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?|(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?|(?:那个|上一步)(?:呢|怎么样了))[\s。？！.!?…]*$/u;
+const vagueFollowup = [
+  /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
+  /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
+  /^(?:那个|上一步)(?:呢|怎么样了)$/u,
+  /^(?:那)?(?:就)?(?:按|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?)(?:做|改|处理|继续)(?:吧|一下)?$/u,
+];
 
 function pullRequest(value: string): string | undefined {
   const path = /^https:\/\/github\.com(?::443)?\/([^?#\s]+)(?:[?#]\S*)?$/i.exec(value)?.[1];
@@ -124,7 +129,10 @@ export class OwnerMatters {
       const m = this.admission.store.matters.owned(scope, id);
       return m ? [{ id, label: m.title }] : [];
     });
-    this.reply(held.message, '任务已暂存。选择它所属的事项后，才会进入队列。', {
+    const text = held.answerExecution
+      ? '引用的答案和正文指向不同事项。选定事项后才会处理这条消息。'
+      : '任务已暂存。选择它所属的事项后，才会进入队列。';
+    this.reply(held.message, text, {
       id: held.id, title: '这条任务属于哪件事？', action: 'route', choices,
     });
     this.admission.store.matters.projected(held.id);
@@ -136,6 +144,34 @@ export class OwnerMatters {
     if (!match) return;
     const matter = this.admission.store.matters.named(this.scope(message), match[1]!.trim().normalize('NFC'));
     return matter && { matter: matter.id, input: match[2]! };
+  }
+
+  private explicitTargets(message: IncomingMessage, reference?: string, addressed?: string): string[] {
+    const scope = this.scope(message), store = this.admission.store.matters;
+    const linked = pullRequests(message.text).map(ref => store.bound(scope, ref));
+    return [...new Set([reference, addressed, ...linked].filter((id): id is string => Boolean(id)))];
+  }
+
+  private holdConflict(message: IncomingMessage, targets: string[], input?: string, answerExecution?: string) {
+    if (targets.length > PAGE_SIZE) {
+      return this.requireResend(message, '这条消息关联了多个事项。请只保留目标事项的引用或 PR 链接后重发。');
+    }
+    return this.clarify(this.admission.store.matters.hold(this.scope(message), message, targets, input, answerExecution));
+  }
+
+  private answerMatter(message: IncomingMessage, execution: string): string | undefined {
+    const scope = this.scope(message), store = this.admission.store;
+    const source = store.ownedTask(execution, scope.owner, scope.project);
+    if (source?.message.chatType === 'p2p') return store.matters.owned(scope, source.conversation)?.id ?? DEFAULT_MATTER;
+  }
+
+  holdConflictingAnswer(message: IncomingMessage, execution: string) {
+    if (this.admission.store.maintenance.paused) return;
+    const answer = this.answerMatter(message, execution);
+    if (!answer) return;
+    const address = this.address(message);
+    const targets = this.explicitTargets(message, answer, address?.matter);
+    if (targets.length > 1) return this.holdConflict(message, targets, address?.input, execution);
   }
 
   hasDisposition(message: IncomingMessage): boolean {
@@ -179,14 +215,9 @@ export class OwnerMatters {
 
     const address = this.address(message);
     if (!address && this.admission.projectAddress(message.text)?.outsidePilot) return submit();
-    const reference = this.state.matterReference(message);
-    const linked = pullRequests(message.text).map(ref => store.bound(scope, ref));
-    const targets = [...new Set([reference, address?.matter, ...linked].filter((id): id is string => Boolean(id)))];
+    const targets = this.explicitTargets(message, this.state.matterReference(message), address?.matter);
     if (targets.length === 1) return submit(targets[0], address?.input);
-    if (targets.length > 1 && targets.length <= PAGE_SIZE) return this.clarify(store.hold(scope, message, targets, address?.input));
-    if (targets.length > PAGE_SIZE) {
-      return this.requireResend(message, '这条消息关联了多个事项。请引用目标事项的卡片，或只保留对应的 PR 链接后重发。');
-    }
+    if (targets.length > 1) return this.holdConflict(message, targets, address?.input);
 
     const candidates = store.list(scope, -1);
     const normalized = message.text.toLowerCase().normalize('NFC');
@@ -199,9 +230,12 @@ export class OwnerMatters {
     }
 
     const selected = store.focus(scope);
-    if (selected && !message.parentId && vagueFollowup.test(message.text.trim())) {
-      const previous = store.previousFocusForFollowup(scope);
-      if (previous) return this.clarify(store.hold(scope, message, [selected, previous]));
+    if (selected && !message.parentId) {
+      const text = message.text.trim().replace(/[\s。？！.!?…]+$/u, '');
+      if (vagueFollowup.some(pattern => pattern.test(text))) {
+        const alternate = store.alternateFocusForFollowup(scope);
+        if (alternate) return this.clarify(store.hold(scope, message, [selected, alternate]));
+      }
     }
     // A quoted parent may be a visible card whose delivery is still unconfirmed.
     if (selected && !message.parentId) return submit(selected);
@@ -209,7 +243,7 @@ export class OwnerMatters {
     return this.clarify(store.hold(scope, message, [...candidates.slice(0, PAGE_SIZE).map(m => m.id), DEFAULT_MATTER]));
   }
 
-  click(click: MatterClick): { status: CardResult; admitted?: true } {
+  click(click: MatterClick): { status: CardResult; flush?: true } {
     const actor: IncomingMessage = { tenant: click.tenant, chat: click.chat, user: click.user, chatType: 'p2p',
       id: 'matter-switch/' + click.event, text: '', parentId: click.message };
     if (!this.owner(actor)) return { status: 'rejected' };
@@ -219,11 +253,21 @@ export class OwnerMatters {
       const card = this.state.matterCard(click);
       if (!card) return { status: 'rejected' };
       if (card.action === 'switch') return { status: store.select(scope, click.choice) ? 'accepted' : 'rejected' };
-      const request = store.consume(scope, card.id, click.choice, (original, input) => {
+      const consumed = store.consume(scope, card.id, click.choice, (original, input, answerExecution) => {
+        if (answerExecution) {
+          if (this.admission.projectAddress(original.text)?.outsidePilot) return;
+          const sourceMatter = this.answerMatter(original, answerExecution);
+          if (!sourceMatter) return;
+          if (sourceMatter === click.choice) {
+            if (this.state.confirmedAnswer(original) !== answerExecution) return;
+            const reply = this.admission.store.acceptTaskReply(original, scope.project, answerExecution);
+            return reply?.status === 'task-reply' ? true : undefined;
+          }
+        }
         const admission = this.admission.receive(original, conversation(click.choice), input);
-        return 'request' in admission && admission.status !== 'duplicate' ? admission.request : undefined;
+        return 'request' in admission && admission.status !== 'duplicate' ? true : undefined;
       });
-      return request ? { status: 'accepted', admitted: true } : { status: 'rejected' };
+      return consumed ? { status: 'accepted', flush: true } : { status: 'rejected' };
     });
   }
 }

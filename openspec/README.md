@@ -25,6 +25,8 @@ Completed bounded changes have been synchronized into delivered main specificati
 
 These are implemented contracts with bounded evidence, not universal live acceptance. Owner-private operation is observed on one M6 deployment. Other typed-English, colleague/group, host-login/wake/network and additional fault families retain the limits in [live acceptance](../docs/live-acceptance.md) and [operation](../docs/operation.md).
 
+The active [matter follow-up refinement](changes/clarify-owner-matter-followups/proposal.md) defines when short continuations and conflicting answer references need a routing choice. The associated [tasks](changes/clarify-owner-matter-followups/tasks.md) track source and live checks.
+
 ## Active P3 change
 
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) stays active. Its optional runtime is merged/deployed, and real owner-private fixture `/verify` plus historical `/verification` are accepted. Native execution, project validation, review and publication remain separate.

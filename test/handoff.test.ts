@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
@@ -8,6 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { Worker } from 'node:worker_threads';
 import { FeishuAdmission } from '../src/channels/feishu-admission.js';
 import { PilotAdmission, REQUEST_EVENT, type PilotScope } from '../src/handoff/gateway.js';
+import { ownerKey } from '../src/types.js';
 import { AutoloopSource, SourceOutbox } from '../src/handoff/source.js';
 
 function event(id: string, text = 'Inspect the project', changes: { user?: string; tenant?: string; chat?: string; type?: string } = {}) {
@@ -63,6 +65,32 @@ test('verified input, immutable identity and source intent persist through reope
   const titled = h.accept('titled', 'Note: inspect the pilot');
   assert.equal(titled.input, 'Note: inspect the pilot');
   assert.throws(() => new PilotAdmission(h.state, { ...h.scope, hubInstance: 'another-hub' }), /another installation/);
+});
+
+test('adding answer-conflict identity preserves existing held matter cards and their choices', t => {
+  const h = setup(t);
+  const original = h.accept('first');
+  const scope = { owner: ownerKey(original.message), project: original.project };
+  const matters = h.gateway.store.matters;
+  const named = matters.create(scope, { ...original.message, id: 'create-matter' }, 'Release');
+  const message = { ...original.message, id: 'held-before-upgrade', text: 'Continue' };
+  const held = matters.hold(scope, message, [named.id, 'default']);
+  matters.projected(held.id);
+  const old = new DatabaseSync(join(h.state, 'handoff.db'));
+  try { old.exec('ALTER TABLE matter_inputs DROP COLUMN answer_execution'); }
+  finally { old.close(); }
+
+  const store = h.reopen().store;
+  assert.deepEqual(store.matters.held(message, scope.project), held);
+  assert.equal(store.matters.unprojected().length, 0);
+  const chosen = store.matters.consume(scope, held.id, named.id, (input, text, answerExecution) => {
+    assert.equal(answerExecution, undefined);
+    const result = store.accept(input, text ?? input.text, scope.project, undefined, named.id);
+    assert.ok('request' in result);
+    return result.request;
+  });
+  assert.equal(chosen?.conversation, named.id);
+  assert.equal(store.request(original.id)?.conversation, original.conversation);
 });
 
 test('assignment fields and mixed event contexts cannot change admitted authority', t => {
