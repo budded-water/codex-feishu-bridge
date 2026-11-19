@@ -138,16 +138,16 @@ export class RefundObserver {
       }
       const latest = this.db.prepare("SELECT MAX(at) AS at FROM evaluations WHERE status='firing'").get() as { at: number | null };
       const prior = this.latestIncident();
-      if ((!prior || prior.state === 'resolved') && notification.at > (latest.at ?? -1)) {
+      this.db.prepare('INSERT INTO refund_notifications(id,at) VALUES (?,?)').run(id, notification.at);
+      this.db.prepare("INSERT INTO evaluations VALUES (?,?,'firing')").run(id, notification.at);
+      this.reconcileEvaluation({ id, at: notification.at, status: 'firing' }, now, latest.at ?? -1);
+      if ((!prior || prior.state === 'resolved') && this.latestIncident()?.id !== prior?.id) {
         // A prior handoff needs continuous history to distinguish a new firing.
         // The idle floor only changes where a read starts.
         const floor = Math.max(this.binding.start, now - 120);
         this.db.prepare(`INSERT INTO refund_subscription VALUES (1,?)
           ON CONFLICT(id) DO UPDATE SET idle_floor=MAX(idle_floor,excluded.idle_floor)`).run(floor);
       }
-      this.db.prepare('INSERT INTO refund_notifications(id,at) VALUES (?,?)').run(id, notification.at);
-      this.db.prepare("INSERT INTO evaluations VALUES (?,?,'firing')").run(id, notification.at);
-      this.reconcileEvaluation({ id, at: notification.at, status: 'firing' }, now, latest.at ?? -1);
       this.splitAfterHandoff(now);
     });
   }
@@ -264,12 +264,13 @@ export class RefundObserver {
     return this.db.prepare('SELECT * FROM incidents ORDER BY rowid DESC LIMIT 1').get() as Incident | undefined;
   }
 
-  nextSample(now: number): DueSample | undefined {
+  nextSample(now: number, requireFirstFiringCoverage = false): DueSample | undefined {
     const incident = this.latestIncident();
     if (!incident || incident.state !== 'open' || now < incident.detected) return;
     const slot: Slot = now >= incident.detected + followups[2] ? 2 : now >= incident.detected + followups[1] ? 1 : 0;
     const saved = this.db.prepare('SELECT MAX(slot) AS slot FROM observations WHERE incident=?').get(incident.id) as { slot: number | null };
     if (saved.slot !== null && saved.slot >= slot) return;
+    if (requireFirstFiringCoverage && saved.slot === null && this.through() <= incident.last_firing) return;
     // Use an already accepted history horizon for the final slot. The newest
     // inactive evaluation must also be at or after any evidence used to close.
     const latest = this.latestEvaluation();

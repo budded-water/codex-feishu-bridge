@@ -97,3 +97,14 @@ When a dedicated SMQ source is configured, the gateway SHALL receive only matchi
 
 - **WHEN** the ledger has been opened by the current observer and is opened by the previous observer
 - **THEN** the previous observer can read the stored source, cursor, evaluation and incident identities
+
+#### Scenario: Subscription is disabled with unread history
+
+- **WHEN** a scheduled observer starts after subscription mode retained an unread notification
+- **THEN** the scheduled observer starts from the saved SLS cursor
+- **AND** the subscription idle floor cannot discard unread history
+
+#### Scenario: A queued firing invalidates a previous closure
+
+- **WHEN** a queued firing returns a resolved incident to human handoff
+- **THEN** the observer retains unread history to distinguish the next firing from that incident

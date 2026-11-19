@@ -86,7 +86,7 @@ export class ManagedRefundObserver {
     const now = Math.floor(Date.now() / 1000);
     const canContinue = () => this.canContinue();
     if (Date.now() >= this.retryObservationAt &&
-      (this.observer.nextSample(now) || this.observer.notificationReadDue(now - logDelaySeconds) || this.observer.nextClosureCheck(now))) {
+      (this.observer.nextSample(now, true) || this.observer.notificationReadDue(now - logDelaySeconds) || this.observer.nextClosureCheck(now))) {
       try {
         await this.poll(this.observer, this.config, { canContinue, subscription: true });
       } catch {

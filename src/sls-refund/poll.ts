@@ -24,9 +24,9 @@ export async function pollRefundObserver(observer: RefundObserver, config: Obser
       observer.finishClosureCheck(closure.incident);
     }
     if (!canContinue()) return false;
-    if (!observer.nextSample(now) && !observer.notificationReadDue(now - logDelaySeconds)) return true;
+    if (!observer.nextSample(now, true) && !observer.notificationReadDue(now - logDelaySeconds)) return true;
   }
-  const cursor = observer.discoveryCursor();
+  const cursor = subscription ? observer.discoveryCursor() : observer.through();
   const to = Math.min(now - logDelaySeconds, cursor + maxCatchupSeconds);
   if (to > cursor) {
     const from = Math.max(config.binding.start, cursor - overlapSeconds);
@@ -36,7 +36,7 @@ export async function pollRefundObserver(observer: RefundObserver, config: Obser
   // If discovery is still catching up, do not close using incomplete incident history.
   const caughtUp = to >= now - logDelaySeconds;
   if (caughtUp && subscription) observer.finishNotificationReads(now);
-  const sample = caughtUp ? observer.nextSample(now) : undefined;
+  const sample = caughtUp ? observer.nextSample(now, subscription) : undefined;
   if (sample) {
     let evidence: Evidence = { backlog: [] };
     const from = Math.max(0, now - 5 * 60);

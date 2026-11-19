@@ -509,3 +509,61 @@ test('subscription schedules one persisted closure overlap that can undo a deliv
   await poll(3000);
   assert.equal(calls.length, 1);
 });
+
+test('a recently queued firing waits for ingested history before its first sample and deadlines', async t => {
+  const observer = setup(t).open();
+  t.after(() => observer.close());
+  observer.retainNotification({ id: 'fresh', at: 490 }, 500);
+  const calls: string[] = [];
+  const poll = (now: number) => pollRefundObserver(observer, { binding }, { now, subscription: true,
+    read: async (_config, kind) => {
+      calls.push(kind);
+      return JSON.stringify(response([]));
+    },
+  });
+  await poll(550);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(observer.report().incident?.observations, []);
+  await poll(551);
+  assert.deepEqual(calls, ['evaluations', 'evidence']);
+  assert.equal(observer.report().incident?.observations[0]?.observed, 551);
+  assert.deepEqual(observer.report().incident?.followups, [851, 1451]);
+});
+
+test('a queued firing that invalidates recovery retains history for a separate new incident', t => {
+  const observer = setup(t).open();
+  t.after(() => observer.close());
+  observer.acceptWindow(100, 121, [{ id: 'initial', at: 110, status: 'firing' }], 121);
+  observer.observe(observer.nextSample(421)!, 421, samples(419));
+  observer.acceptWindow(121, 1005, [{ id: 'quiet', at: 1003, status: 'inactive' }], 1065);
+  observer.observe(observer.nextSample(1065)!, 1065, samples(1000));
+  const closed = observer.report().incident!.id;
+  assert.equal(observer.report().incident?.state, 'resolved');
+  observer.retainNotification({ id: 'late-conflict', at: 1003 }, 5100);
+  assert.equal(observer.report().incident?.id, closed);
+  assert.equal(observer.report().incident?.state, 'needs-attention');
+  observer.retainNotification({ id: 'new-episode', at: 5010 }, 5100);
+  assert.equal(observer.discoveryCursor(), 1005);
+  observer.acceptWindow(1005, 1905, [{ id: 'separating-inactive', at: 1100, status: 'inactive' }], 5100);
+  assert.notEqual(observer.report().incident?.id, closed);
+  assert.equal(observer.report().incident?.opened, 5010);
+  assert.equal(observer.report().handoffs[0]?.id, closed);
+});
+
+test('a scheduled poll after disabling the subscription reads from the saved SLS cursor', async t => {
+  const { open } = setup(t);
+  const subscribed = open();
+  subscribed.retainNotification({ id: 'queued', at: 390 }, 500);
+  assert.equal(subscribed.discoveryCursor(), 380);
+  subscribed.close();
+
+  const observer = open();
+  t.after(() => observer.close());
+  await pollRefundObserver(observer, { binding }, { now: 500, read: async (_config, kind, from, to) => {
+    if (kind === 'evidence') return JSON.stringify(response([]));
+    assert.deepEqual([from, to], [100, 440]);
+    return JSON.stringify(response([{ AlertID: 'previous', AlertName: binding.rule, AlertStatus: 'inactive', __time__: '200' }]));
+  } });
+  assert.equal(observer.through(), 440);
+  assert.equal(observer.report().evaluations, 2);
+});
