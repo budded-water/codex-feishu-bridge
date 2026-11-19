@@ -118,11 +118,7 @@ export class RefundObserver {
           continue;
         }
         this.db.prepare('INSERT INTO evaluations VALUES (?,?,?)').run(event.id, event.at, event.status);
-        if (event.at > newest && event.status === 'firing') {
-          const active = this.active();
-          if (active) this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(event.at, active.id);
-          else this.retainFiring(event.at, now);
-        }
+        this.reconcileEvaluation(event, now, newest);
         if (event.status === 'firing') newest = Math.max(newest, event.at);
       }
 
@@ -130,7 +126,16 @@ export class RefundObserver {
     });
   }
 
-  private retainFiring(at: number, now: number): void {
+  private reconcileEvaluation(event: Evaluation, now: number, latestFiring: number): void {
+    const { at, status } = event;
+    const firing = status === 'firing';
+    if (status === 'inactive' || (firing && at <= latestFiring)) return;
+    const active = this.active();
+    if (active) {
+      if (firing) this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(at, active.id);
+      return;
+    }
+
     const closed = this.db.prepare(`SELECT i.id,COALESCE(final.evidence_through,final.observed+1) AS through,first.body
       FROM incidents i JOIN observations final ON final.incident=i.id AND final.slot=2
       JOIN observations first ON first.incident=i.id AND first.slot=1
@@ -139,14 +144,15 @@ export class RefundObserver {
     if (closed && at < closed.through) {
       const earlier = JSON.parse(closed.body) as Evidence;
       const firstHealthy = Math.min(earlier.recovery!.at, ...earlier.backlog.map(sample => sample.at));
-      if (at >= firstHealthy) {
+      if (firing ? at >= firstHealthy : at === closed.through - 1) {
         // Late data can invalidate a confirmed recovery without creating a
         // second incident or granting another automatic observation budget.
-        this.db.prepare("UPDATE incidents SET last_firing=?,state='needs-attention' WHERE id=?").run(at, closed.id);
+        this.db.prepare("UPDATE incidents SET last_firing=COALESCE(?,last_firing),state='needs-attention' WHERE id=?")
+          .run(firing ? at : null, closed.id);
       }
       return;
     }
-    this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), at, at, now);
+    if (firing) this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), at, at, now);
   }
 
   private active(): Incident | undefined {

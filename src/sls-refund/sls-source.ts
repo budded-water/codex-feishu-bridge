@@ -42,7 +42,10 @@ export function parseObserverConfig(value: unknown, mode: Binding['mode']): Obse
 }
 
 function completeRows(value: unknown): Record<string, unknown>[] {
-  const payload = record(value), meta = record(payload.meta);
+  let payload: Record<string, unknown>;
+  try { payload = record(typeof value === 'string' ? JSON.parse(value) : value); }
+  catch { throw new Error('SLS response is not valid JSON'); }
+  const meta = record(payload.meta);
   const rows = payload.data ?? payload.logs;
   if (meta.progress !== 'Complete' || meta.isAccurate !== true || meta.powerSql === true ||
     !Array.isArray(rows) || rows.length >= maxRows ||
@@ -122,7 +125,7 @@ export function readEvidence(value: unknown): Evidence {
     recovery, recoveryRun: fingerprint(run) };
 }
 
-export async function readSls(config: ObserverConfig, kind: 'evaluations' | 'evidence', from: number, to: number): Promise<unknown> {
+export async function readSls(config: ObserverConfig, kind: 'evaluations' | 'evidence', from: number, to: number): Promise<string> {
   const { binding, aliyun } = config;
   if (binding.mode !== 'live' || !aliyun || !isSecond(from) || !isSecond(to) || from >= to) throw new Error('Invalid live query boundary');
   const logstore = kind === 'evaluations' ? historyStore : runtimeStore;
@@ -133,7 +136,7 @@ export async function readSls(config: ObserverConfig, kind: 'evaluations' | 'evi
   try {
     const result = await exec(aliyun.executable, ['sls', 'GetLogsV2', '--profile', aliyun.profile, '--project', binding.project,
       '--logstore', logstore, '--region', binding.region, '--body', body], { timeout: 25_000, maxBuffer: 2_000_000 });
-    return JSON.parse(result.stdout) as unknown;
+    return result.stdout;
   } catch {
     throw new Error(`SLS ${kind} query unavailable`);
   }

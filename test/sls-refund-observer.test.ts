@@ -215,6 +215,30 @@ test('late firings before confirmed recovery stay on the resolved incident bound
   }
 });
 
+test('a same-second conflict invalidates the inactive evaluation in either arrival order', t => {
+  for (const late of [false, true]) {
+    const observer = setup(t).open();
+    try {
+      observer.acceptWindow(100, 121, [{ id: 'fire', at: 110, status: 'firing' }], 121);
+      observer.observe(observer.nextSample(421)!, 421, samples(419));
+      const quiet = { id: 'quiet', at: 1003, status: 'inactive' } as const;
+      const error = { id: 'error', at: 1003, status: 'error' } as const;
+      observer.acceptWindow(121, 1005, late ? [quiet] : [quiet, error], 1020);
+      observer.observe(observer.nextSample(1021)!, 1021, samples(1000));
+      const id = observer.report().incident!.id;
+      if (late) {
+        assert.equal(observer.report().incident?.state, 'resolved');
+        observer.acceptWindow(990, 1026, [error], 1026);
+      }
+      const after = observer.report().incident!;
+      assert.equal(after.state, 'needs-attention');
+      assert.equal(after.id, id);
+      assert.equal(after.lastFiring, 110);
+      assert.deepEqual(after.observations.map(sample => sample.slot), [1, 2]);
+    } finally { observer.close(); }
+  }
+});
+
 test('tied monitor runs and contradictory terminal outcomes identify source conflicts', () => {
   const scope = 'managed:local_product_order:native_case_refunds';
   const row = (body: Record<string, unknown>) => ({ __time__: '120', content: JSON.stringify({ scope, ...body }) });
@@ -245,18 +269,23 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify(args) + String.fromCharCode(10));
 const body = JSON.parse(args.at(-1));
 const store = args[args.indexOf('--logstore') + 1];
+const setting = fs.readFileSync(${JSON.stringify(scenario)}, 'utf8');
 if (store === 'service-runtime') {
+  if (setting === 'Malformed') {
+    console.log('PRIVATE_MALFORMED_OUTPUT');
+    process.exit(0);
+  }
   console.error('PRIVATE_PROVIDER_DIAGNOSTIC');
   process.exit(9);
 }
-const progress = fs.readFileSync(${JSON.stringify(scenario)}, 'utf8');
+const progress = setting === 'Malformed' ? 'Complete' : setting;
 const entries = [{ AlertID: 'same-event', AlertName: 'refund-rule', AlertStatus: 'firing', __time__: String(body.from + 10) }];
 console.log(JSON.stringify({ meta: {progress,isAccurate:true,count:entries.length}, data:entries }));
 `, { mode: 0o700 });
   writeFileSync(cfg, JSON.stringify({ region: binding.region, project: binding.project, rule: binding.rule, start,
     executable: mock, profile: 'fixture-profile' }));
-  const cli = (command: string, file = cfg) => spawnSync(process.execPath,
-    ['--import', 'tsx', 'src/sls-refund/cli.ts', command, state, file], { encoding: 'utf8' });
+  const cli = (command: string, file = cfg, database = state) => spawnSync(process.execPath,
+    ['--import', 'tsx', 'src/sls-refund/cli.ts', command, database, file], { encoding: 'utf8' });
   writeFileSync(scenario, 'Incomplete');
   const incomplete = cli('observe');
   assert.equal(incomplete.status, 1);
@@ -284,4 +313,10 @@ console.log(JSON.stringify({ meta: {progress,isAccurate:true,count:entries.lengt
   assert.equal(failedRead.status, 1);
   assert.ok(!failedRead.stderr.includes('PRIVATE_INPUT_PATH'));
   assert.match(failedRead.stderr, /input could not be read/);
+
+  writeFileSync(scenario, 'Malformed');
+  const malformed = cli('observe', cfg, join(directory, 'malformed-state'));
+  assert.equal(malformed.status, 0, malformed.stderr);
+  assert.ok(!(malformed.stdout + malformed.stderr).includes('PRIVATE_MALFORMED_OUTPUT'));
+  assert.equal(JSON.parse(malformed.stdout).incident.observations[0].reason, 'invalid-or-incomplete-source');
 });
