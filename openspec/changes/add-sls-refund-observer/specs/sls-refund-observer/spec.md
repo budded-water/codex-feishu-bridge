@@ -15,7 +15,7 @@ The observer SHALL bind its local state to one explicitly configured SLS region,
 - **WHEN** an SLS response is incomplete, invalid or too large to establish the complete window
 - **THEN** the checkpoint SHALL stay at the last accepted complete window
 - **AND** earlier events found by overlap SHALL be retained without opening a duplicate incident
-- **AND** an earlier firing or a conflicting closure evaluation that invalidates confirmed recovery evidence SHALL mark that same incident for human handoff
+- **AND** an earlier firing or a conflicting closure evaluation that invalidates confirmed recovery evidence SHALL mark that same incident for human handoff while retaining any newer incident's independent observation schedule
 
 ### Requirement: Distinguish normalized evidence and finish within a finite schedule
 

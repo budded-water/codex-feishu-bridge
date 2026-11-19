@@ -239,6 +239,35 @@ test('a same-second conflict invalidates the inactive evaluation in either arriv
   }
 });
 
+test('a delayed closure conflict flags the original incident while a newer schedule keeps running', t => {
+  const { open } = setup(t);
+  const first = open();
+  let original: string;
+  let current: string;
+  try {
+    first.acceptWindow(100, 121, [{ id: 'fire-a', at: 110, status: 'firing' }], 121);
+    first.observe(first.nextSample(421)!, 421, samples(419));
+    first.acceptWindow(121, 1005, [{ id: 'quiet-a', at: 1003, status: 'inactive' }], 1020);
+    first.observe(first.nextSample(1021)!, 1021, samples(1000));
+    original = first.report().incident!.id;
+    assert.equal(first.report().incident?.state, 'resolved');
+    first.acceptWindow(1005, 1022, [{ id: 'fire-b', at: 1010, status: 'firing' }], 1025);
+    current = first.report().incident!.id;
+    assert.notEqual(original, current);
+  } finally { first.close(); }
+
+  const reopened = open();
+  try {
+    const schedule = reopened.nextSample(1030);
+    reopened.acceptWindow(995, 1026, [{ id: 'delayed-conflict-a', at: 1003, status: 'error' }], 1030);
+    const report = reopened.report();
+    assert.equal(report.incident?.id, current);
+    assert.equal(report.incident?.state, 'open');
+    assert.deepEqual(reopened.nextSample(1030), schedule);
+    assert.deepEqual(report.handoffs.map(handoff => handoff.id), [original]);
+  } finally { reopened.close(); }
+});
+
 test('tied monitor runs and contradictory terminal outcomes identify source conflicts', () => {
   const scope = 'managed:local_product_order:native_case_refunds';
   const row = (body: Record<string, unknown>) => ({ __time__: '120', content: JSON.stringify({ scope, ...body }) });

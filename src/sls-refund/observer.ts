@@ -61,7 +61,8 @@ export class RefundObserver {
             id TEXT PRIMARY KEY, opened INTEGER NOT NULL, last_firing INTEGER NOT NULL,
             detected INTEGER NOT NULL, state TEXT NOT NULL
           );
-          CREATE UNIQUE INDEX IF NOT EXISTS active_incident ON incidents((1)) WHERE state<>'resolved';
+          CREATE UNIQUE INDEX IF NOT EXISTS observing_incident ON incidents((1)) WHERE state='open';
+          DROP INDEX IF EXISTS active_incident;
           CREATE TABLE IF NOT EXISTS observations (
             incident TEXT REFERENCES incidents(id), slot INTEGER, observed INTEGER NOT NULL,
             firing INTEGER NOT NULL, body TEXT NOT NULL, assessment TEXT NOT NULL,
@@ -129,19 +130,14 @@ export class RefundObserver {
   private reconcileEvaluation(event: Evaluation, now: number, latestFiring: number): void {
     const { at, status } = event;
     const firing = status === 'firing';
-    if (status === 'inactive' || (firing && at <= latestFiring)) return;
-    const active = this.active();
-    if (active) {
-      if (firing) this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(at, active.id);
-      return;
-    }
-
+    if (status === 'inactive') return;
     const closed = this.db.prepare(`SELECT i.id,COALESCE(final.evidence_through,final.observed+1) AS through,first.body
       FROM incidents i JOIN observations final ON final.incident=i.id AND final.slot=2
       JOIN observations first ON first.incident=i.id AND first.slot=1
-      WHERE i.state='resolved' ORDER BY i.rowid DESC LIMIT 1`).get() as
+      WHERE i.state='resolved' AND i.opened<=? AND COALESCE(final.evidence_through,final.observed+1)>?
+      ORDER BY i.rowid DESC LIMIT 1`).get(at, at) as
       { id: string; through: number; body: string } | undefined;
-    if (closed && at < closed.through) {
+    if (closed) {
       const earlier = JSON.parse(closed.body) as Evidence;
       const firstHealthy = Math.min(earlier.recovery!.at, ...earlier.backlog.map(sample => sample.at));
       if (firing ? at >= firstHealthy : at === closed.through - 1) {
@@ -152,15 +148,21 @@ export class RefundObserver {
       }
       return;
     }
-    if (firing) this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), at, at, now);
+    if (!firing || at <= latestFiring) return;
+    const latest = this.latestIncident();
+    if (latest && latest.state !== 'resolved') {
+      this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(at, latest.id);
+    } else {
+      this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), at, at, now);
+    }
   }
 
-  private active(): Incident | undefined {
-    return this.db.prepare("SELECT * FROM incidents WHERE state<>'resolved'").get() as Incident | undefined;
+  private latestIncident(): Incident | undefined {
+    return this.db.prepare('SELECT * FROM incidents ORDER BY rowid DESC LIMIT 1').get() as Incident | undefined;
   }
 
   nextSample(now: number): DueSample | undefined {
-    const incident = this.active();
+    const incident = this.latestIncident();
     if (!incident || incident.state !== 'open' || now < incident.detected) return;
     const slot: Slot = now >= incident.detected + followups[2] ? 2 : now >= incident.detected + followups[1] ? 1 : 0;
     const saved = this.db.prepare('SELECT MAX(slot) AS slot FROM observations WHERE incident=?').get(incident.id) as { slot: number | null };
@@ -209,7 +211,7 @@ export class RefundObserver {
   }
 
   report() {
-    const latest = this.db.prepare('SELECT * FROM incidents ORDER BY rowid DESC LIMIT 1').get() as Incident | undefined;
+    const latest = this.latestIncident();
     const observations = latest ? (this.db.prepare('SELECT slot,observed,body,assessment,evidence_through FROM observations WHERE incident=? ORDER BY slot')
       .all(latest.id) as { slot: number; observed: number; body: string; assessment: string; evidence_through: number | null }[])
       .map(({ slot, observed, body, assessment, evidence_through }) => {
@@ -217,8 +219,9 @@ export class RefundObserver {
         return { slot, observed, evidenceThrough: evidence_through, ...JSON.parse(assessment) as Assessment, evidence: { backlog, recovery } };
       }) : [];
     const evaluations = (this.db.prepare('SELECT COUNT(*) AS total FROM evaluations').get() as { total: number }).total;
+    const handoffs = this.db.prepare("SELECT id,opened,last_firing AS lastFiring FROM incidents WHERE state='needs-attention' ORDER BY rowid DESC LIMIT 10").all();
     return {
-      mode: this.binding.mode, through: this.through(), evaluations, latestEvaluation: this.latestEvaluation() ?? null,
+      mode: this.binding.mode, through: this.through(), evaluations, latestEvaluation: this.latestEvaluation() ?? null, handoffs,
       incident: latest ? { id: latest.id, state: latest.state, opened: latest.opened, lastFiring: latest.last_firing,
         followups: followups.slice(1).map(offset => latest.detected + offset), observations } : null,
     };
