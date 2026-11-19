@@ -1,6 +1,7 @@
+import { spawnSync } from 'node:child_process';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { channels, RefundObserver, type Binding, type Evidence } from '../src/sls-refund/observer.js';
@@ -20,6 +21,7 @@ function samples(at: number, oldestSeconds = 0, missing = 0): Evidence {
       missing: i ? 0 : missing, oldestSeconds: i ? 0 : oldestSeconds,
     })),
     recovery: { at, outcome: 'completed', queryErrors: 0, deferred: 0 },
+    backlogRun: 'backlog-' + at, recoveryRun: 'recovery-' + at,
   };
 }
 function response(data: Record<string, unknown>[], progress = 'Complete') {
@@ -147,4 +149,100 @@ test('the observer never combines channels from different monitor runs or report
   assert.equal(readEvidence(response([...old, sample('wechat_pay', 'second', 110)])).backlog.length, 1);
   assert.deepEqual(readEvidence(response([...old, { __time__: '120',
     content: JSON.stringify({ scope, event: 'merchant_refund_backlog', outcome: 'failed' }) }])).backlog, []);
+});
+
+test('the final slot refuses evidence past the accepted history or reused source batches', t => {
+  const first = samples(419);
+  const later = samples(1000);
+  for (const evidence of [
+    samples(1019), { ...later, backlogRun: first.backlogRun }, { ...later, recoveryRun: first.recoveryRun },
+  ]) {
+    const observer = setup(t).open();
+    try {
+      observer.acceptWindow(100, 111, [{ id: 'first', at: 110, status: 'firing' }], 120);
+      assert.equal(observer.observe(observer.nextSample(420)!, 420, first), true);
+      observer.acceptWindow(111, 1005, [{ id: 'latest', at: 1003, status: 'inactive' }], 1020);
+      const final = observer.nextSample(1020)!;
+      assert.equal(final.evidenceThrough, 1004);
+      assert.equal(observer.observe(final, 1020, evidence), true);
+      const report = observer.report();
+      assert.equal(report.incident?.state, 'needs-attention');
+      assert.equal(report.incident?.observations[1]?.evidenceThrough, 1004);
+      assert.ok(!JSON.stringify(report).includes('backlog-419'));
+    } finally { observer.close(); }
+  }
+});
+
+test('conflicting samples at the same time are unavailable regardless of result order', () => {
+  const scope = 'managed:local_product_order:native_case_refunds';
+  const row = (channel: string, pending = 0) => ({
+    __time__: '120',
+    content: JSON.stringify({
+      scope, event: 'merchant_refund_backlog', channel, run_id: 'batch', outcome: 'completed',
+      pending, queryable: 0, missing_channel_identity: pending, oldest_age_seconds: pending ? 1000 : 0,
+    }),
+  });
+  const healthy = row('wechat_pay');
+  const conflicting = row('wechat_pay', 1);
+  const alipay = row('alipay');
+  assert.equal(readEvidence(response([healthy, healthy, alipay])).backlog.length, 2);
+  for (const data of [[healthy, conflicting, alipay], [alipay, conflicting, healthy]]) {
+    assert.deepEqual(readEvidence(response(data)), { backlog: [], unavailable: 'invalid-or-incomplete-source' });
+  }
+});
+
+test('CLI preserves the cursor on incomplete history and records sanitized diagnostic transport errors', t => {
+  const { directory } = setup(t);
+  const mock = join(directory, 'aliyun');
+  const cfg = join(directory, 'config.json');
+  const trace = join(directory, 'trace.jsonl');
+  const scenario = join(directory, 'scenario');
+  const state = join(directory, 'state');
+  const now = Math.floor(Date.now() / 1000);
+  const start = now - 360;
+  writeFileSync(mock, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify(args) + String.fromCharCode(10));
+const body = JSON.parse(args.at(-1));
+const store = args[args.indexOf('--logstore') + 1];
+if (store === 'service-runtime') {
+  console.error('PRIVATE_PROVIDER_DIAGNOSTIC');
+  process.exit(9);
+}
+const progress = fs.readFileSync(${JSON.stringify(scenario)}, 'utf8');
+const entries = [{ AlertID: 'same-event', AlertName: 'refund-rule', AlertStatus: 'firing', __time__: String(body.from + 10) }];
+console.log(JSON.stringify({ meta: {progress,isAccurate:true,count:entries.length}, data:entries }));
+`, { mode: 0o700 });
+  writeFileSync(cfg, JSON.stringify({ region: binding.region, project: binding.project, rule: binding.rule, start,
+    executable: mock, profile: 'fixture-profile' }));
+  const cli = (command: string, file = cfg) => spawnSync(process.execPath,
+    ['--import', 'tsx', 'src/sls-refund/cli.ts', command, state, file], { encoding: 'utf8' });
+  writeFileSync(scenario, 'Incomplete');
+  const incomplete = cli('observe');
+  assert.equal(incomplete.status, 1);
+  assert.match(incomplete.stderr, /incomplete/);
+  const persisted = new RefundObserver(state, { ...binding, mode: 'live', start });
+  try { assert.equal(persisted.through(), start); }
+  finally { persisted.close(); }
+
+  writeFileSync(scenario, 'Complete');
+  const accepted = cli('observe');
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.ok(!accepted.stderr.includes('PRIVATE_PROVIDER_DIAGNOSTIC'));
+  const report = JSON.parse(accepted.stdout);
+  assert.equal(report.incident.observations[0].reason, 'source-query-failed');
+  const calls: string[][] = readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.map(args => args.slice(0, -1)), [
+    ['sls', 'GetLogsV2', '--profile', 'fixture-profile', '--project', 'fixture', '--logstore', 'internal-alert-history', '--region', 'cn-hangzhou', '--body'],
+    ['sls', 'GetLogsV2', '--profile', 'fixture-profile', '--project', 'fixture', '--logstore', 'internal-alert-history', '--region', 'cn-hangzhou', '--body'],
+    ['sls', 'GetLogsV2', '--profile', 'fixture-profile', '--project', 'fixture', '--logstore', 'service-runtime', '--region', 'cn-hangzhou', '--body'],
+  ]);
+  assert.equal(JSON.parse(calls[1]!.at(-1)!).query, 'AlertName: "refund-rule"');
+  assert.equal(JSON.parse(calls[2]!.at(-1)!).query, '"merchant_refund_backlog" OR "merchant_refund_recovery"');
+  const failedRead = cli('replay', join(directory, 'PRIVATE_INPUT_PATH'));
+  assert.equal(failedRead.status, 1);
+  assert.ok(!failedRead.stderr.includes('PRIVATE_INPUT_PATH'));
+  assert.match(failedRead.stderr, /input could not be read/);
 });

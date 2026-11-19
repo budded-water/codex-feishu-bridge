@@ -9,32 +9,35 @@ export type Evaluation = { id: string; at: number; status: typeof alertStatuses[
 export type Binding = { mode: 'replay' | 'live'; region: string; project: string; rule: string; start: number };
 export type BacklogSample = { channel: Channel; at: number; pending: number; queryable: number; missing: number; oldestSeconds: number };
 export type RecoverySample = { at: number; outcome: 'completed' | 'degraded' | 'failed' | 'timeout' | 'overlap_skipped'; queryErrors: number; deferred: number };
-export type Evidence = { backlog: BacklogSample[]; recovery?: RecoverySample };
+export type Evidence = { backlog: BacklogSample[]; recovery?: RecoverySample; backlogRun?: string; recoveryRun?: string;
+  unavailable?: 'source-query-failed' | 'invalid-or-incomplete-source' };
 type Assessment = {
   state: 'healthy' | 'issue' | 'unavailable';
+  reason?: Evidence['unavailable'] | 'insufficient-fresh-evidence';
   signals: ('aged-backlog' | 'missing-channel-identity' | 'recovery-job-unhealthy')[];
 };
 type Incident = { id: string; opened: number; last_firing: number; detected: number; state: 'open' | 'resolved' | 'needs-attention' };
 type Slot = 0 | 1 | 2;
-export type DueSample = { incident: string; slot: Slot; firing: number; dueAt: number };
+export type DueSample = { incident: string; slot: Slot; firing: number; dueAt: number; evidenceThrough: number };
 const followups = [0, 5 * 60, 15 * 60] as const;
 const maxAge = 5 * 60;
 const backlogThreshold = 15 * 60;
 export const isSecond = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
-function fresh(at: number, now: number, lower: number) {
-  return isSecond(at) && at >= lower && at <= now && now - at <= maxAge;
+function fresh(at: number, now: number, lower: number, through = now + 1) {
+  return isSecond(at) && at >= lower && at <= now && at < through && now - at <= maxAge;
 }
 
-function assess(evidence: Evidence, now: number, lower: number): Assessment {
+function assess(evidence: Evidence, now: number, lower: number, through: number): Assessment {
   const { recovery, backlog } = evidence;
   const allChannels = backlog.length === channels.length && channels.every(channel => backlog.some(sample => sample.channel === channel));
-  if (!recovery || !allChannels || !fresh(recovery.at, now, lower) ||
-    backlog.some(sample => !fresh(sample.at, now, lower) ||
+  if (evidence.unavailable || !recovery || !evidence.backlogRun || !evidence.recoveryRun || !allChannels ||
+    !fresh(recovery.at, now, lower, through) ||
+    backlog.some(sample => !fresh(sample.at, now, lower, through) ||
       ![sample.pending, sample.queryable, sample.missing, sample.oldestSeconds].every(isSecond) ||
       sample.queryable > sample.pending - sample.missing || (!sample.pending && sample.oldestSeconds !== 0)) ||
     ![recovery.queryErrors, recovery.deferred].every(isSecond)) {
-    return { state: 'unavailable', signals: [] };
+    return { state: 'unavailable', signals: [], reason: evidence.unavailable ?? 'insufficient-fresh-evidence' };
   }
 
   const signals: Assessment['signals'] = [];
@@ -61,9 +64,14 @@ export class RefundObserver {
           CREATE UNIQUE INDEX IF NOT EXISTS active_incident ON incidents((1)) WHERE state<>'resolved';
           CREATE TABLE IF NOT EXISTS observations (
             incident TEXT REFERENCES incidents(id), slot INTEGER, observed INTEGER NOT NULL,
-            firing INTEGER NOT NULL, body TEXT NOT NULL, assessment TEXT NOT NULL, PRIMARY KEY(incident,slot)
+            firing INTEGER NOT NULL, body TEXT NOT NULL, assessment TEXT NOT NULL,
+            evidence_through INTEGER, PRIMARY KEY(incident,slot)
           );
         `);
+        const columns = this.db.prepare('PRAGMA table_info(observations)').all() as { name: string }[];
+        if (!columns.some(column => column.name === 'evidence_through')) {
+          this.db.exec('ALTER TABLE observations ADD COLUMN evidence_through INTEGER');
+        }
         const identity = JSON.stringify([binding.mode, binding.region, binding.project, binding.rule, binding.start]);
         this.db.prepare('INSERT OR IGNORE INTO source VALUES (1,?,?)').run(identity, binding.start);
         const found = this.db.prepare('SELECT binding FROM source WHERE id=1').get() as { binding: string };
@@ -132,16 +140,24 @@ export class RefundObserver {
     const slot: Slot = now >= incident.detected + followups[2] ? 2 : now >= incident.detected + followups[1] ? 1 : 0;
     const saved = this.db.prepare('SELECT MAX(slot) AS slot FROM observations WHERE incident=?').get(incident.id) as { slot: number | null };
     if (saved.slot !== null && saved.slot >= slot) return;
-    return { incident: incident.id, slot, firing: incident.last_firing, dueAt: incident.detected + followups[slot] };
+    // Use an already accepted history horizon for the final slot. The newest
+    // inactive evaluation must also be at or after any evidence used to close.
+    const latest = this.latestEvaluation();
+    const covered = Math.min(now, this.through());
+    const evidenceThrough = slot === 2
+      ? Math.min(covered, latest?.status === 'inactive' ? latest.at + 1 : covered)
+      : now;
+    return { incident: incident.id, slot, firing: incident.last_firing, dueAt: incident.detected + followups[slot], evidenceThrough };
   }
 
   observe(expected: DueSample, now: number, evidence: Evidence): boolean {
     return this.transaction(() => {
       const sample = this.nextSample(now);
-      if (!sample || sample.incident !== expected.incident || sample.slot !== expected.slot || sample.firing !== expected.firing) return false;
-      const result = assess(evidence, now, sample.firing + 1);
-      this.db.prepare('INSERT INTO observations VALUES (?,?,?,?,?,?)')
-        .run(sample.incident, sample.slot, now, sample.firing, JSON.stringify(evidence), JSON.stringify(result));
+      if (!sample || sample.incident !== expected.incident || sample.slot !== expected.slot || sample.firing !== expected.firing ||
+        sample.evidenceThrough !== expected.evidenceThrough) return false;
+      const result = assess(evidence, now, sample.firing + 1, sample.evidenceThrough);
+      this.db.prepare('INSERT INTO observations VALUES (?,?,?,?,?,?,?)')
+        .run(sample.incident, sample.slot, now, sample.firing, JSON.stringify(evidence), JSON.stringify(result), sample.evidenceThrough);
       if (sample.slot === 2) {
         const latest = this.latestEvaluation();
         const earlier = this.db.prepare('SELECT firing,body,assessment FROM observations WHERE incident=? AND slot=1')
@@ -157,7 +173,8 @@ export class RefundObserver {
   }
 
   private samplesAdvance(previous: Evidence, current: Evidence): boolean {
-    return current.recovery!.at > previous.recovery!.at &&
+    return Boolean(previous.backlogRun && previous.recoveryRun && current.backlogRun !== previous.backlogRun &&
+      current.recoveryRun !== previous.recoveryRun) && current.recovery!.at > previous.recovery!.at &&
       current.backlog.every(sample => sample.at > previous.backlog.find(other => other.channel === sample.channel)!.at);
   }
 
@@ -168,9 +185,12 @@ export class RefundObserver {
 
   report() {
     const latest = this.db.prepare('SELECT * FROM incidents ORDER BY rowid DESC LIMIT 1').get() as Incident | undefined;
-    const observations = latest ? (this.db.prepare('SELECT slot,observed,body,assessment FROM observations WHERE incident=? ORDER BY slot')
-      .all(latest.id) as { slot: number; observed: number; body: string; assessment: string }[])
-      .map(({ slot, observed, body, assessment }) => ({ slot, observed, ...JSON.parse(assessment) as Assessment, evidence: JSON.parse(body) as Evidence })) : [];
+    const observations = latest ? (this.db.prepare('SELECT slot,observed,body,assessment,evidence_through FROM observations WHERE incident=? ORDER BY slot')
+      .all(latest.id) as { slot: number; observed: number; body: string; assessment: string; evidence_through: number | null }[])
+      .map(({ slot, observed, body, assessment, evidence_through }) => {
+        const { backlog, recovery } = JSON.parse(body) as Evidence;
+        return { slot, observed, evidenceThrough: evidence_through, ...JSON.parse(assessment) as Assessment, evidence: { backlog, recovery } };
+      }) : [];
     const evaluations = (this.db.prepare('SELECT COUNT(*) AS total FROM evaluations').get() as { total: number }).total;
     return {
       mode: this.binding.mode, through: this.through(), evaluations, latestEvaluation: this.latestEvaluation() ?? null,

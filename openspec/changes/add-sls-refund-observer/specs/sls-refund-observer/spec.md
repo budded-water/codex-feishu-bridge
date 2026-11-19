@@ -29,12 +29,12 @@ The observer SHALL track an incident from the first accepted firing evaluation. 
 #### Scenario: Evidence is missing or the observer restarts
 
 - **WHEN** an observation is missing, incomplete, stale or predates the required evidence boundary
-- **THEN** the observer SHALL record evidence unavailable and leave recovery unconfirmed
+- **THEN** the observer SHALL record evidence unavailable with a bounded failure reason and leave recovery unconfirmed
 - **AND** restarting SHALL retain the incident identity and outstanding deadlines
 
 #### Scenario: Follow-up finishes
 
-- **WHEN** the two bounded follow-up slots each receive distinct fresh, complete healthy evidence since the latest firing evaluation, with no intervening firing invalidating that evidence and a fresh inactive rule evaluation
+- **WHEN** the two bounded follow-up slots each receive fresh, complete healthy evidence from distinct backlog and recovery batches since the latest firing evaluation, with the final evidence cutoff covered by the accepted history and a fresh inactive evaluation
 - **THEN** the incident SHALL resolve
 - **AND** if the final slot cannot confirm recovery, the incident SHALL reach an explicit human-handoff state
 

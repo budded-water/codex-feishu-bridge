@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { RefundObserver, isSecond } from './observer.js';
+import { RefundObserver, isSecond, type Evidence } from './observer.js';
 import { parseObserverConfig, readEvaluations, readEvidence, readSls } from './sls-source.js';
 import { record } from '../types.js';
 
@@ -8,12 +8,16 @@ const maxCatchupSeconds = 15 * 60;
 const logDelaySeconds = 60;
 
 function readInput(file: string): unknown {
-  return JSON.parse(readFileSync(file, 'utf8'));
+  let contents: string;
+  try { contents = readFileSync(file, 'utf8'); }
+  catch { throw new Error('Observer input could not be read'); }
+  return JSON.parse(contents);
 }
 
-function evidenceFrom(value: unknown) {
+function evidenceFrom(value: unknown): Evidence {
+  if (value === undefined) return { backlog: [] };
   try { return readEvidence(value); }
-  catch { return { backlog: [] }; }
+  catch { return { backlog: [], unavailable: 'invalid-or-incomplete-source' }; }
 }
 
 async function main() {
@@ -46,9 +50,12 @@ async function main() {
       // If discovery is still catching up, do not close using incomplete incident history.
       const sample = to >= now - logDelaySeconds ? observer.nextSample(now) : undefined;
       if (sample) {
-        let evidence;
-        try { evidence = evidenceFrom(await readSls(config, 'evidence', now - 5 * 60, now)); }
-        catch { evidence = { backlog: [] }; }
+        let evidence: Evidence = { backlog: [] };
+        const from = Math.max(0, now - 5 * 60);
+        if (from < sample.evidenceThrough) {
+          try { evidence = evidenceFrom(await readSls(config, 'evidence', from, sample.evidenceThrough)); }
+          catch { evidence = { backlog: [], unavailable: 'source-query-failed' }; }
+        }
         observer.observe(sample, now, evidence);
       }
     }
@@ -60,7 +67,9 @@ async function main() {
 
 main().catch(error => {
   // Provider responses and arbitrary local input are outside the reporting boundary.
-  const message = error instanceof SyntaxError ? 'Invalid observer input JSON' : error instanceof Error ? error.message : 'Observer failed';
+  const message = error instanceof SyntaxError ? 'Invalid observer input JSON'
+    : error instanceof Error && 'code' in error ? 'Observer local I/O failed'
+    : error instanceof Error ? error.message : 'Observer failed';
   console.error(message);
   process.exitCode = 1;
 });

@@ -43,7 +43,7 @@
           },
           {
             "__time__": "1700000065",
-            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0}"
+            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0,\"run_id\":\"fixture-recovery-0\"}"
           }
         ]
       }
@@ -116,7 +116,7 @@
           },
           {
             "__time__": "1700000370",
-            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0}"
+            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0,\"run_id\":\"fixture-recovery-2\"}"
           }
         ]
       }
@@ -154,16 +154,16 @@
         },
         "data": [
           {
-            "__time__": "1700000970",
+            "__time__": "1700000916",
             "content": "{\"event\":\"merchant_refund_backlog\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"channel\":\"wechat_pay\",\"run_id\":\"fixture-inspection-1700000970\",\"pending\":0,\"queryable\":0,\"missing_channel_identity\":0,\"oldest_age_seconds\":0}"
           },
           {
-            "__time__": "1700000970",
+            "__time__": "1700000916",
             "content": "{\"event\":\"merchant_refund_backlog\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"channel\":\"alipay\",\"run_id\":\"fixture-inspection-1700000970\",\"pending\":0,\"queryable\":0,\"missing_channel_identity\":0,\"oldest_age_seconds\":0}"
           },
           {
-            "__time__": "1700000970",
-            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0}"
+            "__time__": "1700000916",
+            "content": "{\"event\":\"merchant_refund_recovery\",\"scope\":\"managed:local_product_order:native_case_refunds\",\"outcome\":\"completed\",\"query_errors\":0,\"deferred\":0,\"run_id\":\"fixture-recovery-3\"}"
           }
         ]
       }

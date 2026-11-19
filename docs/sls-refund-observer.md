@@ -34,7 +34,7 @@ npm run sls:refund -- observe /absolute/path/to/private-state /absolute/path/to/
 
 观察命令通过已登记 Aliyun CLI profile 向指定 Project 的 `internal-alert-history` 和 `service-runtime` 发出固定 `GetLogsV2` 查询。实际规则 ID 用 `GetAlert` 核对。运行所需的日志权限仅覆盖两个目标 Logstore 的日志读取。两个日志库缺访问权限时，保留现有云端权限决定并报告阻塞。参见 [告警执行历史](https://help.aliyun.com/zh/sls/fields-in-alert-rule-evaluation-logs) 和 [GetLogsV2](https://help.aliyun.com/zh/sls/developer-reference/api-sls-2020-12-30-getlogsv2)。
 
-告警历史默认留一分钟写入延迟，两分钟重叠补读，每次最多前进十五分钟。响应达到行数上限、结果不完整或规则身份不匹配时，命令退出，读取进度停在上一个完整窗口。重复评估按 `AlertID` 去重，事件按记录的触发顺序关联。来源读失败时 CLI 明确报错，日志查询成功而证据不足时记为 `unavailable`。
+告警历史默认留一分钟写入延迟，两分钟重叠补读，每次最多前进十五分钟。响应达到行数上限、结果不完整或规则身份不匹配时，命令退出，读取进度停在上一个完整窗口。重复评估按 `AlertID` 去重，事件按记录的触发顺序关联。告警历史读失败时 CLI 明确报错。诊断日志读失败、响应不完整或缺少样本时，复查记录用固定原因区分这些情况。
 
 ## 诊断与结束条件
 
@@ -47,7 +47,7 @@ npm run sls:refund -- observe /absolute/path/to/private-state /absolute/path/to/
 
 采证使用同一积压 Job 批次的两渠道记录和一条新鲜的恢复 Job 终态。不同批次的数据不能组合。聚合计数可以证明当前范围的现象，具体退款为何失败仍需另外取证。
 
-新的事件在创建时观察一次，并保留 5 分钟和 15 分钟两次复查时间。进程重启后从原事件继续。错过的观察按最近到期的一次处理。两次复查都需要后于最后一次触发的独立健康证据，最后还需看到新鲜的 `inactive` 评估，才转为 `resolved`。最终未能确认恢复时，报告为 `needs-attention`，保留人工处理所需的记录。
+新的事件在创建时观察一次，并保留 5 分钟和 15 分钟两次复查时间。进程重启后从原事件继续。错过的观察按最近到期的一次处理。两次复查需要不同批次、后于最后一次触发的健康证据。最终取证截止点由已读取的告警历史和新鲜的 `inactive` 评估共同限定，满足条件才转为 `resolved`。最终未能确认恢复时，报告为 `needs-attention`，保留人工处理所需的记录。
 
 ## 当前交付范围
 
