@@ -27,6 +27,10 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 The delivered [matter follow-up refinement](changes/archive/2026-11-19-clarify-owner-matter-followups/tasks.md) covers short continuations and conflicting answer references. The [M6 acceptance](../docs/live-acceptance.md#2026-11-19-m6-matter-follow-up-rollout) verifies both choices and the resumed threads.
 
+## Active SLS observer
+
+The [SLS refund observer](changes/add-sls-refund-observer/proposal.md) covers standalone replay, bounded read-only observation and durable follow-up evidence. The [tasks](changes/add-sls-refund-observer/tasks.md) distinguish this pilot from managed scheduling and external-source task admission.
+
 ## Active P3 change
 
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) stays active. Its optional runtime is merged/deployed, and real owner-private fixture `/verify` plus historical `/verification` are accepted. Native execution, project validation, review and publication remain separate.

@@ -46,7 +46,7 @@ The independent [Autoloop v1.9.2 service upgrade](live-acceptance.md#2026-11-18-
 | Project verification | Optional pinned UI-eval runtime, explicit one-repair goals and real owner fixture/history accepted | No current business task/declared acceptance plan; no publication authority |
 | Presentation | Shared templates, native rich posts, original-turn style guidance and bounded owner verification-view feedback accepted | Other message/client layouts retain source/automated coverage |
 | Browser access | Owner-selected persistent settings, explicit origin change, historical refusal detail and one same-thread ordinary continuation accepted | Observed access covers the declared origins; authentication, universal site coverage and business delivery remain separate |
-| Autonomous follow-up | Explicit bounded repair and owner-requested historical findings view delivered | Scheduled discovery, automatic candidate admission, general review loops and optional release adapters remain deferred |
+| Autonomous follow-up | Explicit bounded repair and owner-requested historical findings view delivered | The [SLS refund observer](sls-refund-observer.md) has a standalone replay and bounded production read. Continuous scheduling and external-source task admission remain pending |
 
 See [main specs and active work](../openspec/README.md), [operation](operation.md) and [dated acceptance](live-acceptance.md). Older dated delivery statements below are snapshots; this checkpoint and later acceptance entries describe current status. Specification synchronization does not change runtime code/configuration or broaden live acceptance.
 

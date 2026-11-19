@@ -2,7 +2,7 @@ import { mkdirSync, lstatSync, realpathSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-export function openPrivateDatabase(directory: string, filename: 'bridge.db' | 'handoff.db'): DatabaseSync {
+export function openPrivateDatabase(directory: string, filename: 'bridge.db' | 'handoff.db' | 'refund-observer.db'): DatabaseSync {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (lstatSync(directory).isSymbolicLink()) throw new Error('State directory must not be a symlink');
   chmodSync(realpathSync(directory), 0o700);
