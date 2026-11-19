@@ -131,7 +131,7 @@ export class OwnerMatters {
     return { status: 'matter-choice' };
   }
 
-  address(message: IncomingMessage) {
+  private address(message: IncomingMessage) {
     const match = /^([^\n:：]{1,50})(?:：|:(?!\/\/))\s*([\s\S]+)$/.exec(message.text.trim());
     if (!match) return;
     const matter = this.admission.store.matters.named(this.scope(message), match[1]!.trim().normalize('NFC'));

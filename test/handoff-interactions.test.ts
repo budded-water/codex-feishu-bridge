@@ -46,7 +46,8 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const cardUpdates: { message: string; view: ApprovalView; approval: ApprovalPresentation }[] = [];
   const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options),
     updateApproval: async (message: string, approval: ApprovalPresentation, view: ApprovalView) => { cardUpdates.push({ message, view, approval }); } };
-  const port = { addReaction: async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; },
+  let add = async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; };
+  const port = { addReaction: (message: string) => add(message),
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
   let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
   const actor = (text: string, overrides = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, chatType: 'p2p' as const, ...overrides });
@@ -66,7 +67,8 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context); await interactions.recover(); return interactions; };
   t.after(async () => { await native.stop(); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
   return { config, admission, native, codex, sent, cardUpdates, reactions, actor, launch, restart, get interactions() { return interactions; },
-    setSend: (value: typeof send) => { send = value; }, setRemove: (value: typeof remove) => { remove = value; } };
+    setSend: (value: typeof send) => { send = value; }, setAdd: (value: typeof add) => { add = value; },
+    setRemove: (value: typeof remove) => { remove = value; } };
 }
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
@@ -1195,9 +1197,23 @@ test('an ordinary answer becomes a reply anchor only when its Feishu delivery is
     h.interactions.receive(h.actor('/matter-new other'));
     assert.equal(h.interactions.receive(outside).status, 'ignored');
     assert.equal(h.admission.store.requestForMessage(outside), undefined);
+    const conflictingAlias = h.actor(outside.text, { parentId: 'refund-answer-message' });
+    assert.deepEqual(h.interactions.receive(conflictingAlias), { status: 'rejected', reason: 'outside_pilot' });
+    assert.equal(h.admission.store.requestForMessage(conflictingAlias), undefined);
     const fresh = h.actor('这个呢？', { parentId: 'refund-answer-message' });
     assert.equal(h.interactions.receive(fresh).status, 'task-reply');
     assert.equal(h.admission.store.requestForMessage(fresh)?.conversation, active.request.conversation);
+    let failedReaction = false;
+    h.setAdd(async message => {
+      assert.equal(message, fresh.id);
+      failedReaction = true;
+      throw Error('fixture reaction unavailable');
+    });
+    await drain(h);
+    assert.equal(failedReaction, true);
+    const notices = h.sent.filter(row => row.options?.replyTo === fresh.id);
+    assert.equal(notices.length, 1);
+    assert.match(notices[0]!.text, /事项 · 退款调查/);
   } finally { transport.close(); }
 });
 

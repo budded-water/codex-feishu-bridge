@@ -144,7 +144,8 @@ export class State {
     }
   }
 
-  projectAssignedTask(request: RequestRecord, project: string, directory: string, status: string, matterLabel?: string): void {
+  projectAssignedTask(request: RequestRecord, project: string, directory: string, status: string,
+    receipt?: { matter: string; followup: boolean }): void {
     this.transaction(() => {
       this.db.prepare('INSERT OR IGNORE INTO sessions(id,owner,tenant,user,chat,project,directory) VALUES (?,?,?,?,?,?,?)')
         .run(request.conversation, ownerKey(request.message), request.message.tenant, request.message.user, request.message.chat, project, directory);
@@ -157,8 +158,8 @@ export class State {
         if (request.blocked) this.send(request.message.chat, '前一个任务的结果尚未确认，当前请求没有开始。请先核对实际结果。', { replyTo: request.message.id });
         else {
           this.db.prepare('INSERT INTO feedback(task,message,fallback) VALUES (?,?,?)')
-            .run(request.execution, this.replyTarget(request.execution)!, matterLabel ? 1 : 0);
-          if (matterLabel) this.send(request.message.chat, '已收到 · ' + matterLabel, { replyTo: request.message.id });
+            .run(request.execution, this.replyTarget(request.execution)!, receipt ? 1 : 0);
+          if (receipt && !receipt.followup) this.send(request.message.chat, '已收到 · ' + receipt.matter, { replyTo: request.message.id });
         }
       }
     });

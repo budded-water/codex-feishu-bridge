@@ -40,10 +40,11 @@ export class HandoffTransport {
     const execution = this.gateway.store.execution(request.execution);
     const withdrawn = request.blocked === OWNER_WITHDRAWN;
     const unscheduled = this.gateway.store.submission(request.id)?.status === 'blocked';
-    const followup = this.gateway.store.taskReply(JSON.stringify([request.message.tenant, request.message.id]));
+    const matter = !request.blocked && !unscheduled ? this.matterLabel(request) : undefined;
+    const reply = matter ? this.gateway.store.taskReply(JSON.stringify([request.message.tenant, request.message.id])) : undefined;
     this.state.projectAssignedTask(request, this.gateway.scope.pilot, this.gateway.directory,
       withdrawn ? 'interrupted' : request.blocked || unscheduled ? 'unknown' : execution?.status === 'active' ? 'running' : execution?.status ?? 'queued',
-      !request.blocked && !unscheduled && !followup ? this.matterLabel(request) : undefined);
+      matter ? { matter, followup: reply?.followup === request.id } : undefined);
     if (request.blocked === QUOTED_CONVERSATION_CHANGED) this.state.projectAdmissionNotice(request, '原任务的会话在等待期间发生变化，追问未启动。请重新说明需要处理的事项。');
     else if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
   }
