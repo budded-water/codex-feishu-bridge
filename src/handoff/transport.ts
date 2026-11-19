@@ -10,6 +10,8 @@ import type { NativeExecutions } from './native.js';
 import { OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED, type RequestRecord } from './store.js';
 import { verificationText } from './verification-view.js';
 import { repairText } from './repair-view.js';
+import { ownerKey, type IncomingMessage } from '../types.js';
+import { DEFAULT_MATTER_TITLE } from './matter-store.js';
 import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
 
 const projectedStatus = `CASE WHEN r.blocked=? THEN 'interrupted'
@@ -38,10 +40,26 @@ export class HandoffTransport {
     const execution = this.gateway.store.execution(request.execution);
     const withdrawn = request.blocked === OWNER_WITHDRAWN;
     const unscheduled = this.gateway.store.submission(request.id)?.status === 'blocked';
+    const matter = !request.blocked && !unscheduled ? this.matterLabel(request) : undefined;
+    const reply = matter ? this.gateway.store.taskReply(JSON.stringify([request.message.tenant, request.message.id])) : undefined;
     this.state.projectAssignedTask(request, this.gateway.scope.pilot, this.gateway.directory,
-      withdrawn ? 'interrupted' : request.blocked || unscheduled ? 'unknown' : execution?.status === 'active' ? 'running' : execution?.status ?? 'queued');
+      withdrawn ? 'interrupted' : request.blocked || unscheduled ? 'unknown' : execution?.status === 'active' ? 'running' : execution?.status ?? 'queued',
+      matter ? { matter, followup: reply?.followup === request.id } : undefined);
     if (request.blocked === QUOTED_CONVERSATION_CHANGED) this.state.projectAdmissionNotice(request, '原任务的会话在等待期间发生变化，追问未启动。请重新说明需要处理的事项。');
     else if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
+  }
+
+  private ownerPrivate(message: IncomingMessage): boolean {
+    const scope = this.gateway.scope;
+    return message.chatType === 'p2p' && message.tenant === scope.tenant && message.user === scope.operator && message.chat === scope.chat;
+  }
+
+  private matterLabel(request: RequestRecord): string | undefined {
+    const store = this.gateway.store;
+    if (!this.ownerPrivate(request.message) || store.hasDedicatedContinuation(request.execution)) return;
+    const owner = { owner: ownerKey(request.message), project: request.project };
+    return store.matters.owned(owner, request.conversation)?.title ??
+      (store.matters.list(owner, 1).length ? DEFAULT_MATTER_TITLE : undefined);
   }
 
   private openReader(): DatabaseSync {
@@ -54,7 +72,10 @@ export class HandoffTransport {
       if (kind === 'thread-change') this.admit(this.gateway.store.request(id)!);
       else {
         const reply = this.gateway.store.taskReply(id)!;
-        this.state.projectControlNotice({ ...reply, origin: 'task-reply/' + id, status: reply.kind });
+        const next = reply.followup ? this.gateway.store.request(reply.followup) : undefined;
+        const matter = next && this.matterLabel(next);
+        const result = matter && reply.result ? reply.result + '\n事项 · ' + matter : reply.result;
+        this.state.projectControlNotice({ ...reply, result, origin: 'task-reply/' + id, status: reply.kind });
       }
     }
   }
@@ -89,14 +110,17 @@ export class HandoffTransport {
           projection.sealed ? String(projection.outcome.status) : this.gateway.store.execution(request.execution)!.status === 'unknown' ? 'unknown' : 'running');
         const verification = projection.sealed && this.gateway.store.verification(request.execution);
         const repair = projection.sealed && this.gateway.store.repairs.get(request.execution);
-        const blocks = projection.sealed && request.message.chatType === 'p2p' && request.message.tenant === this.gateway.scope.tenant &&
-          request.message.user === this.gateway.scope.operator && request.message.chat === this.gateway.scope.chat ? projection.accessBlocks : undefined;
+        const ownerAnswer = projection.sealed && this.ownerPrivate(request.message);
+        const blocks = ownerAnswer ? projection.accessBlocks : undefined;
         const browserNotice = blocks?.length ? browserAccessText(blocks) + '\n\n' + section('后续', [
           '核对本机站点设置与原任务副作用后，可明确请求检查并续接；回执不会证明权限或交付成功。',
           copyBlock('/task ' + request.execution),
           ...(!repair && !verification && String(projection.outcome.status) === 'completed' ? [copyBlock(browserRetryCommand(request.execution))] : []),
         ]) : undefined;
-        this.state.projectNativeMessages(request, projection, repair ? repairText(repair) : verification ? verificationText(verification) : undefined, browserNotice);
+        const ordinaryAnswer = ownerAnswer && projection.outcome.status === 'completed' &&
+          !this.gateway.store.hasDedicatedContinuation(request.execution);
+        this.state.projectNativeMessages(request, projection, repair ? repairText(repair) : verification ? verificationText(verification) : undefined,
+          browserNotice, ordinaryAnswer);
         if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.gateway.store.retireReferences(request.execution);
         if (projection.sealed && !projection.task) this.state.projectAdmissionNotice(request, '任务在开始执行前已取消，没有启动模型任务。');
       } catch {

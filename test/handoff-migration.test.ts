@@ -542,3 +542,50 @@ test('rollback waits for a committed quoted reply receipt after a gateway crash 
   assert.equal(restored.remember(followupMessage), false);
   restored.close();
 });
+
+test('closed rollback retains named work and restores the legacy default thread', async t => {
+  const h = await fixture(t);
+  await stageHandoff(h.plan);
+  const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope);
+  admission.store.maintenance.resume();
+  const codex = new ManagedFake(), native = new NativeExecutions(admission, h.plan.config, () => codex);
+  const interactions = new PilotInteractions(admission, h.plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) }, native,
+    { send: async (_chat, _text, id) => 'matter-answer-' + id },
+    { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
+  const named = { ...h.message, chatType: 'p2p' as const, id: 'named-command', text: '/matter-new Release' };
+  interactions.receive(named);
+  const work = interactions.receive({ ...named, id: 'named-task', text: 'Check release' });
+  assert.ok('request' in work);
+  admission.store.rememberEvent(work.request.id, 1);
+  admission.store.routed(work.request.id, true);
+  const grant = admission.store.reserve(work.request.id, 1);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected named assignment');
+  const running = native.run(grant.permit);
+  await until(() => codex.calls.some(call => call.method === 'turn/start'));
+  codex.complete('thread-1', 'turn-2'); await running;
+  for (let i = 0; i < 6; i++) await interactions.flush();
+  const unprojected = { ...named, id: 'unprojected-command' };
+  admission.store.matters.retainNotice(unprojected, () => ({ text: 'Retained response' }));
+  admission.store.maintenance.quiesce();
+  await interactions.close(); admission.close();
+  const lease = await acquireRoot(h.plan.legacyDirectory, 'pilot', h.plan.pilotDirectory);
+  const controller = await openRuntimeControl(lease, () => ({})); await controller.close(true); await lease.release();
+  await assert.rejects(rollbackHandoff(h.plan), /matter response has not been projected/);
+  assert.equal(readFence(h.plan.legacyDirectory)!.role, 'pilot');
+  const reopened = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope);
+  const recovery = new PilotInteractions(reopened, h.plan.config, { flush: async () => {}, diagnose: async () => ({ status: 'unavailable' }) },
+    new NativeExecutions(reopened, h.plan.config, () => new ManagedFake()),
+    { send: async (_chat, _text, id) => 'matter-answer-' + id },
+    { addReaction: async () => 'reaction', findReaction: async () => 'reaction', removeReaction: async () => {} });
+  await recovery.recover();
+  for (let i = 0; i < 6; i++) await recovery.flush();
+  await recovery.close(); reopened.close();
+  assert.equal((await rollbackHandoff(h.plan)).window, 'after-traffic');
+  const restored = new State(h.plan.legacyDirectory);
+  try {
+    assert.equal(restored.selected(h.message)?.thread, 'retained-native-thread');
+    assert.equal(restored.session(work.request.conversation).thread, 'thread-1');
+    assert.equal(restored.remember(named), false);
+  } finally { restored.close(); }
+});

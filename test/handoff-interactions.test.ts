@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -8,10 +9,11 @@ import type { Config } from '../src/config.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
-import type { DeliveryOptions, ContextPort } from '../src/types.js';
+import { ownerKey, type DeliveryOptions, type ContextPort } from '../src/types.js';
 import { SteerTargetEnded } from '../src/codex/client.js';
 import { FakeCodex, until } from './helpers.js';
 import { readJournal } from '../src/handoff/journal.js';
+import { matterCard, normalizeMatterClick } from '../src/matter-card.js';
 import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
@@ -19,10 +21,14 @@ class ManagedFake extends FakeCodex implements ManagedCodex {
   async close() { this.exit(); }
 }
 
-function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort) {
+function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort, extraProjects: string[] = []) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'handoff-interactions-')));
   const project = join(root, 'project'); mkdirSync(project);
-  const scope: PilotScope = { installation: 'fixture', tenant: 'tenant', operator: 'ou_owner', chat: 'chat', projects: { pilot: project },
+  const projects = { pilot: project, ...Object.fromEntries(extraProjects.map(name => {
+    const directory = join(root, name); mkdirSync(directory);
+    return [name, directory];
+  })) };
+  const scope: PilotScope = { installation: 'fixture', tenant: 'tenant', operator: 'ou_owner', chat: 'chat', projects,
     pilot: 'pilot', hubInstance: 'hub', source: 'fixture', rule: 'pilot', agent: 'native', agentUse: 'bridge-native' };
   const config: Config = { allowedUsers: ['ou_owner', 'ou_admin'], accessMode: 'allowlist', allowedTenant: 'tenant', enableGroups: false,
     groupContextMessages: 0, groupContextImages: 0, approvalUsers: ['ou_admin'], approvalChat: 'admin', codexExecutable: 'codex',
@@ -32,7 +38,7 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const native = new NativeExecutions(admission, config, () => codex);
   const sent: { chat: string; text: string; id: string; options?: DeliveryOptions }[] = [];
   const reactions = new Map<string, string>();
-  let send = async (chat: string, text: string, id: string, options?: DeliveryOptions): Promise<string> => {
+  let send = async (chat: string, text: string, id: string, options?: DeliveryOptions): Promise<string | void> => {
     assert.ok(!options?.replyTo?.startsWith('card/'), 'Feishu cannot reply to a synthetic event ID');
     sent.push({ chat, text, id, options }); return 'delivered-' + id;
   };
@@ -40,7 +46,8 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const cardUpdates: { message: string; view: ApprovalView; approval: ApprovalPresentation }[] = [];
   const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options),
     updateApproval: async (message: string, approval: ApprovalPresentation, view: ApprovalView) => { cardUpdates.push({ message, view, approval }); } };
-  const port = { addReaction: async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; },
+  let add = async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; };
+  const port = { addReaction: (message: string) => add(message),
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
   let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
   const actor = (text: string, overrides = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, chatType: 'p2p' as const, ...overrides });
@@ -60,7 +67,8 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context); await interactions.recover(); return interactions; };
   t.after(async () => { await native.stop(); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
   return { config, admission, native, codex, sent, cardUpdates, reactions, actor, launch, restart, get interactions() { return interactions; },
-    setSend: (value: typeof send) => { send = value; }, setRemove: (value: typeof remove) => { remove = value; } };
+    setSend: (value: typeof send) => { send = value; }, setAdd: (value: typeof add) => { add = value; },
+    setRemove: (value: typeof remove) => { remove = value; } };
 }
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
@@ -1028,4 +1036,667 @@ test('pilot English help is local, deduplicated and available while paused; reti
   }
   assert.equal(h.admission.store.requests().length, 0); assert.equal(h.admission.store.controls().length, 0);
   assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.withdrawals().length, 0); assert.equal(h.codex.calls.length, 0);
+});
+
+test('switching matters starts separate native threads and quoting the older task resumes its original thread', async t => {
+  const h = setup(t);
+  const complete = async (request: { id: string }, run: number) => {
+    const issued = h.admission.store.reserve(request.id, run);
+    assert.equal(issued.kind, 'start');
+    if (issued.kind !== 'start') throw Error('Expected assignment');
+    const count = h.codex.calls.filter(call => call.method === 'turn/start').length;
+    const running = h.native.run(issued.permit);
+    const turns = () => h.codex.calls.filter(call => call.method === 'turn/start');
+    await until(() => turns().length > count);
+    const thread = String(turns().at(-1)!.params.threadId);
+    const sequence = h.codex.calls.filter(call => ['thread/start', 'turn/start'].includes(call.method)).length;
+    h.codex.complete(thread, 'turn-' + sequence);
+    await running;
+    return thread;
+  };
+
+  const newRefund = h.actor('/matter-new 退款调查');
+  h.interactions.receive(newRefund);
+  await drain(h);
+  const card = h.sent.find(item => item.options?.replyTo === newRefund.id)!;
+  const matter = card.options!.matterCard!;
+  assert.equal(matter.title, '退款调查');
+  const initial = h.actor('只查询当前退款积压');
+  const a = h.interactions.receive(initial);
+  assert.ok('request' in a);
+  const threadA = await complete(a.request, 101);
+  await drain(h);
+  const answerA = h.sent.find(row => row.options?.replyTo === initial.id && row.text === 'Done')!;
+  assert.ok(answerA);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === initial.id && row.text === '已收到 · 退款调查').length, 1);
+
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const b = h.interactions.receive(h.actor('检查待发布版本'));
+  assert.ok('request' in b);
+  assert.notEqual(a.request.conversation, b.request.conversation);
+  assert.equal(a.request.project, b.request.project);
+  const threadB = await complete(b.request, 102);
+  assert.notEqual(threadA, threadB);
+
+  await h.restart();
+  const quote = h.actor('再看微信渠道', { parentId: initial.id });
+  assert.equal(h.interactions.receive(quote).status, 'task-reply');
+  const followup = h.admission.store.requestForMessage(quote)!;
+  assert.equal(followup.conversation, a.request.conversation);
+  assert.equal(await complete(followup, 103), threadA);
+  const answerQuote = h.actor('刚才那个方案呢？', { parentId: 'delivered-' + answerA.id });
+  for (const actor of [{ ...answerQuote, user: 'ou_admin' }, { ...answerQuote, chat: 'other' }, { ...answerQuote, tenant: 'other' }]) {
+    assert.equal(h.interactions.receive(actor).status, 'ignored');
+    assert.equal(h.interactions.transport.state.confirmedAnswer(actor), undefined);
+  }
+  assert.equal(h.interactions.receive(answerQuote).status, 'task-reply');
+  const answerFollowup = h.admission.store.requestForMessage(answerQuote)!;
+  assert.equal(answerFollowup.conversation, a.request.conversation);
+  assert.equal(await complete(answerFollowup, 104), threadA);
+  assert.equal(h.interactions.receive(answerQuote).status, 'ignored');
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === answerQuote.id && row.text.includes('事项 · 退款调查')).length, 1);
+  const receipt = h.sent.find(row => row.options?.replyTo === initial.id && row.text === '已收到 · 退款调查')!;
+  assert.equal(h.interactions.transport.state.confirmedAnswer(h.actor('再看看', { parentId: 'delivered-' + receipt.id })), undefined);
+  const cardReply = h.interactions.receive(h.actor('只查询最近的发布记录', { parentId: 'delivered-' + card.id }));
+  assert.ok('request' in cardReply);
+  assert.equal(cardReply.request.conversation, a.request.conversation);
+  const plain = h.interactions.receive(h.actor('继续刚才的处理'));
+  assert.ok('request' in plain);
+  assert.equal(plain.request.conversation, b.request.conversation);
+  assert.equal(h.codex.calls.filter(call => call.method === 'thread/start').length, 2);
+});
+
+test('the first vague follow-up after a switch waits for the prior or current matter', async t => {
+  const h = setup(t);
+  const original = h.interactions.receive(h.actor('先检查退款方案'));
+  assert.ok('request' in original);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  const backToDefault = h.actor('刚才那个？');
+  assert.equal(h.interactions.receive(backToDefault).status, 'matter-choice');
+  const a = h.interactions.receive(h.actor('退款调查：收集微信渠道错误'));
+  assert.ok('request' in a, 'an explicit title bypasses the ambiguous follow-up guard');
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const scope = { owner: ownerKey(backToDefault), project: h.admission.project };
+  const release = h.admission.store.matters.focus(scope)!;
+  const other = h.interactions.receive(h.actor('退款调查：继续核对退款资料'));
+  assert.ok('request' in other);
+  assert.equal(other.request.conversation, a.request.conversation);
+  const vague = h.actor('继续上一步');
+  assert.equal(h.interactions.receive(vague).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(vague), undefined);
+  await h.restart();
+  await drain(h);
+  const defaultMessage = h.sent.find(row => row.options?.replyTo === backToDefault.id)!;
+  const defaultCard = defaultMessage.options!.matterCard!;
+  assert.ok(defaultCard.choices.some(choice => choice.id === 'default'));
+  const card = h.sent.find(row => row.options?.replyTo === vague.id)!;
+  const view = card.options!.matterCard!;
+  assert.deepEqual(view.choices.map(choice => choice.id), [release, a.request.conversation]);
+  const count = h.admission.store.requests().length;
+  const click = { id: view.id, event: randomUUID(), tenant: view.tenant, user: view.user, chat: view.chat,
+    message: 'delivered-' + card.id, choice: a.request.conversation };
+  assert.equal(h.interactions.matterAction(click), 'accepted');
+  assert.equal(h.interactions.matterAction(click), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(vague)?.conversation, a.request.conversation);
+  assert.equal(h.admission.store.requests().length, count + 1);
+  assert.equal(h.interactions.receive(vague).status, 'duplicate');
+  const keepGoing = h.interactions.receive(h.actor('继续上一步'));
+  assert.ok('request' in keepGoing);
+  assert.equal(keepGoing.request.conversation, a.request.conversation);
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === vague.id && row.text === '已收到 · 退款调查').length, 1);
+  assert.equal(h.interactions.matterAction({ ...click, id: defaultCard.id, event: randomUUID(),
+    message: 'delivered-' + defaultMessage.id, choice: 'default' }), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(backToDefault)?.conversation, original.request.conversation);
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === backToDefault.id && row.text === '已收到 · 默认对话').length, 1);
+  assert.equal(h.codex.calls.length, 0);
+});
+
+test('an ordinary answer becomes a reply anchor only when its Feishu delivery is confirmed', async t => {
+  const h = setup(t, undefined, undefined, ['other']);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  const active = await h.launch();
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const attempted: string[] = [];
+  let confirmed = false;
+  h.setSend(async (chat, text, id, options) => {
+    h.sent.push({ chat, text, id, options });
+    if (text !== 'Refund answer before confirmation') return 'delivered-' + id;
+    attempted.push(id);
+    return confirmed ? 'refund-answer-message' : undefined;
+  });
+  h.codex.complete(active.thread, active.turn, 'completed', 'Refund answer before confirmation');
+  await active.running;
+  await drain(h);
+  const early = h.actor('这个呢？', { parentId: 'refund-answer-message' });
+  assert.equal(h.interactions.transport.state.confirmedAnswer(early), undefined);
+  assert.equal(h.interactions.receive(early).status, 'matter-choice');
+  const first = attempted[0];
+  assert.ok(first);
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  try {
+    transport.exec(`CREATE TRIGGER fail_answer_binding BEFORE INSERT ON task_messages WHEN NEW.ordinary_answer=1
+      BEGIN SELECT RAISE(ABORT,'fixture answer binding failure'); END;`);
+    confirmed = true;
+    transport.exec('UPDATE outbox SET next=0');
+    await drain(h);
+    assert.equal(h.interactions.transport.state.confirmedAnswer(early), undefined);
+    assert.ok(transport.prepare('SELECT 1 FROM outbox WHERE id=?').get(first));
+    transport.exec('DROP TRIGGER fail_answer_binding');
+    transport.exec('UPDATE outbox SET next=0');
+    await h.restart();
+    await drain(h);
+    assert.ok(attempted.length >= 3 && attempted.every(id => id === first));
+    assert.equal(h.interactions.transport.state.confirmedAnswer(early), active.request.execution);
+    assert.equal(h.interactions.receive(early).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(early), undefined);
+    const outside = h.actor('other: check release', { parentId: 'refund-answer-message' });
+    assert.deepEqual(h.interactions.receive(outside), { status: 'rejected', reason: 'outside_pilot' });
+    h.interactions.receive(h.actor('/matter-new other'));
+    assert.equal(h.interactions.receive(outside).status, 'ignored');
+    assert.equal(h.admission.store.requestForMessage(outside), undefined);
+    const conflictingAlias = h.actor(outside.text, { parentId: 'refund-answer-message' });
+    assert.deepEqual(h.interactions.receive(conflictingAlias), { status: 'rejected', reason: 'outside_pilot' });
+    assert.equal(h.admission.store.requestForMessage(conflictingAlias), undefined);
+    const fresh = h.actor('这个呢？', { parentId: 'refund-answer-message' });
+    assert.equal(h.interactions.receive(fresh).status, 'task-reply');
+    assert.equal(h.admission.store.requestForMessage(fresh)?.conversation, active.request.conversation);
+    let failedReaction = false;
+    h.setAdd(async message => {
+      assert.equal(message, fresh.id);
+      failedReaction = true;
+      throw Error('fixture reaction unavailable');
+    });
+    await drain(h);
+    assert.equal(failedReaction, true);
+    const notices = h.sent.filter(row => row.options?.replyTo === fresh.id);
+    assert.equal(notices.length, 1);
+    assert.match(notices[0]!.text, /事项 · 退款调查/);
+  } finally { transport.close(); }
+});
+
+test('withdrawal does not change the admission history of a matter switch', async t => {
+  for (const withdrawPrior of [true, false]) {
+    const h = setup(t);
+    h.config.approvalUsers = ['ou_owner'];
+    h.config.approvalChat = 'chat';
+    h.interactions.receive(h.actor('/matter-new 退款调查'));
+    const prior = h.interactions.receive(h.actor('查询退款的积压情况'));
+    assert.ok('request' in prior);
+    h.interactions.receive(h.actor('/matter-new Solura 发版'));
+    const scope = { owner: ownerKey(prior.request.message), project: h.admission.project };
+    const selected = h.admission.store.matters.focus(scope)!;
+    if (withdrawPrior) {
+      assert.equal(h.interactions.receive(h.actor('/withdraw ' + prior.request.execution)).status, 'withdrawn');
+    } else {
+      const current = h.interactions.receive(h.actor('检查本次发布的构建记录'));
+      assert.ok('request' in current);
+      assert.equal(h.interactions.receive(h.actor('/withdraw ' + current.request.execution)).status, 'withdrawn');
+    }
+    await h.restart();
+    const question = h.actor('继续上一步');
+    const routed = h.interactions.receive(question);
+    if (withdrawPrior) {
+      assert.equal(routed.status, 'matter-choice');
+      assert.deepEqual(h.admission.store.matters.held(question, scope.project)?.choices, [selected, prior.request.conversation]);
+    } else {
+      assert.ok('request' in routed);
+      assert.equal(routed.request.conversation, selected);
+    }
+  }
+});
+
+test('confirming the current matter resolves its vague-follow-up guard across restart', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  assert.ok('request' in h.interactions.receive(h.actor('查询退款记录')));
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const list = h.actor('/matters');
+  h.interactions.receive(list);
+  await drain(h);
+  const message = h.sent.find(row => row.options?.replyTo === list.id)!;
+  const card = message.options!.matterCard!;
+  const current = card.choices.find(choice => choice.label === '当前 · Solura 发版')!;
+  const click = { id: card.id, event: randomUUID(), tenant: card.tenant, user: card.user, chat: card.chat,
+    message: 'delivered-' + message.id, choice: current.id };
+  assert.equal(h.interactions.matterAction(click), 'accepted');
+  await h.restart();
+  const followup = h.interactions.receive(h.actor('继续上一步'));
+  assert.ok('request' in followup);
+  assert.equal(followup.request.conversation, current.id);
+});
+
+test('a confirmed no-answer status is not an ordinary answer anchor', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  const active = await h.launch();
+  h.codex.notify('turn/completed', { threadId: active.thread, turn: { id: active.turn, status: 'completed' } });
+  await active.running;
+  await drain(h);
+  const message = h.sent.find(row => row.options?.replyTo === active.message.id && row.text.includes('没有拿到最终答复'))!;
+  assert.ok(message);
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const quote = h.actor('刚才那个呢？', { parentId: 'delivered-' + message.id });
+  assert.equal(h.interactions.transport.state.confirmedAnswer(quote), undefined);
+  assert.equal(h.interactions.receive(quote).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(quote), undefined);
+});
+
+test('registered PRs take precedence and an ambiguous input is published once after a confirmed choice', async t => {
+  const h = setup(t);
+  const a = h.actor('/matter-new Solura 发版');
+  const b = h.actor('/matter-new Go Global 发版');
+  h.interactions.receive(a);
+  h.interactions.receive(h.actor('/matter-bind https://github.com/Org/solura-app/pull/9'));
+  h.interactions.receive(b);
+  h.interactions.receive(h.actor('/matter-bind https://github.com/Org/backend/pull/7'));
+  await drain(h);
+  const aCard = h.sent.find(item => item.options?.replyTo === a.id)!;
+  const bCard = h.sent.find(item => item.options?.replyTo === b.id)!;
+  const aView = aCard.options!.matterCard!, bView = bCard.options!.matterCard!;
+  const click = (row: typeof aCard, choice: string, event = randomUUID()) => ({
+    id: row.options!.matterCard!.id, choice, event, message: 'delivered-' + row.id,
+    chat: h.admission.scope.chat, user: h.admission.scope.operator, tenant: h.admission.scope.tenant,
+  });
+  for (const text of [
+    '检查 https://github.com/org/Solura-app/pull/9/files?diff=split',
+    'Review https://github.com/Org/solura-app/pull/9.',
+    'Check https://github.com/Org/solura-app/pull/9, focusing on CI.',
+    '检查 https://github.com/Org/solura-app/pull/9,再看 CI',
+    '检查 https://github.com/Org/solura-app/pull/9的 CI',
+    '检查这个 PR（https://github.com/Org/solura-app/pull/9）',
+    '检查这个 PR（https://github.com/Org/solura-app/pull/9/）',
+    '检查「https://github.com/Org/solura-app/pull/9」的 CI',
+    '检查 [对应 PR](https://github.com/Org/solura-app/pull/9)',
+    'Review https://github.com/Org/solura-app/pull/9—check CI',
+    '检查 **https://github.com/Org/solura-app/pull/9**',
+    '检查 _https://github.com/Org/solura-app/pull/9_',
+  ]) {
+    const direct = h.interactions.receive(h.actor(text));
+    assert.ok('request' in direct);
+    assert.equal(direct.request.conversation, aView.anchor);
+  }
+  for (const text of [
+    '检查 https://github.com/Org/solura-app/pull/9/comment',
+    '检查 https://github.com/Org/solura-app/pull/9/详情',
+    '检查 https://github.com/Org/solura-app/pull/9/_详情',
+    '检查 https://github.com/Org/solura-app/pull/9/files_详情',
+    '检查 https://github.com/Org/solura-app/pull/9/~',
+    '检查 https://github.com/Org/solura-app/pull/9/✅',
+    '检查 https://github.com/Org/solura-app/pull/2/../9',
+    '检查 https://example.test/Org/solura-app/pull/9',
+  ]) {
+    const unrelated = h.interactions.receive(h.actor(text));
+    assert.ok('request' in unrelated);
+    assert.equal(unrelated.request.conversation, bView.anchor);
+  }
+  await drain(h);
+
+  const deferred = h.actor('昨天那个发版再查一下');
+  assert.equal(h.interactions.receive(deferred).status, 'matter-choice');
+  assert.equal(h.interactions.receive(deferred).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(deferred), undefined);
+  await drain(h);
+  const cards = h.sent.filter(item => item.options?.replyTo === deferred.id);
+  assert.equal(cards.length, 1);
+  const choice = cards[0]!;
+  const selected = click(choice, aView.anchor!);
+  assert.deepEqual(choice.options!.matterCard!.choices.map(c => c.id).sort(), [aView.anchor, bView.anchor].sort());
+  const displayed = matterCard(choice.options!.matterCard!).body.elements[1]!;
+  assert.equal(displayed.tag, 'button');
+  assert.ok('behaviors' in displayed);
+  const platform = { schema: '2.0', app_id: 'fixture', host: 'im_message', event_id: selected.event,
+    tenant_key: selected.tenant, operator: { tenant_key: selected.tenant, open_id: selected.user },
+    context: { open_chat_id: selected.chat, open_message_id: selected.message },
+    action: { tag: 'button', value: displayed.behaviors![0]!.value } };
+  assert.equal(normalizeMatterClick(platform, 'fixture')?.id, selected.id);
+  assert.equal(normalizeMatterClick(platform, 'other-app'), undefined);
+  await h.restart();
+  assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), user: 'ou_admin' }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), message: 'other-message' }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), choice: 'default' }), 'rejected');
+  assert.equal(h.admission.store.requestForMessage(deferred), undefined);
+  const pausedClick = { ...selected, event: randomUUID() };
+  h.admission.store.maintenance.quiesce();
+  assert.equal(h.interactions.matterAction(pausedClick), 'rejected');
+  h.admission.store.maintenance.resume();
+  assert.equal(h.interactions.matterAction(pausedClick), 'rejected');
+  assert.equal(h.admission.store.requestForMessage(deferred), undefined);
+  assert.equal(h.interactions.matterAction(selected), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(deferred)?.conversation, aView.anchor);
+  const switched = click(bCard, bView.anchor!);
+  assert.equal(h.interactions.matterAction(switched), 'accepted');
+  assert.equal(h.interactions.matterAction({ ...selected, event: randomUUID(), choice: bView.anchor! }), 'rejected');
+  const next = h.interactions.receive(h.actor('检查这个版本的构建配置'));
+  assert.ok('request' in next);
+  assert.equal(next.request.conversation, bView.anchor);
+  const count = h.admission.store.requests().length;
+  assert.equal(h.interactions.receive(deferred).status, 'duplicate');
+  assert.equal(h.admission.store.requests().length, count);
+  assert.equal(h.codex.calls.length, 0);
+});
+
+test('previous admission state keeps the default thread and request foreign keys on the matter schema', t => {
+  const root = mkdtempSync(join(tmpdir(), 'matter-schema-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const scope: PilotScope = { installation: 'fixture', tenant: 'tenant', operator: 'ou_owner', chat: 'chat',
+    projects: { pilot: root }, pilot: 'pilot', hubInstance: 'hub', source: 'fixture', rule: 'pilot', agent: 'native', agentUse: 'bridge-native' };
+  const actor = { tenant: 'tenant', user: 'ou_owner', chat: 'chat', chatType: 'p2p' as const, id: 'original', text: 'original input' };
+  const registry = new PilotAdmission(root, scope);
+  const project = registry.project; registry.close();
+  // Build the old database independently with the legacy unique constraint.
+  const oldRoot = join(root, 'old'); mkdirSync(oldRoot);
+  const file = join(oldRoot, 'handoff.db');
+  const old = new DatabaseSync(file);
+  old.exec(`
+    CREATE TABLE conversations(id TEXT PRIMARY KEY,owner TEXT NOT NULL,project TEXT NOT NULL,
+      thread TEXT,last_execution TEXT,UNIQUE(owner,project));
+    CREATE TABLE requests(id TEXT PRIMARY KEY,execution TEXT NOT NULL UNIQUE,conversation TEXT NOT NULL REFERENCES conversations(id),
+      project TEXT NOT NULL,origin TEXT NOT NULL UNIQUE,message TEXT NOT NULL,input TEXT NOT NULL,blocked TEXT);
+  `);
+  old.prepare('INSERT INTO conversations VALUES (?,?,?,?,?)').run('previous-conversation', ownerKey(actor), project, 'previous-thread', null);
+  old.prepare('INSERT INTO requests VALUES (?,?,?,?,?,?,?,NULL)').run('previous-request', 'previous-execution',
+    'previous-conversation', project, JSON.stringify([actor.tenant, actor.id]), JSON.stringify(actor), actor.text);
+  old.close();
+  const admitted = new PilotAdmission(oldRoot, scope);
+  t.after(() => admitted.close());
+  assert.equal(admitted.store.requestForMessage(actor)?.conversation, 'previous-conversation');
+  assert.equal(admitted.store.conversationThread('previous-conversation'), 'previous-thread');
+  const named = admitted.store.matters.create({ owner: ownerKey(actor), project }, { ...actor, id: 'new-matter' }, '退款');
+  const b = admitted.receive({ ...actor, id: 'named-request' }, named.id);
+  const a = admitted.receive({ ...actor, id: 'default-request' });
+  assert.ok('request' in b && 'request' in a);
+  assert.equal(a.request.conversation, 'previous-conversation');
+  assert.equal(b.request.conversation, named.id);
+  assert.equal(admitted.store.conversationThread(named.id), null);
+  assert.equal(admitted.store.reserve(a.request.id, 80).kind, 'start');
+  assert.equal(admitted.store.reserve(b.request.id, 81).kind, 'busy');
+  const inspect = new DatabaseSync(file, { readOnly: true });
+  try { assert.deepEqual(inspect.prepare('PRAGMA foreign_key_check').all(), []); }
+  finally { inspect.close(); }
+});
+
+test('gateway restart projects a held clarification that had no transport receipt', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new First'));
+  h.interactions.receive(h.actor('/matter-new Second'));
+  await drain(h);
+  const message = h.actor('Which one?');
+  const scope = { owner: ownerKey(message), project: h.admission.project };
+  const choices = h.admission.store.matters.list(scope, 2).map(m => m.id);
+  const held = h.admission.store.matters.hold(scope, message, choices);
+  await h.restart();
+  await drain(h);
+  const matches = h.sent.filter(item => item.options?.replyTo === message.id);
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0]?.options?.matterCard?.id, held.id);
+  assert.equal(h.admission.store.requestForMessage(message), undefined);
+  assert.equal(h.admission.store.matters.unprojected().length, 0);
+});
+
+test('maintained matter commands and overflowing inputs cannot reroute on redelivery', async t => {
+  const h = setup(t);
+  const actor = h.actor('');
+  const scope = { owner: ownerKey(actor), project: h.admission.project };
+  const store = h.admission.store.matters;
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const before = store.focus(scope);
+  const canceledCreate = h.actor('/matter-new Deferred release');
+  const canceledBind = h.actor('/matter-bind https://github.com/fixture/repo/pull/75');
+  h.admission.store.maintenance.quiesce();
+  h.interactions.receive(canceledCreate);
+  h.interactions.receive(canceledBind);
+  await drain(h);
+  await h.restart();
+  h.admission.store.maintenance.resume();
+  h.interactions.receive(canceledCreate);
+  h.interactions.receive(canceledBind);
+  assert.equal(store.focus(scope), before);
+  assert.equal(store.named(scope, 'Deferred release'), undefined);
+  assert.equal(store.bound(scope, 'fixture/repo/pull/75'), undefined);
+  for (let i = 1; i < 7; i++) h.interactions.receive(h.actor('/matter-new Project' + i + ' 发版'));
+  const overflow = h.actor('确认发版 https://github.com/fixture/repo/pull/75');
+  assert.equal(h.interactions.receive(overflow).status, 'matter-choice');
+  h.interactions.receive(h.actor('/matter-bind https://github.com/fixture/repo/pull/75'));
+  const routed = h.interactions.receive(overflow);
+  assert.equal(routed.status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(overflow), undefined);
+  assert.ok('request' in h.interactions.receive(h.actor(overflow.text)), 'only the fresh message uses the new binding');
+});
+
+test('a committed matter creation produces its original card after a transport write failure and restart', async t => {
+  const h = setup(t);
+  const message = h.actor('/matter-new 退款调查');
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  try {
+    transport.exec(`CREATE TRIGGER fail_card BEFORE INSERT ON outbox WHEN NEW.matter_card IS NOT NULL
+      BEGIN SELECT RAISE(ABORT,'fixture transport failure'); END;`);
+    assert.throws(() => h.interactions.receive(message), /fixture transport failure/);
+    const scope = { owner: ownerKey(message), project: h.admission.project };
+    const original = h.admission.store.matters.named(scope, '退款调查')!;
+    assert.ok(original);
+    assert.equal(h.admission.store.matters.unprojectedNotices().length, 1);
+    transport.exec('DROP TRIGGER fail_card');
+    h.interactions.receive(h.actor('/matter-new Solura 发版'));
+    const later = h.admission.store.matters.focus(scope);
+    await h.restart();
+    await drain(h);
+    const messages = h.sent.filter(m => m.options?.replyTo === message.id);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0]?.options?.matterCard?.anchor, original.id);
+    assert.equal(h.admission.store.matters.focus(scope), later);
+    assert.equal(h.admission.store.matters.unprojectedNotices().length, 0);
+  } finally { transport.close(); }
+});
+
+test('matter card delivery retains its idempotency key until the platform ID and outbox settlement commit', async t => {
+  const h = setup(t);
+  const sends: string[] = [];
+  let missing = true;
+  h.setSend(async (_chat, _text, id) => {
+    sends.push(id);
+    return missing ? undefined : 'platform-id';
+  });
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  const pending = () => transport.prepare('SELECT id FROM outbox WHERE matter_card IS NOT NULL').get() as { id: string } | undefined;
+  try {
+    h.interactions.receive(h.actor('/matter-new 退款调查'));
+    await h.interactions.flush();
+    const first = pending()?.id;
+    assert.ok(first);
+    assert.deepEqual(sends, [first]);
+    missing = false;
+    transport.exec(`CREATE TRIGGER fail_binding BEFORE UPDATE OF message ON matter_cards
+      BEGIN SELECT RAISE(ABORT,'fixture bind failure'); END;`);
+    transport.exec('UPDATE outbox SET next=0');
+    await h.interactions.flush();
+    assert.equal(pending()?.id, first);
+    assert.equal((transport.prepare('SELECT message FROM matter_cards').get() as { message: string | null }).message, null);
+    transport.exec('DROP TRIGGER fail_binding');
+    transport.exec('UPDATE outbox SET next=0');
+    await h.restart();
+    await h.interactions.flush();
+    assert.deepEqual(sends, [first, first, first]);
+    assert.equal(pending(), undefined);
+    assert.equal((transport.prepare('SELECT message FROM matter_cards').get() as { message: string | null }).message, 'platform-id');
+  } finally { transport.close(); }
+});
+
+test('an unresolved card reply is held while another matter is selected', async t => {
+  const h = setup(t);
+  const newB = h.actor('/matter-new Solura 发版');
+  h.interactions.receive(newB); await drain(h);
+  const b = h.sent.find(row => row.options?.replyTo === newB.id)!;
+  const newA = h.actor('/matter-new 退款调查');
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  let acknowledge = false;
+  try {
+    h.setSend(async (chat, text, id, options) => {
+      h.sent.push({ chat, text, id, options });
+      return options?.replyTo === newA.id ? acknowledge ? 'visible-a-card' : undefined : 'delivered-' + id;
+    });
+    h.interactions.receive(newA); await h.interactions.flush();
+    assert.equal(h.interactions.matterAction({ id: b.options!.matterCard!.id, event: randomUUID(), tenant: b.options!.matterCard!.tenant,
+      user: b.options!.matterCard!.user, chat: b.chat, message: 'delivered-' + b.id, choice: b.options!.matterCard!.anchor! }), 'accepted');
+    const unclear = h.actor('补充：检查发布记录', { parentId: 'visible-a-card' });
+    assert.equal(h.interactions.receive(unclear).status, 'matter-choice');
+    const rejected = h.actor('补充：先检查发布入口', { parentId: 'visible-a-card' });
+    // Also preserve a legacy refusal that was only recorded in the transport ledger.
+    assert.equal(h.interactions.transport.state.remember(rejected), true);
+    assert.equal(h.admission.store.requestForMessage(unclear), undefined);
+    acknowledge = true;
+    transport.exec('UPDATE outbox SET next=0');
+    await drain(h);
+    assert.equal(h.interactions.receive(unclear).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(unclear), undefined);
+    assert.equal(h.interactions.receive(rejected).status, 'duplicate');
+    assert.equal(h.admission.store.requestForMessage(rejected), undefined);
+    const fresh = h.interactions.receive(h.actor('补充：检查发布入口', { parentId: 'visible-a-card' }));
+    assert.ok('request' in fresh);
+    assert.equal(fresh.request.conversation,
+      h.admission.store.matters.named({ owner: ownerKey(newA), project: h.admission.project }, '退款调查')!.id);
+  } finally { transport.close(); }
+});
+
+test('a late parent cannot convert a held or refused reply into a quoted-task supplement', async t => {
+  for (const number of [2, 7]) {
+    const h = setup(t);
+    for (let i = 1; i <= number; i++) h.interactions.receive(h.actor('/matter-new Project' + i + ' 发版'));
+    const parent = h.actor('Project1 发版：检查发布内容');
+    const early = h.actor('确认发版', { parentId: parent.id });
+    assert.equal(h.interactions.receive(early).status, 'matter-choice');
+    const scope = { owner: ownerKey(early), project: h.admission.project };
+    const saved = number === 2 ? h.admission.store.matters.held(early, scope.project) : h.admission.store.matters.notice(early);
+    assert.ok(saved);
+    const admitted = h.interactions.receive(parent);
+    assert.ok('request' in admitted);
+    await h.restart();
+    assert.equal(h.interactions.receive(early).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(early), undefined);
+    assert.equal(h.admission.store.taskReply(JSON.stringify([early.tenant, early.id])), undefined);
+    assert.equal(h.admission.store.request(admitted.request.id)?.input, '检查发布内容');
+  }
+});
+
+test('an exact matter address can use a project alias as its name without changing the canonical project', async t => {
+  const h = setup(t, undefined, undefined, ['backend', 'other']);
+  const newMatter = h.actor('/matter-new backend');
+  h.interactions.receive(newMatter);
+  const original = h.actor('backend: check release');
+  const routed = h.interactions.receive(original);
+  assert.ok('request' in routed);
+  assert.equal(routed.request.input, 'check release');
+  assert.equal(routed.request.conversation,
+    h.admission.store.matters.named({ owner: ownerKey(newMatter), project: h.admission.project }, 'backend')!.id);
+  assert.equal(routed.request.project, h.admission.project);
+  const duplicate = h.interactions.receive(original);
+  assert.equal(duplicate.status, 'duplicate');
+  assert.ok('request' in duplicate);
+  assert.equal(duplicate.request.id, routed.request.id);
+  assert.equal(h.admission.store.retained(original), false);
+  h.interactions.receive(h.actor('/matter-new Solura Release'));
+  h.interactions.receive(h.actor('/matter-new Backend Release'));
+  const refused = h.actor('other: check release');
+  assert.deepEqual(h.interactions.receive(refused), { status: 'rejected', reason: 'outside_pilot' });
+  assert.equal(h.admission.store.retained(refused), true);
+  assert.equal(h.admission.store.matters.held(refused, h.admission.project), undefined);
+  assert.equal(h.admission.store.matters.notice(refused), undefined);
+  await drain(h);
+  assert.equal(h.sent.some(row => row.options?.replyTo === refused.id), false);
+  h.interactions.receive(h.actor('/matter-new other'));
+  assert.equal(h.interactions.receive(refused).status, 'ignored');
+  assert.equal(h.admission.store.requestForMessage(refused), undefined);
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.ok('request' in h.interactions.receive(h.actor(refused.text)));
+
+  const lostProjection = h.actor('backend: read CI');
+  const transport = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  try {
+    transport.exec(`CREATE TRIGGER fail_task_projection BEFORE INSERT ON projected_tasks
+      BEGIN SELECT RAISE(ABORT,'fixture task projection failure'); END;`);
+    assert.throws(() => h.interactions.receive(lostProjection), /fixture task projection failure/);
+    const admitted = h.admission.store.requestForMessage(lostProjection)!;
+    assert.equal(admitted.conversation, routed.request.conversation);
+    transport.exec('DROP TRIGGER fail_task_projection');
+    const repaired = h.interactions.receive(lostProjection);
+    assert.ok('request' in repaired && repaired.status === 'duplicate');
+    assert.equal(repaired.request.id, admitted.id);
+    assert.equal(h.admission.store.retained(lostProjection), false);
+    assert.ok(transport.prepare('SELECT 1 FROM projected_tasks WHERE execution=?').get(admitted.execution));
+  } finally { transport.close(); }
+});
+
+test('a referenced matter card and a conflicting exact address require a confirmed choice', async t => {
+  const h = setup(t);
+  const a = h.actor('/matter-new 退款调查'), b = h.actor('/matter-new Solura 发版');
+  h.interactions.receive(a);
+  h.interactions.receive(b);
+  h.interactions.receive(h.actor('/matter-bind https://github.com/fixture/release/pull/17'));
+  await drain(h);
+  const cardA = h.sent.find(item => item.options?.replyTo === a.id)!;
+  const cardB = h.sent.find(item => item.options?.replyTo === b.id)!;
+  const parentId = 'delivered-' + cardA.id;
+  const conflicting = h.actor('Solura 发版：再查发布结果', { parentId });
+  const conflictingLink = h.actor('再查 https://github.com/fixture/release/pull/17', { parentId });
+  assert.equal(h.interactions.receive(conflicting).status, 'matter-choice');
+  assert.equal(h.interactions.receive(conflictingLink).status, 'matter-choice');
+  assert.equal(h.admission.store.requests().length, 0);
+  await drain(h);
+  const clarification = h.sent.find(item => item.options?.replyTo === conflicting.id)!;
+  const selected = cardB.options!.matterCard!.anchor!;
+  const view = clarification.options!.matterCard!;
+  assert.deepEqual(view.choices.map(c => c.id).sort(), [cardA.options!.matterCard!.anchor, selected].sort());
+  assert.equal(h.interactions.matterAction({ id: view.id, event: randomUUID(), chat: view.chat,
+    user: view.user, tenant: view.tenant, message: 'delivered-' + clarification.id, choice: selected }), 'accepted');
+  const task = h.admission.store.requestForMessage(conflicting);
+  assert.equal(task?.conversation, selected);
+  assert.equal(task?.input, '再查发布结果');
+  assert.equal(h.admission.store.requestForMessage(conflictingLink), undefined);
+});
+
+test('an unaddressed natural restriction steers the actual active task after a matter switch', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new Release'));
+  const active = await h.launch();
+  h.interactions.receive(h.actor('/matter-new Follow-up'));
+  const text = h.actor('只看日志');
+  assert.equal(h.interactions.receive(text).status, 'control');
+  await drain(h);
+  const steers = h.codex.calls.filter(call => call.method === 'turn/steer');
+  assert.equal(steers.length, 1);
+  assert.equal(steers[0]?.params.threadId, active.thread);
+  assert.equal(steers[0]?.params.expectedTurnId, active.turn);
+  assert.equal(h.interactions.receive(text).status, 'duplicate');
+  assert.equal(h.admission.store.requests().length, 1);
+  h.codex.complete(active.thread, active.turn);
+  await active.running;
+});
+
+test('explicit steering in a named private chat requires the quoted running task', async t => {
+  const h = setup(t);
+  const matter = h.actor('/matter-new Refund investigation');
+  h.interactions.receive(matter);
+  h.interactions.receive(h.actor('/matter-new Release'));
+  await drain(h);
+  const active = await h.launch();
+  const card = h.sent.find(item => item.options?.replyTo === matter.id)!;
+  assert.ok(card.options?.matterCard);
+  for (const parentId of ['delivered-' + card.id, 'unconfirmed-parent']) {
+    const control = h.actor('/steer 先不要发布', { parentId });
+    assert.equal(h.interactions.receive(control).status, 'rejected');
+    assert.equal(h.admission.store.control(control), undefined);
+  }
+  await drain(h);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/steer').length, 0);
+  const exact = h.actor('/steer 先查日志', { parentId: active.message.id });
+  assert.equal(h.interactions.receive(exact).status, 'control');
+  await drain(h);
+  const steers = h.codex.calls.filter(call => call.method === 'turn/steer');
+  assert.equal(steers.length, 1);
+  assert.equal(steers[0]?.params.threadId, active.thread);
+  assert.equal(steers[0]?.params.expectedTurnId, active.turn);
+  h.codex.complete(active.thread, active.turn);
+  await active.running;
 });

@@ -52,21 +52,30 @@ export class PilotAdmission {
     return message;
   }
 
-  receive(inputMessage: IncomingMessage): Admission {
+  projectAddress(text: string): { input: string; outsidePilot: boolean } | undefined {
+    if (this.projectRouting === 'workspace') return;
+    const prefix = /^([^\s:：]+)[:：]\s*([\s\S]+)$/.exec(text.trim());
+    if (!prefix || !Object.hasOwn(this.scope.projects, prefix[1]!)) return;
+    return { input: prefix[2]!, outsidePilot: realpathSync(this.scope.projects[prefix[1]!]!) !== this.directory };
+  }
+
+  receive(inputMessage: IncomingMessage, conversation?: string, matterInput?: string): Admission {
     const message = this.operator(inputMessage);
     if (!message || this.store.retained(message)) return { status: 'ignored' };
+    const prior = this.store.requestForMessage(message);
+    if (prior) return { status: 'duplicate', request: prior };
     if (message.unsupported || message.text.length > 30_000) return { status: 'rejected', reason: 'unsupported_input' };
     const text = message.text.trim();
     if (/^pair\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return { status: 'ignored' };
     if (text.startsWith('/')) return { status: 'rejected', reason: 'control_requires_live_gateway' };
     if (realpathSync(this.scope.projects[this.scope.pilot]!) !== this.directory) throw new Error('Pilot directory changed');
-    let input = message.text;
-    const prefix = /^([^\s:：]+)[:：]\s*([\s\S]+)$/.exec(text);
-    if (this.projectRouting !== 'workspace' && prefix && Object.hasOwn(this.scope.projects, prefix[1]!)) {
-      if (realpathSync(this.scope.projects[prefix[1]!]!) !== this.directory) return { status: 'rejected', reason: 'outside_pilot' };
-      input = prefix[2]!;
+    const projectAddress = matterInput === undefined ? this.projectAddress(text) : undefined;
+    if (projectAddress?.outsidePilot) {
+      this.store.retainRefusal(message, 'outside_pilot');
+      return { status: 'rejected', reason: 'outside_pilot' };
     }
-    const accepted = this.store.accept(message, input, this.project);
+    const input = matterInput ?? projectAddress?.input ?? message.text;
+    const accepted = this.store.accept(message, input, this.project, undefined, conversation);
     if ('paused' in accepted) return { status: 'rejected', reason: 'maintenance' };
     return { status: accepted.duplicate ? 'duplicate' : accepted.request.blocked ? 'blocked' : 'accepted', request: accepted.request };
   }

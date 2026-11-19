@@ -8,6 +8,7 @@ import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlD
 import { fingerprint, profileDigest, type VerificationProfile } from './verification-profile.js';
 import type { VerificationObservation } from './verification-runner.js';
 import { RepairStore } from './repair-store.js';
+import { MatterStore } from './matter-store.js';
 
 export interface VerificationRecord {
   execution: string; profile: string; digest: string; definition: VerificationProfile;
@@ -47,6 +48,7 @@ export class AdmissionStore {
   private db: DatabaseSync;
   readonly maintenance: Maintenance;
   readonly repairs: RepairStore;
+  readonly matters: MatterStore;
 
   constructor(directory: string, binding: string) {
     this.db = openPrivateDatabase(directory, 'handoff.db');
@@ -131,6 +133,7 @@ export class AdmissionStore {
           this.db.prepare('UPDATE binding SET value=? WHERE id=1').run(binding);
         }
       });
+      this.matters = new MatterStore(this.db, work => this.transaction(work));
     } catch (error) { this.db.close(); throw error; }
   }
 
@@ -154,25 +157,37 @@ export class AdmissionStore {
     return row && { ...row, message: JSON.parse(row.message) as IncomingMessage };
   }
 
-  accept(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection): { duplicate: boolean; request: RequestRecord } | { paused: true } {
+  requestForMessage(message: IncomingMessage): RequestRecord | undefined {
+    const row = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(JSON.stringify([message.tenant, message.id])) as { id: string } | undefined;
+    return row && this.request(row.id);
+  }
+
+  accept(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection, conversation?: string):
+    { duplicate: boolean; request: RequestRecord } | { paused: true } {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.db.prepare('SELECT 1 FROM recoveries WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM withdrawals WHERE origin=?').get(origin, origin, origin)) throw new Error('Message identity already belongs to a control');
       const previous = this.db.prepare('SELECT id FROM requests WHERE origin=?').get(origin) as { id: string } | undefined;
       if (previous) return { duplicate: true, request: this.request(previous.id)! };
       if (this.taskReply(origin)) throw new Error('Message identity already belongs to a task reply');
+      const held = this.matters.held(message, project);
+      if (held && !held.chosen) throw new Error('Task is awaiting matter selection');
       if (this.maintenance.paused) {
-        this.db.prepare('INSERT OR IGNORE INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, 'maintenance');
+        this.retainRefusal(message, 'maintenance');
         return { paused: true };
       }
-      return { duplicate: false, request: this.insertRequest(message, input, project, verification) };
+      return { duplicate: false, request: this.insertRequest(message, input, project, verification, conversation) };
     });
   }
 
-  private insertRequest(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection): RequestRecord {
+  private insertRequest(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection, selected?: string): RequestRecord {
     const owner = ownerKey(message);
-    this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)').run(randomUUID(), owner, project);
-    const conversation = this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=?').get(owner, project) as { id: string };
+    if (!selected) this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)').run(randomUUID(), owner, project);
+    const conversation = (selected
+      ? this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=? AND id=?').get(owner, project, selected)
+      : this.db.prepare('SELECT id FROM conversations WHERE owner=? AND project=? AND title IS NULL').get(owner, project)
+    ) as { id: string } | undefined;
+    if (!conversation) throw Error('Conversation does not belong to the owner and project');
     const request: RequestRecord = { id: randomUUID(), execution: randomUUID(), conversation: conversation.id, project,
       message, input, blocked: this.uncertainProject(project) ? 'project_outcome_unknown' : null };
     this.db.prepare('INSERT INTO requests VALUES (?,?,?,?,?,?,?,?)').run(request.id, request.execution, request.conversation,
@@ -194,16 +209,24 @@ export class AdmissionStore {
     return row && { ...row, message: JSON.parse(row.message) as IncomingMessage };
   }
 
-  acceptTaskReply(message: IncomingMessage, project: string) {
+  hasDedicatedContinuation(execution: string): boolean {
+    return Boolean(this.verification(execution) || this.repairs.get(execution) ||
+      this.permissionRetry(execution) || this.browserRetry(execution));
+  }
+
+  acceptTaskReply(message: IncomingMessage, project: string, answerExecution?: string) {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.taskReply(origin) || this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin, origin) ||
         this.retained(message)) return { status: 'duplicate' as const };
+      if (this.matters.held(message, project) || this.matters.notice(message)) return;
       const quotedOrigin = JSON.stringify([message.tenant, message.parentId]);
-      const source = this.db.prepare(`SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation
-        WHERE r.origin=? AND c.owner=? AND r.project=? AND json_extract(r.message,'$.chatType')='p2p'`)
-        .get(quotedOrigin, ownerKey(message), project) as { id: string } | undefined;
+      const source = this.db.prepare(`SELECT r.id,r.origin FROM requests r JOIN conversations c ON c.id=r.conversation
+        WHERE (r.origin=? OR r.execution=?) AND c.owner=? AND r.project=? AND json_extract(r.message,'$.chatType')='p2p'
+        ORDER BY (r.origin=?) DESC LIMIT 1`)
+        .get(quotedOrigin, answerExecution ?? null, ownerKey(message), project, quotedOrigin) as { id: string; origin: string } | undefined;
       if (!source) return;
+      const fromAnswer = source.origin !== quotedOrigin;
       const request = this.request(source.id)!;
       const execution = this.execution(request.execution);
       const text = '用户补充要求：\n' + message.text;
@@ -215,16 +238,15 @@ export class AdmissionStore {
       };
       if (this.maintenance.paused || request.blocked || this.submission(request.id)?.status === 'blocked' || this.uncertainProject(project)) {
         save('rejected', '当前任务无法接收补充。请查看原任务状态后再发送新消息。');
-      } else if (this.verification(request.execution) || this.repairs.get(request.execution) ||
-        this.permissionRetry(request.execution) || this.browserRetry(request.execution)) {
+      } else if (this.hasDedicatedContinuation(request.execution)) {
         save('rejected', '这条任务使用专用验证、修复或续接流程。请使用原任务的操作入口，或发送新的普通任务。');
-      } else if (!execution) {
+      } else if (!fromAnswer && !execution) {
         if (combined.length > 30_000) save('rejected', '合并后的任务过长。这条补充未加入，请缩短后再回复。');
         else {
           this.db.prepare('UPDATE requests SET input=? WHERE id=?').run(combined, request.id);
           save('merged', '已补到原任务，将一起执行。');
         }
-      } else if (execution.status === 'active') {
+      } else if (!fromAnswer && execution?.status === 'active') {
         if (message.text.length > 29_993) save('rejected', '补充内容过长，请缩短后再回复。');
         else {
           this.acceptControl(execution.id, message);
@@ -266,7 +288,7 @@ export class AdmissionStore {
     if (failure) {
       this.db.prepare("UPDATE task_replies SET kind='rejected',result=? WHERE origin=?").run(failure, reply.origin);
     } else {
-      const followup = this.insertRequest(reply.message, input, request.project);
+      const followup = this.insertRequest(reply.message, input, request.project, undefined, request.conversation);
       this.db.prepare("UPDATE task_replies SET kind='followup',result=?,followup=? WHERE origin=?")
         .run('原任务已结束，已排为原会话的后续追问。', followup.id, reply.origin);
     }
@@ -294,7 +316,7 @@ export class AdmissionStore {
         execution.evidence !== 'native-checkpoint/' + retry.checkpoint || latest?.id !== source.id ||
         conversation?.last_execution !== source.execution || conversation.thread !== retry.review.thread ||
         this.db.prepare('SELECT 1 FROM guards WHERE project=?').get(source.project)) throw Error('Source denial or conversation is stale or protected');
-      const result = this.accept(message, input, source.project);
+      const result = this.accept(message, input, source.project, undefined, source.conversation);
       if ('paused' in result) return result;
       if (result.request.conversation !== source.conversation || result.request.blocked || result.duplicate) throw Error('Retry admission identity differs');
       this.db.prepare('INSERT INTO permission_retries VALUES(?,?,?,?)').run(result.request.execution, source.execution, retry.review.id, JSON.stringify(retry));
@@ -333,12 +355,16 @@ export class AdmissionStore {
         conversation?.last_execution !== source.execution || conversation.thread !== retry.thread ||
         this.verification(source.execution) || this.repairs.get(source.execution) ||
         this.db.prepare('SELECT 1 FROM guards WHERE project=?').get(source.project)) return { rejected: 'source-unavailable' as const };
-      const result = this.accept(message, input, source.project);
+      const result = this.accept(message, input, source.project, undefined, source.conversation);
       if ('paused' in result) return result;
       if (result.request.conversation !== source.conversation || result.request.blocked || result.duplicate) throw Error('Browser continuation admission differs');
       this.db.prepare('INSERT INTO browser_retries VALUES(?,?,?)').run(result.request.execution, source.execution, JSON.stringify(retry));
       return result;
     });
+  }
+
+  retainRefusal(message: IncomingMessage, reason: 'maintenance' | 'outside_pilot'): void {
+    this.db.prepare('INSERT OR IGNORE INTO retained_receipts VALUES (?,?,?)').run(message.tenant, message.id, reason);
   }
 
   retained(message: Pick<IncomingMessage, 'tenant' | 'id'>): boolean {

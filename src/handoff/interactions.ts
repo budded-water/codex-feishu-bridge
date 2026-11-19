@@ -1,3 +1,5 @@
+import { OwnerMatters } from './matters.js';
+import type { MatterClick } from '../matter-card.js';
 import { OwnerBrowserAccess, browserAllowIntent } from './browser-access.js';
 import { message as present, section, copyBlock } from '../presentation.js';
 import type { Config } from '../config.js';
@@ -28,6 +30,7 @@ export class PilotInteractions {
   private recovery: FeishuRecovery;
   private queue: OwnerQueue;
   private tasks: OwnerTasks;
+  private matters: OwnerMatters;
   private permissions: OwnerPermissions;
   private browserAccess: OwnerBrowserAccess;
   private work?: Promise<void>;
@@ -44,6 +47,7 @@ export class PilotInteractions {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
     this.queue = new OwnerQueue(admission, config, this.transport.state);
+    this.matters = new OwnerMatters(admission, this.transport.state);
     this.tasks = new OwnerTasks(admission, config, native, this.transport.state, profiles);
     this.permissions = new OwnerPermissions(admission, config, native, this.transport.state);
     this.browserAccess = new OwnerBrowserAccess(admission, config, native, this.transport.state);
@@ -60,6 +64,7 @@ export class PilotInteractions {
       return { status: 'rejected' as const };
     }
     if (/^\/browser-retry(?:\s|$)/.test(message.text.trim()) || browserAllowIntent(message.text)) return this.browserAccess.receive(message);
+    if (/^\/(?:matters|matter-new|matter-bind)(?:\s|$)/.test(message.text.trim())) return this.matters.receive(message);
     if (/^\/(?:tasks|task)(?:\s|$)/.test(message.text.trim())) return this.tasks.receive(message);
     if (/^\/(?:rules|reviews|review|review-retry)(?:\s|$)/.test(message.text.trim())) return this.permissions.receive(message);
     if (/^\/findings(?:\s|$)/.test(message.text.trim())) return this.findingsCommand(message);
@@ -72,15 +77,31 @@ export class PilotInteractions {
       message.chat === (this.config.approvalChat ?? this.admission.scope.chat) &&
       (this.config.accessMode !== 'allowlist' || this.config.allowedUsers.includes(message.user));
     if (!operator && !admin) return { status: 'ignored' as const };
+    const ordinaryOwner = operator && message.chatType === 'p2p';
+    if (ordinaryOwner) {
+      const request = this.admission.store.requestForMessage(message);
+      if (request) {
+        this.transport.admit(request);
+        return { status: 'duplicate' as const, request };
+      }
+      const control = this.admission.store.control(message);
+      if (control) return { status: 'duplicate' as const, control };
+      if (this.matters.hasDisposition(message)) return this.matters.route(message);
+      if (this.transport.state.hasSeen(message)) return { status: 'duplicate' as const };
+    }
     const natural = naturalControl(message.text.trim());
     const command = /^\/(?:help|status|stop|steer|approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
-    if (operator && message.chatType === 'p2p' && message.parentId && !message.unsupported &&
+    if (ordinaryOwner && message.parentId && !message.unsupported &&
       message.text.length <= 30_000 && message.text.trim() && !message.text.trimStart().startsWith('/') && natural !== 'stop') {
-      const reply = this.admission.store.acceptTaskReply(message, this.admission.project);
+      const answer = this.transport.state.confirmedAnswer(message);
+      if (answer && this.admission.projectAddress(message.text)?.outsidePilot) {
+        return this.admission.receive(message);
+      }
+      const reply = this.admission.store.acceptTaskReply(message, this.admission.project, answer);
       if (reply) return reply;
     }
-    if (!command && !natural) {
-      const result = this.admission.receive(message);
+    if (!command && (!natural || (natural === 'steer' && this.matters.overridesNaturalSteer(message)))) {
+      const result = this.matters.route(message);
       if ('request' in result) this.transport.admit(result.request);
       if (result.status === 'rejected' && result.reason === 'maintenance') this.transport.state.transaction(() => {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat, '系统正在维护，这条新请求没有开始。恢复后请重新发送需求。', { replyTo: message.id });
@@ -101,6 +122,7 @@ export class PilotInteractions {
       this.transport.state.send(message.chat,
         present('使用帮助',
           section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。', '在本人私聊回复原任务消息，可补充正在等待或执行的任务，或追问已结束的任务。']),
+          section('按事项接续', ['- `/matter-new 事项名称` 新建并切换 · `/matters` 查看及切换', '- 可回复 Bot 的普通最终答案，或用「事项名：任务」、事项卡片、已绑定的 PR 直达', '- `/matter-bind PR链接` 绑定已选中的事项']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
           section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/rules` 原生规则 · `/reviews` 非通过审查记录', '- `/browser-retry 编号 local-change-confirmed` 本机处理后检查并续接普通任务', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
           Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',
@@ -143,7 +165,8 @@ export class PilotInteractions {
         return { status: 'verification-status' as const };
       }
     }
-    const quotedSupplement = /^\/steer\s/.test(message.text.trim()) && !reference;
+    const quotedSupplement = message.parentId && !reference && /^\/steer\s/.test(message.text.trim()) &&
+      (!ordinaryOwner || !this.matters.hasNamedMatters(message));
     if (!execution || (!approval && message.parentId && reference !== execution.id && !quotedSupplement)) {
       this.transport.state.transaction(() => {
         if (!this.transport.state.remember(message)) return;
@@ -262,6 +285,13 @@ export class PilotInteractions {
     return 'accepted';
   }
 
+  matterAction(click: MatterClick): CardResult {
+    if (this.closing) return 'rejected';
+    const result = this.matters.click(click);
+    if (result.admitted) void this.flush().catch(() => console.error('Matter task is retained; publication awaits retry'));
+    return result.status;
+  }
+
   taskRefresh(click: TaskRefreshClick): CardResult { return this.closing ? 'rejected' : this.tasks.refresh(click); }
   reviewAction(click: ReviewClick): CardResult { return this.closing ? 'rejected' : this.permissions.click(click); }
 
@@ -354,6 +384,7 @@ export class PilotInteractions {
     await this.recovery.idle();
     this.recovery.sync();
     this.queue.sync();
+    this.matters.sync();
     if (!this.publication) this.publication = this.publish()
       .catch(() => console.error('Source publication unavailable; retained intent will be retried'))
       .finally(() => { this.publication = undefined; });
@@ -369,6 +400,7 @@ export class PilotInteractions {
 
   async recover(): Promise<void> {
     await this.native.recover();
+    this.matters.sync();
     this.admission.store.finishTaskReplies();
     await this.transport.sync();
   }

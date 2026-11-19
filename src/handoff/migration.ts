@@ -232,6 +232,9 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
     try {
       if (unprojectedTaskReplyNotices(reader).length) throw new Error('Committed task reply notice has not been projected');
     } finally { reader.close(); }
+    if (admission.store.matters.unprojected().length || admission.store.matters.unprojectedNotices().length) {
+      throw new Error('Committed matter response has not been projected');
+    }
     const native = new NativeExecutions(admission, plan.config);
     for (const request of admission.store.requests()) {
       const verification = admission.store.verification(request.execution);
@@ -286,7 +289,9 @@ function mergePilot(plan: MigrationPlan, source: string, transportPath: string, 
       const insertSeen = (tenant: string, id: string) => legacy.prepare('INSERT OR IGNORE INTO seen VALUES (?,?)').run(tenant, id);
       for (const row of rows(pilot, 'retained_receipts')) insertSeen(String(row.tenant), String(column(row, 'message')));
       for (const row of rows(transport, 'seen')) insertSeen(String(row.tenant), String(column(row, 'id')));
-      for (const table of ['controls', 'recoveries']) for (const row of rows(pilot, table)) {
+      const receiptTables = ['controls', 'recoveries', ...['matter_inputs', 'matter_decisions', 'matter_notices'].filter(name =>
+        pilot.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name))];
+      for (const table of receiptTables) for (const row of rows(pilot, table)) {
         const origin: unknown = JSON.parse(String(row.origin));
         if (!Array.isArray(origin) || origin.length !== 2 || origin.some(item => typeof item !== 'string')) throw new Error('Invalid retained control identity');
         insertSeen(origin[0], origin[1]);
@@ -316,6 +321,11 @@ function mergePilot(plan: MigrationPlan, source: string, transportPath: string, 
           const proof = pilot.prepare('SELECT evidence FROM recoveries WHERE execution=? ORDER BY created DESC LIMIT 1').get(column(execution, 'id')) as Row;
           legacy.prepare('INSERT INTO migration_reconciliations VALUES (?,?)').run(column(request, 'execution'), column(proof, 'evidence'));
         }
+      }
+      for (const conversation of conversations.values()) {
+        if (conversation.title != null) continue;
+        legacy.prepare('INSERT OR IGNORE INTO sessions VALUES (?,?,?,?,?,?,?,?)').run(column(conversation, 'id'), column(conversation, 'owner'),
+          plan.scope.tenant, plan.scope.operator, plan.scope.chat, plan.scope.pilot, plan.scope.projects[plan.scope.pilot]!, column(conversation, 'thread'));
         legacy.prepare(`INSERT INTO selections(owner,session,revision) VALUES (?,?,1)
           ON CONFLICT(owner) DO UPDATE SET session=excluded.session,revision=selections.revision+1`).run(column(conversation, 'owner'), column(conversation, 'id'));
         legacy.prepare(`INSERT INTO migration_conversations(owner,directory,session) VALUES (?,?,?)
