@@ -180,7 +180,7 @@ export class State {
         this.db.prepare(`INSERT INTO outbox(id,chat,body,reply_to,mentions,response_task,final,prompt_id,task,ordinary_answer)
           VALUES (?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.chat, this.redact(row.body), row.reply_to, row.mentions,
           request.execution, row.final, row.prompt_id ? request.execution + ':' + row.prompt_id : null, row.transient ? request.execution : null,
-          ordinaryAnswer && row.final && row.chat === request.message.chat ? 1 : 0);
+          ordinaryAnswer && row.final && row.ordinary_answer && row.chat === request.message.chat ? 1 : 0);
         if (row.approval) {
           const p = this.redactApproval(row.approval);
           this.db.prepare('UPDATE outbox SET approval=? WHERE id=?').run(JSON.stringify(p), row.id);
@@ -540,7 +540,9 @@ export class State {
     }
     // Split before persistence so each part retains its UUID across delivery retries.
     for (const part of splitReply(this.redact(body))) {
-      this.db.prepare('INSERT INTO outbox (id, chat, body, reply_to, mentions, response_task, final, prompt_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), chat, part, options.replyTo ?? null, options.mentions?.length ? JSON.stringify(options.mentions) : null, options.taskId ?? null, options.final ? 1 : 0, options.promptId ?? null);
+      this.db.prepare(`INSERT INTO outbox(id,chat,body,reply_to,mentions,response_task,final,prompt_id,ordinary_answer)
+        VALUES (?,?,?,?,?,?,?,?,?)`).run(randomUUID(), chat, part, options.replyTo ?? null, options.mentions?.length ? JSON.stringify(options.mentions) : null,
+        options.taskId ?? null, options.final ? 1 : 0, options.promptId ?? null, options.final && options.answer ? 1 : 0);
     }
   }
 
@@ -651,7 +653,9 @@ export class State {
   }
 
   delivered(id: string, message?: string): void {
-    const card = this.db.prepare('SELECT update_message,approval_view,task_view,review_card,matter_card,ordinary_answer,response_task,chat FROM outbox WHERE id=?').get(id) as {
+    const card = this.db.prepare(`SELECT update_message,approval_view,task_view,review_card,matter_card,response_task,chat,
+      ordinary_answer AND EXISTS(SELECT 1 FROM projected_deliveries WHERE projected_deliveries.id=outbox.id) AS ordinary_answer
+      FROM outbox WHERE id=?`).get(id) as {
       update_message: string | null; approval_view: string | null; task_view: string | null; review_card: string | null; matter_card: string | null;
       ordinary_answer: number; response_task: string | null; chat: string;
     } | undefined;

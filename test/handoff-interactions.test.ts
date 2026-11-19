@@ -1153,7 +1153,7 @@ test('the first vague follow-up after a switch waits for the prior or current ma
 });
 
 test('an ordinary answer becomes a reply anchor only when its Feishu delivery is confirmed', async t => {
-  const h = setup(t);
+  const h = setup(t, undefined, undefined, ['other']);
   h.interactions.receive(h.actor('/matter-new 退款调查'));
   const active = await h.launch();
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
@@ -1190,10 +1190,31 @@ test('an ordinary answer becomes a reply anchor only when its Feishu delivery is
     assert.equal(h.interactions.transport.state.confirmedAnswer(early), active.request.execution);
     assert.equal(h.interactions.receive(early).status, 'matter-choice');
     assert.equal(h.admission.store.requestForMessage(early), undefined);
+    const outside = h.actor('other: check release', { parentId: 'refund-answer-message' });
+    assert.deepEqual(h.interactions.receive(outside), { status: 'rejected', reason: 'outside_pilot' });
+    h.interactions.receive(h.actor('/matter-new other'));
+    assert.equal(h.interactions.receive(outside).status, 'ignored');
+    assert.equal(h.admission.store.requestForMessage(outside), undefined);
     const fresh = h.actor('这个呢？', { parentId: 'refund-answer-message' });
     assert.equal(h.interactions.receive(fresh).status, 'task-reply');
     assert.equal(h.admission.store.requestForMessage(fresh)?.conversation, active.request.conversation);
   } finally { transport.close(); }
+});
+
+test('a confirmed no-answer status is not an ordinary answer anchor', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  const active = await h.launch();
+  h.codex.notify('turn/completed', { threadId: active.thread, turn: { id: active.turn, status: 'completed' } });
+  await active.running;
+  await drain(h);
+  const message = h.sent.find(row => row.options?.replyTo === active.message.id && row.text.includes('没有拿到最终答复'))!;
+  assert.ok(message);
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const quote = h.actor('刚才那个呢？', { parentId: 'delivered-' + message.id });
+  assert.equal(h.interactions.transport.state.confirmedAnswer(quote), undefined);
+  assert.equal(h.interactions.receive(quote).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(quote), undefined);
 });
 
 test('registered PRs take precedence and an ambiguous input is published once after a confirmed choice', async t => {

@@ -622,7 +622,8 @@ export class Bridge {
     this.state.transaction(() => {
       this.state.taskStatus(active.task.id, status, active.turn || null);
       const body = terminalText(status,answer,explanation,this.state.taskDiagnostic(active.task.id));
-      this.state.send(active.session.chat,body,{replyTo:this.state.replyTarget(active.task.id),taskId:active.task.id,final:true});
+      this.state.send(active.session.chat,body,{replyTo:this.state.replyTarget(active.task.id),taskId:active.task.id,final:true,
+        answer: status === 'completed' && Boolean(answer.trim()) && !explanation});
       if (status === 'unknown') this.state.cancelQueued(active.session.directory);
     });
     active.finish();

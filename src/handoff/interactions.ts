@@ -93,7 +93,11 @@ export class PilotInteractions {
     const command = /^\/(?:help|status|stop|steer|approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
     if (ordinaryOwner && message.parentId && !message.unsupported &&
       message.text.length <= 30_000 && message.text.trim() && !message.text.trimStart().startsWith('/') && natural !== 'stop') {
-      const reply = this.admission.store.acceptTaskReply(message, this.admission.project, this.transport.state.confirmedAnswer(message));
+      const answer = this.transport.state.confirmedAnswer(message);
+      if (answer && this.admission.projectAddress(message.text)?.outsidePilot && !this.matters.address(message)) {
+        return this.admission.receive(message);
+      }
+      const reply = this.admission.store.acceptTaskReply(message, this.admission.project, answer);
       if (reply) return reply;
     }
     if (!command && (!natural || (natural === 'steer' && this.matters.overridesNaturalSteer(message)))) {

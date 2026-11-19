@@ -19,7 +19,8 @@ The managed gateway SHALL allow the enrolled private owner to create and select 
 
 - **WHEN** the owner replies with a new ordinary question to a confirmed successful ordinary Bot answer, including while another matter is selected
 - **THEN** the gateway SHALL use the original task's confirmed conversation and schedule a follow-up turn through the existing task-reply path
-- **AND** an unconfirmed delivery, other chat or actor, prompt, or special procedure SHALL NOT become an ordinary answer anchor
+- **AND** an unconfirmed delivery, other chat or actor, prompt, status fallback, or special procedure SHALL NOT become an ordinary answer anchor
+- **AND** a request explicitly targeting a registered project outside the pilot SHALL still be refused
 
 #### Scenario: The receipt identifies the admitted matter
 
