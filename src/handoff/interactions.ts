@@ -94,8 +94,10 @@ export class PilotInteractions {
     if (ordinaryOwner && message.parentId && !message.unsupported &&
       message.text.length <= 30_000 && message.text.trim() && !message.text.trimStart().startsWith('/') && natural !== 'stop') {
       const answer = this.transport.state.confirmedAnswer(message);
-      if (answer && this.admission.projectAddress(message.text)?.outsidePilot) {
-        return this.admission.receive(message);
+      if (answer) {
+        if (this.admission.projectAddress(message.text)?.outsidePilot) return this.admission.receive(message);
+        const held = this.matters.holdConflictingAnswer(message, answer);
+        if (held) return held;
       }
       const reply = this.admission.store.acceptTaskReply(message, this.admission.project, answer);
       if (reply) return reply;
@@ -288,7 +290,7 @@ export class PilotInteractions {
   matterAction(click: MatterClick): CardResult {
     if (this.closing) return 'rejected';
     const result = this.matters.click(click);
-    if (result.admitted) void this.flush().catch(() => console.error('Matter task is retained; publication awaits retry'));
+    if (result.flush) void this.flush().catch(() => console.error('Matter decision is retained; publication awaits retry'));
     return result.status;
   }
 

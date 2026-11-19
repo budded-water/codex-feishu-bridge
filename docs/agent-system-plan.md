@@ -55,6 +55,7 @@ The default entry retains its legacy queue; the authorized M6 pilot uses the del
 ## Execution and interaction rules
 
 - Correlate an operator task with its Autoloop round, native thread/turn, interactions and evidence. A continuing task must not accidentally move to another conversation, project or owner.
+- Resolve owner-private [matter routing](owner-matters.md) before dispatch. The retained selection and admitted ordinary work identify candidates for short continuations. Ask the owner when trusted destinations disagree.
 - Only acknowledge durable acceptance as accepted work. Socket readiness, received reactions and a successful submission response do not establish completion.
 - Keep task execution and answer delivery independent. Retrying an answer must not rerun Codex.
 - Business questions can finish a round and become subsequent events. A native approval belongs to a live protocol request and may keep its turn active; it cannot be replaced with an unrelated later approval.

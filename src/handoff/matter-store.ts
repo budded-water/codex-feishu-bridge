@@ -7,11 +7,12 @@ export const DEFAULT_MATTER = 'default';
 export const DEFAULT_MATTER_TITLE = '默认对话';
 export type Matter = { id: string; title: string };
 type Scope = { owner: string; project: string };
+type ChoiceOutcome = 'admitted' | 'refused';
 export type MatterNotice = {
   message: IncomingMessage; text: string;
   card?: Omit<MatterPresentation, 'tenant' | 'chat' | 'user' | 'text'>;
 };
-export type HeldMatter = { id: string; message: IncomingMessage; choices: string[]; chosen: string | null };
+export type HeldMatter = { id: string; message: IncomingMessage; choices: string[]; chosen: string | null; input: string | null; answerExecution: string | null };
 const origin = (message: IncomingMessage) => JSON.stringify([message.tenant, message.id]);
 
 export class MatterStore {
@@ -51,7 +52,8 @@ export class MatterStore {
           );
           CREATE TABLE IF NOT EXISTS matter_inputs (
             origin TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, owner TEXT NOT NULL, project TEXT NOT NULL,
-            message TEXT NOT NULL, choices TEXT NOT NULL, input TEXT, chosen TEXT, projected INTEGER NOT NULL DEFAULT 0
+            message TEXT NOT NULL, choices TEXT NOT NULL, input TEXT, chosen TEXT, projected INTEGER NOT NULL DEFAULT 0,
+            answer_execution TEXT
           );
           CREATE INDEX IF NOT EXISTS unprojected_matter_inputs ON matter_inputs(id) WHERE projected=0 AND chosen IS NULL;
           CREATE TABLE IF NOT EXISTS matter_notices (
@@ -62,6 +64,13 @@ export class MatterStore {
         const focusColumns = db.prepare('PRAGMA table_info(matter_focus)').all() as { name: string }[];
         if (!focusColumns.some(c => c.name === 'previous_choice')) db.exec('ALTER TABLE matter_focus ADD COLUMN previous_choice TEXT');
         if (!focusColumns.some(c => c.name === 'switch_after')) db.exec('ALTER TABLE matter_focus ADD COLUMN switch_after INTEGER NOT NULL DEFAULT 0');
+        const inputColumns = db.prepare('PRAGMA table_info(matter_inputs)').all() as { name: string }[];
+        if (!inputColumns.some(c => c.name === 'answer_execution')) {
+          // The old gateway did not advance the watermark when reconfirming a selection.
+          // Preserve explicitly confirmed choices through the upgrade.
+          db.exec(`ALTER TABLE matter_inputs ADD COLUMN answer_execution TEXT;
+            UPDATE matter_focus SET switch_after=(SELECT COALESCE(MAX(rowid),0) FROM requests) WHERE previous_choice IS NULL`);
+        }
       });
     } finally { db.exec('PRAGMA foreign_keys=ON'); }
   }
@@ -86,25 +95,27 @@ export class MatterStore {
       .get(scope.owner, scope.project) as { choice: string } | undefined)?.choice;
   }
 
-  previousFocusForFollowup(scope: Scope): string | undefined {
-    // A submission records original admission even after the request is withdrawn.
-    return (this.db.prepare(`SELECT f.previous_choice AS choice FROM matter_focus f WHERE f.owner=? AND f.project=?
-      AND EXISTS (SELECT 1 FROM requests r JOIN submissions s ON s.request=r.id JOIN conversations c ON c.id=r.conversation
-        WHERE c.owner=f.owner AND c.project=f.project AND COALESCE(CASE WHEN c.title IS NOT NULL THEN c.id END,?)=f.previous_choice
-        AND r.rowid<=f.switch_after)
-      AND NOT EXISTS (SELECT 1 FROM requests r JOIN submissions s ON s.request=r.id JOIN conversations c ON c.id=r.conversation
-        WHERE c.owner=f.owner AND c.project=f.project AND COALESCE(CASE WHEN c.title IS NOT NULL THEN c.id END,?)=f.choice
-        AND r.rowid>f.switch_after)`)
-      .get(scope.owner, scope.project, DEFAULT_MATTER, DEFAULT_MATTER) as { choice: string } | undefined)?.choice;
+  alternateFocusForFollowup(scope: Scope): string | undefined {
+    const focus = this.db.prepare('SELECT choice,previous_choice,switch_after FROM matter_focus WHERE owner=? AND project=?')
+      .get(scope.owner, scope.project) as { choice: string; previous_choice: string | null; switch_after: number } | undefined;
+    if (!focus) return;
+    // Submissions retain the original admission even after withdrawal.
+    // A fresh switch can still refer to work that predates the switch.
+    // Reconfirming the same matter (or choosing on a route card) clears that fallback.
+    const after = focus.previous_choice === null ? focus.switch_after : 0;
+    const latest = this.db.prepare(`SELECT CASE WHEN c.title IS NULL THEN ? ELSE c.id END AS choice
+      FROM requests r JOIN submissions s ON s.request=r.id JOIN conversations c ON c.id=r.conversation
+      WHERE c.owner=? AND c.project=? AND r.rowid>? AND json_extract(r.message,'$.chatType')='p2p'
+      AND NOT EXISTS (SELECT 1 FROM verifications WHERE execution=r.execution)
+      AND NOT EXISTS (SELECT 1 FROM repair_goals WHERE execution=r.execution)
+      AND NOT EXISTS (SELECT 1 FROM permission_retries WHERE execution=r.execution)
+      AND NOT EXISTS (SELECT 1 FROM browser_retries WHERE execution=r.execution)
+      ORDER BY r.rowid DESC LIMIT 1`).get(DEFAULT_MATTER, scope.owner, scope.project, after) as { choice: string } | undefined;
+    if (latest?.choice !== focus.choice) return latest?.choice;
   }
 
   private setFocus(scope: Scope, choice: string, clarified = false): void {
     const previous = this.focus(scope);
-    if (previous === choice) {
-      this.db.prepare('UPDATE matter_focus SET previous_choice=NULL WHERE owner=? AND project=?')
-        .run(scope.owner, scope.project);
-      return;
-    }
     const from = previous ?? DEFAULT_MATTER;
     this.db.prepare(`INSERT INTO matter_focus(owner,project,choice,previous_choice,switch_after)
       VALUES (?,?,?,?,(SELECT COALESCE(MAX(rowid),0) FROM requests))
@@ -185,22 +196,22 @@ export class MatterStore {
   }
 
   held(message: IncomingMessage, project: string): HeldMatter | undefined {
-    const row = this.db.prepare('SELECT id,message,choices,chosen FROM matter_inputs WHERE origin=? AND owner=? AND project=?')
-      .get(origin(message), ownerKey(message), project) as { id: string; message: string; choices: string; chosen: string | null } | undefined;
+    const row = this.db.prepare('SELECT id,message,choices,chosen,input,answer_execution AS answerExecution FROM matter_inputs WHERE origin=? AND owner=? AND project=?')
+      .get(origin(message), ownerKey(message), project) as { id: string; message: string; choices: string; chosen: string | null; input: string | null; answerExecution: string | null } | undefined;
     return row && { ...row, message: JSON.parse(row.message) as IncomingMessage, choices: JSON.parse(row.choices) as string[] };
   }
 
-  hold(scope: Scope, message: IncomingMessage, choices: string[], input?: string): HeldMatter {
+  hold(scope: Scope, message: IncomingMessage, choices: string[], input?: string, answerExecution?: string): HeldMatter {
     return this.transaction(() => {
-      this.db.prepare('INSERT OR IGNORE INTO matter_inputs(origin,id,owner,project,message,choices,input) VALUES (?,?,?,?,?,?,?)')
-        .run(origin(message), randomUUID(), scope.owner, scope.project, JSON.stringify(message), JSON.stringify(choices), input ?? null);
+      this.db.prepare('INSERT OR IGNORE INTO matter_inputs(origin,id,owner,project,message,choices,input,answer_execution) VALUES (?,?,?,?,?,?,?,?)')
+        .run(origin(message), randomUUID(), scope.owner, scope.project, JSON.stringify(message), JSON.stringify(choices), input ?? null, answerExecution ?? null);
       return this.held(message, scope.project)!;
     });
   }
 
   unprojected(): HeldMatter[] {
-    const rows = this.db.prepare('SELECT id,message,choices,chosen FROM matter_inputs WHERE projected=0 AND chosen IS NULL').all() as
-      { id: string; message: string; choices: string; chosen: null }[];
+    const rows = this.db.prepare('SELECT id,message,choices,chosen,input,answer_execution AS answerExecution FROM matter_inputs WHERE projected=0 AND chosen IS NULL').all() as
+      { id: string; message: string; choices: string; chosen: null; input: string | null; answerExecution: string | null }[];
     return rows.map(row => ({ ...row, message: JSON.parse(row.message) as IncomingMessage, choices: JSON.parse(row.choices) as string[] }));
   }
 
@@ -208,22 +219,23 @@ export class MatterStore {
     this.db.prepare('UPDATE matter_inputs SET projected=1 WHERE id=?').run(id);
   }
 
-  consume<T>(scope: Scope, id: string, choice: string, submit: (original: IncomingMessage, input?: string) => T | undefined): T | undefined {
+  consume(scope: Scope, id: string, choice: string,
+    submit: (original: IncomingMessage, input?: string, answerExecution?: string) => ChoiceOutcome | undefined): ChoiceOutcome | undefined {
     return this.transaction(() => {
-      const row = this.db.prepare('SELECT message,choices,input,chosen FROM matter_inputs WHERE id=? AND owner=? AND project=?')
-        .get(id, scope.owner, scope.project) as { message: string; choices: string; input: string | null; chosen: string | null } | undefined;
+      const row = this.db.prepare('SELECT message,choices,input,chosen,answer_execution FROM matter_inputs WHERE id=? AND owner=? AND project=?')
+        .get(id, scope.owner, scope.project) as { message: string; choices: string; input: string | null; chosen: string | null; answer_execution: string | null } | undefined;
       if (!row || row.chosen || !(JSON.parse(row.choices) as string[]).includes(choice) ||
         (choice !== DEFAULT_MATTER && !this.owned(scope, choice))) return;
       const original = JSON.parse(row.message) as IncomingMessage;
       // Mark it consumed before admission in the same transaction. Admission
       // checks held messages so they cannot be scheduled by a duplicate ingress.
       this.db.prepare('UPDATE matter_inputs SET chosen=? WHERE id=?').run(choice, id);
-      const value = submit(original, row.input ?? undefined);
+      const value = submit(original, row.input ?? undefined, row.answer_execution ?? undefined);
       if (value === undefined) {
         this.db.prepare('UPDATE matter_inputs SET chosen=NULL WHERE id=?').run(id);
         return;
       }
-      this.setFocus(scope, choice, true);
+      if (value === 'admitted') this.setFocus(scope, choice, true);
       return value;
     });
   }

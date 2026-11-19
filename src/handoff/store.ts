@@ -8,7 +8,7 @@ import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlD
 import { fingerprint, profileDigest, type VerificationProfile } from './verification-profile.js';
 import type { VerificationObservation } from './verification-runner.js';
 import { RepairStore } from './repair-store.js';
-import { MatterStore } from './matter-store.js';
+import { DEFAULT_MATTER, MatterStore } from './matter-store.js';
 
 export interface VerificationRecord {
   execution: string; profile: string; digest: string; definition: VerificationProfile;
@@ -219,7 +219,8 @@ export class AdmissionStore {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.taskReply(origin) || this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin, origin) ||
         this.retained(message)) return { status: 'duplicate' as const };
-      if (this.matters.held(message, project) || this.matters.notice(message)) return;
+      const held = this.matters.held(message, project);
+      if ((held && (!held.chosen || held.answerExecution !== answerExecution)) || this.matters.notice(message)) return;
       const quotedOrigin = JSON.stringify([message.tenant, message.parentId]);
       const source = this.db.prepare(`SELECT r.id,r.origin FROM requests r JOIN conversations c ON c.id=r.conversation
         WHERE (r.origin=? OR r.execution=?) AND c.owner=? AND r.project=? AND json_extract(r.message,'$.chatType')='p2p'
@@ -228,6 +229,10 @@ export class AdmissionStore {
       if (!source) return;
       const fromAnswer = source.origin !== quotedOrigin;
       const request = this.request(source.id)!;
+      if (held) {
+        const matter = this.matters.owned({ owner: ownerKey(message), project }, request.conversation)?.id ?? DEFAULT_MATTER;
+        if (!fromAnswer || held.chosen !== matter) return;
+      }
       const execution = this.execution(request.execution);
       const text = '用户补充要求：\n' + message.text;
       const combined = request.input + '\n\n' + text;
@@ -254,7 +259,7 @@ export class AdmissionStore {
         }
       } else {
         save('live', null);
-        this.finishTaskReply(this.taskReply(origin)!, request);
+        this.finishTaskReply(this.taskReply(origin)!, request, held?.input ?? undefined);
       }
       return { status: 'task-reply' as const };
     });
@@ -272,7 +277,7 @@ export class AdmissionStore {
     });
   }
 
-  private finishTaskReply(reply: TaskReplyRecord, request: RequestRecord): void {
+  private finishTaskReply(reply: TaskReplyRecord, request: RequestRecord, chosenInput = reply.message.text): void {
     const source = this.db.prepare('SELECT status,evidence,native_thread,native_turn FROM executions WHERE id=?')
       .get(request.execution) as { status: string; evidence: string | null; native_thread: string | null; native_turn: string | null } | undefined;
     let failure: string | undefined;
@@ -282,7 +287,7 @@ export class AdmissionStore {
       failure = '原任务的执行结果或会话尚无法确认，这条回复未排为追问。请查看原任务。';
     }
     const original = Array.from(request.message.text).slice(0, 1000).join('');
-    const input = '本次用户追问：\n' + reply.message.text +
+    const input = '本次用户追问：\n' + chosenInput +
       '\n\n被回复任务的原始需求（节选，仅作上下文，按本次追问执行）：\n' + original;
     if (input.length > 30_000) failure ??= '追问内容过长，请缩短后再回复。';
     if (failure) {

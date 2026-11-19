@@ -1038,22 +1038,24 @@ test('pilot English help is local, deduplicated and available while paused; reti
   assert.equal(h.admission.store.recoveries().length, 0); assert.equal(h.admission.store.withdrawals().length, 0); assert.equal(h.codex.calls.length, 0);
 });
 
+async function completeRequest(h: ReturnType<typeof setup>, id: string, run: number) {
+  const issued = h.admission.store.reserve(id, run);
+  assert.equal(issued.kind, 'start');
+  if (issued.kind !== 'start') throw Error('Expected assignment');
+  const count = h.codex.calls.filter(call => call.method === 'turn/start').length;
+  const running = h.native.run(issued.permit);
+  const turns = () => h.codex.calls.filter(call => call.method === 'turn/start');
+  await until(() => turns().length > count);
+  const params = turns().at(-1)!.params;
+  const thread = String(params.threadId);
+  const sequence = h.codex.calls.filter(call => ['thread/start', 'turn/start'].includes(call.method)).length;
+  h.codex.complete(thread, 'turn-' + sequence);
+  await running;
+  return params;
+}
+
 test('switching matters starts separate native threads and quoting the older task resumes its original thread', async t => {
   const h = setup(t);
-  const complete = async (request: { id: string }, run: number) => {
-    const issued = h.admission.store.reserve(request.id, run);
-    assert.equal(issued.kind, 'start');
-    if (issued.kind !== 'start') throw Error('Expected assignment');
-    const count = h.codex.calls.filter(call => call.method === 'turn/start').length;
-    const running = h.native.run(issued.permit);
-    const turns = () => h.codex.calls.filter(call => call.method === 'turn/start');
-    await until(() => turns().length > count);
-    const thread = String(turns().at(-1)!.params.threadId);
-    const sequence = h.codex.calls.filter(call => ['thread/start', 'turn/start'].includes(call.method)).length;
-    h.codex.complete(thread, 'turn-' + sequence);
-    await running;
-    return thread;
-  };
 
   const newRefund = h.actor('/matter-new 退款调查');
   h.interactions.receive(newRefund);
@@ -1064,7 +1066,7 @@ test('switching matters starts separate native threads and quoting the older tas
   const initial = h.actor('只查询当前退款积压');
   const a = h.interactions.receive(initial);
   assert.ok('request' in a);
-  const threadA = await complete(a.request, 101);
+  const threadA = (await completeRequest(h, a.request.id, 101)).threadId;
   await drain(h);
   const answerA = h.sent.find(row => row.options?.replyTo === initial.id && row.text === 'Done')!;
   assert.ok(answerA);
@@ -1075,7 +1077,7 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.ok('request' in b);
   assert.notEqual(a.request.conversation, b.request.conversation);
   assert.equal(a.request.project, b.request.project);
-  const threadB = await complete(b.request, 102);
+  const threadB = (await completeRequest(h, b.request.id, 102)).threadId;
   assert.notEqual(threadA, threadB);
 
   await h.restart();
@@ -1083,7 +1085,7 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.equal(h.interactions.receive(quote).status, 'task-reply');
   const followup = h.admission.store.requestForMessage(quote)!;
   assert.equal(followup.conversation, a.request.conversation);
-  assert.equal(await complete(followup, 103), threadA);
+  assert.equal((await completeRequest(h, followup.id, 103)).threadId, threadA);
   const answerQuote = h.actor('刚才那个方案呢？', { parentId: 'delivered-' + answerA.id });
   for (const actor of [{ ...answerQuote, user: 'ou_admin' }, { ...answerQuote, chat: 'other' }, { ...answerQuote, tenant: 'other' }]) {
     assert.equal(h.interactions.receive(actor).status, 'ignored');
@@ -1092,18 +1094,25 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.equal(h.interactions.receive(answerQuote).status, 'task-reply');
   const answerFollowup = h.admission.store.requestForMessage(answerQuote)!;
   assert.equal(answerFollowup.conversation, a.request.conversation);
-  assert.equal(await complete(answerFollowup, 104), threadA);
+  assert.equal((await completeRequest(h, answerFollowup.id, 104)).threadId, threadA);
   assert.equal(h.interactions.receive(answerQuote).status, 'ignored');
   await drain(h);
   assert.equal(h.sent.filter(row => row.options?.replyTo === answerQuote.id && row.text.includes('事项 · 退款调查')).length, 1);
   const receipt = h.sent.find(row => row.options?.replyTo === initial.id && row.text === '已收到 · 退款调查')!;
   assert.equal(h.interactions.transport.state.confirmedAnswer(h.actor('再看看', { parentId: 'delivered-' + receipt.id })), undefined);
+  const plain = h.actor('继续刚才的处理');
+  assert.equal(h.interactions.receive(plain).status, 'matter-choice');
+  assert.deepEqual(h.admission.store.matters.held(plain, h.admission.project)?.choices, [b.request.conversation, a.request.conversation]);
+  assert.equal(h.admission.store.requestForMessage(plain), undefined);
+  assert.equal(h.admission.store.matters.focus({ owner: ownerKey(plain), project: h.admission.project }), b.request.conversation);
   const cardReply = h.interactions.receive(h.actor('只查询最近的发布记录', { parentId: 'delivered-' + card.id }));
   assert.ok('request' in cardReply);
   assert.equal(cardReply.request.conversation, a.request.conversation);
-  const plain = h.interactions.receive(h.actor('继续刚才的处理'));
-  assert.ok('request' in plain);
-  assert.equal(plain.request.conversation, b.request.conversation);
+  const explicit = h.interactions.receive(h.actor('Solura 发版：检查发布清单'));
+  assert.ok('request' in explicit);
+  const next = h.interactions.receive(h.actor('接着'));
+  assert.ok('request' in next);
+  assert.equal(next.request.conversation, b.request.conversation);
   assert.equal(h.codex.calls.filter(call => call.method === 'thread/start').length, 2);
 });
 
@@ -1122,7 +1131,7 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   const other = h.interactions.receive(h.actor('退款调查：继续核对退款资料'));
   assert.ok('request' in other);
   assert.equal(other.request.conversation, a.request.conversation);
-  const vague = h.actor('继续上一步');
+  const vague = h.actor('就按刚才那个方案改吧。');
   assert.equal(h.interactions.receive(vague).status, 'matter-choice');
   assert.equal(h.admission.store.requestForMessage(vague), undefined);
   await h.restart();
@@ -1152,6 +1161,114 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   await drain(h);
   assert.equal(h.sent.filter(row => row.options?.replyTo === backToDefault.id && row.text === '已收到 · 默认对话').length, 1);
   assert.equal(h.codex.calls.length, 0);
+});
+
+test('short continuation follows ordinary admission history through empty switches and specialized work', t => {
+  const h = setup(t);
+  const initial = h.interactions.receive(h.actor('先查退款积压'));
+  assert.ok('request' in initial);
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  h.interactions.receive(h.actor('/matter-new 文档整理'));
+  const scope = { owner: ownerKey(initial.request.message), project: h.admission.project };
+  const selected = h.admission.store.matters.focus(scope)!;
+  const request = h.admission.receiveVerification(h.actor('/verify fixture inspect'), 'Inspect', { profile: 'fixture', definition: {
+    projectRoot: h.admission.directory, engineRoot: h.admission.directory, projectId: 'fixture', suite: 'smoke',
+    engineRevision: '0'.repeat(40), cliHash: '0'.repeat(64), libraryHash: '0'.repeat(64), timeoutMs: 1000,
+    policyFiles: { 'ui-eval/project.json': '0'.repeat(64), 'ui-eval/engine.json': '0'.repeat(64), 'ui-eval/integrations/smoke.json': '0'.repeat(64) },
+  } });
+  assert.ok('request' in request);
+  const first = h.actor('照之前那个做。');
+  assert.equal(h.interactions.receive(first).status, 'matter-choice');
+  assert.deepEqual(h.admission.store.matters.held(first, scope.project)?.choices, [selected, 'default']);
+
+  const explicit = h.interactions.receive(h.actor('文档整理：核对导航'));
+  assert.ok('request' in explicit);
+  const specialized = h.admission.receiveVerification(h.actor('/verify fixture recheck'), 'Recheck', { profile: 'fixture',
+    definition: h.admission.store.verification(request.request.execution)!.definition });
+  assert.ok('request' in specialized);
+  const next = h.interactions.receive(h.actor('继续。'));
+  assert.ok('request' in next);
+  assert.equal(next.request.conversation, selected);
+});
+
+test('conflicting answer titles and PRs wait for a verified choice and keep the chosen conversation after restart', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  const active = await h.launch();
+  h.codex.complete(active.thread, active.turn, 'completed', 'Refund-only evidence');
+  await active.running;
+  await drain(h);
+  const answer = h.sent.find(row => row.options?.replyTo === active.message.id && row.text === 'Refund-only evidence')!;
+  const parentId = 'delivered-' + answer.id;
+
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const release = h.admission.store.matters.focus({ owner: ownerKey(active.message), project: h.admission.project })!;
+  const pr = 'https://github.com/example/release/pull/7';
+  h.interactions.receive(h.actor('/matter-bind ' + pr));
+  const titleConflict = h.actor('Solura 发版：核对放行条件', { parentId });
+  const prConflict = h.actor('查一下 ' + pr, { parentId });
+  const originalTask = h.actor(titleConflict.text, { parentId: active.message.id });
+  const rejectedConflict = h.actor('Solura 发版：' + 'x'.repeat(29_980), { parentId });
+  const count = h.admission.store.requests().length;
+
+  for (const message of [titleConflict, prConflict, rejectedConflict]) {
+    assert.equal(h.interactions.receive(message).status, 'matter-choice');
+    assert.deepEqual(h.admission.store.matters.held(message, h.admission.project)?.choices, [active.request.conversation, release]);
+    assert.equal(h.admission.store.requestForMessage(message), undefined);
+  }
+  await drain(h);
+  await h.restart();
+  assert.equal(h.interactions.receive(prConflict).status, 'matter-choice');
+  assert.equal(h.admission.store.requests().length, count);
+
+  const click = (message: typeof titleConflict, choice: string) => {
+    const row = h.sent.find(item => item.options?.replyTo === message.id && item.options.matterCard)!;
+    const card = row.options!.matterCard!;
+    return { id: card.id, event: randomUUID(), tenant: card.tenant, user: card.user, chat: card.chat,
+      message: 'delivered-' + row.id, choice };
+  };
+  const refused = click(rejectedConflict, active.request.conversation);
+  assert.equal(h.interactions.matterAction(refused), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(rejectedConflict), undefined);
+  assert.equal(h.admission.store.taskReply(JSON.stringify([rejectedConflict.tenant, rejectedConflict.id]))?.kind, 'rejected');
+  assert.equal(h.admission.store.matters.focus({ owner: ownerKey(active.message), project: h.admission.project }), release);
+  await drain(h);
+  assert.ok(h.sent.some(row => row.options?.replyTo === rejectedConflict.id && row.text.includes('追问内容过长')));
+
+  const source = click(titleConflict, active.request.conversation);
+  assert.equal(h.interactions.matterAction({ ...source, event: randomUUID(), user: 'ou_admin' }), 'rejected');
+  assert.equal(h.interactions.matterAction(source), 'accepted');
+  const followup = h.admission.store.requestForMessage(titleConflict)!;
+  assert.equal(followup.conversation, active.request.conversation);
+  assert.equal(h.admission.store.conversationThread(followup.conversation), active.thread);
+  assert.match(followup.input, /^本次用户追问：\n核对放行条件\n/);
+  assert.match(followup.input, /Inspect this assigned task/);
+  assert.equal(followup.message.text, titleConflict.text);
+
+  const target = click(prConflict, release);
+  assert.equal(h.interactions.matterAction(target), 'accepted');
+  const admitted = h.admission.store.requestForMessage(prConflict)!;
+  assert.equal(admitted.conversation, release);
+  assert.equal(admitted.input, prConflict.text);
+  assert.equal(h.admission.store.taskReply(JSON.stringify([prConflict.tenant, prConflict.id])), undefined);
+  await h.restart();
+  assert.equal(h.interactions.matterAction(source), 'accepted', 'the original callback result is retained');
+  assert.equal(h.interactions.matterAction(refused), 'accepted');
+  assert.equal(h.interactions.matterAction({ ...refused, event: randomUUID(), choice: release }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...target, event: randomUUID(), choice: active.request.conversation }), 'rejected');
+  assert.equal(h.admission.store.requests().length, count + 2);
+  assert.equal(h.admission.store.matters.focus({ owner: ownerKey(active.message), project: h.admission.project }), release);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, 1);
+
+  const sourceTurn = await completeRequest(h, followup.id, 2);
+  assert.equal(sourceTurn.threadId, active.thread);
+  assert.deepEqual(sourceTurn.input, [{ type: 'text', text: followup.input, text_elements: [] }]);
+  const targetTurn = await completeRequest(h, admitted.id, 3);
+  assert.notEqual(targetTurn.threadId, active.thread);
+  assert.deepEqual(targetTurn.input, [{ type: 'text', text: prConflict.text, text_elements: [] }]);
+
+  assert.equal(h.interactions.receive(originalTask).status, 'task-reply', 'an exact original-task reply still wins');
+  assert.equal(h.admission.store.requestForMessage(originalTask)?.conversation, active.request.conversation);
 });
 
 test('an ordinary answer becomes a reply anchor only when its Feishu delivery is confirmed', async t => {
@@ -1253,6 +1370,9 @@ test('confirming the current matter resolves its vague-follow-up guard across re
   h.interactions.receive(h.actor('/matter-new 退款调查'));
   assert.ok('request' in h.interactions.receive(h.actor('查询退款记录')));
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const latest = h.interactions.receive(h.actor('退款调查：核对退款明细'));
+  assert.ok('request' in latest);
+  assert.equal(h.interactions.receive(h.actor('那就继续。')).status, 'matter-choice');
   const list = h.actor('/matters');
   h.interactions.receive(list);
   await drain(h);
