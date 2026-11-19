@@ -25,7 +25,7 @@ Completed bounded changes have been synchronized into delivered main specificati
 
 These are implemented contracts with bounded evidence, not universal live acceptance. Owner-private operation is observed on one M6 deployment. Other typed-English, colleague/group, host-login/wake/network and additional fault families retain the limits in [live acceptance](../docs/live-acceptance.md) and [operation](../docs/operation.md).
 
-The active [matter follow-up refinement](changes/clarify-owner-matter-followups/proposal.md) defines when short continuations and conflicting answer references need a routing choice. The associated [tasks](changes/clarify-owner-matter-followups/tasks.md) track source and live checks.
+The delivered [matter follow-up refinement](changes/archive/2026-11-19-clarify-owner-matter-followups/tasks.md) covers short continuations and conflicting answer references. The [M6 acceptance](../docs/live-acceptance.md#2026-11-19-m6-matter-follow-up-rollout) verifies both choices and the resumed threads.
 
 ## Active P3 change
 

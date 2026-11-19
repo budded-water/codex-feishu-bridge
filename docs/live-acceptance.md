@@ -1,5 +1,15 @@
 # Live acceptance evidence
 
+## 2026-11-19 M6 matter follow-up rollout
+
+The M6 gateway and Worker runner adopted [PR #53](https://github.com/budded-water/codex-feishu-bridge/pull/53) at reviewed head `6f00eff0fd224cb7c2dd18c30f390069e10bcf77`. The merged tree matched the reviewed artifact. The final candidate passed 411 tests, 17 strict OpenSpec checks, the pinned Hub and Worker verifiers, and exact-head CI and independent review. The deployment build used the pinned Node runtime, locked dependencies and the installed Codex protocol smoke check.
+
+The cutover drained tasks and deliveries, observed both services stop and captured 1,262 private files before replacing the bridge artifact. Five isolated SQLite copies passed integrity and foreign-key checks. Admission and delivery identities, existing matter cards, the Hub fact prefix and 225 sealed native files were preserved. The focus migration preserved confirmed choices. Feishu connected under managed ownership, the Worker recorded a fresh heartbeat, and admission resumed open and drained.
+
+A live Feishu desktop campaign verified both new routes in the enrolled private chat. A plain short continuation offered the selected release matter and the more recently admitted refund matter. A reply to the confirmed refund answer with the release matter's exact title offered the same two candidates. Both real interactive cards were delivered and neither input had a request before the selection.
+
+Selecting refund for the short continuation and release for the conflicting reply admitted each original input exactly once. Each continued its respective existing native thread, settled in one Hub run with zero retries and produced one labeled receipt and one final answer. The conflicting reply used the chosen matter's body without importing the quoted answer. Official platform reads verified the two cards, three owner test triggers, receipts and final replies. The selected matter returned to the confirmed default, with open admission and an empty queue, guard and delivery backlog. The live campaign used text fixtures within one registered private chat. The official delivery matches, thread bindings and rollout details are retained in private inventory.
+
 ## 2026-11-19 M6 owner-private matter routing
 
 The M6 gateway and Worker assignment runner adopted [PR #51](https://github.com/budded-water/codex-feishu-bridge/pull/51) at reviewed head `ca1960dabb4e7ba1b41fbb23c68bd60928c5c66d`. The merge commit has the same source tree. The candidate passed 408 local tests, exact-head GitHub CI and an independent complete-diff review. The pinned Node build and Codex protocol checks passed before installation.
