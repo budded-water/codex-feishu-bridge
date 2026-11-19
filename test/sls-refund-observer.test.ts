@@ -349,3 +349,31 @@ console.log(JSON.stringify({ meta: {progress,isAccurate:true,count:entries.lengt
   assert.ok(!(malformed.stdout + malformed.stderr).includes('PRIVATE_MALFORMED_OUTPUT'));
   assert.equal(JSON.parse(malformed.stdout).incident.observations[0].reason, 'invalid-or-incomplete-source');
 });
+
+test('a new firing after an inactive boundary gets its own incident after a published human handoff', t => {
+  const { open } = setup(t);
+  const observer = open();
+  let handled: string;
+  try {
+    observer.acceptWindow(100, 151, [{ id: 'first-firing', at: 120, status: 'firing' }], 160);
+    assert.ok(observer.observe(observer.nextSample(1060)!, 1060, { backlog: [] }));
+    const notice = observer.pendingNotices()[0]!;
+    assert.equal(notice.state, 'needs-attention');
+    handled = notice.incident;
+    observer.noticeProjected(notice.card);
+  } finally { observer.close(); }
+
+  const reopened = open();
+  try {
+    reopened.acceptWindow(151, 1151, [
+      { id: 'continuing-firing', at: 1080, status: 'firing' },
+      { id: 'quiet', at: 1110, status: 'inactive' },
+      { id: 'new-firing', at: 1140, status: 'firing' },
+    ], 1160);
+    const next = reopened.pendingNotices()[0]!;
+    assert.equal(next.state, 'open');
+    assert.notEqual(next.incident, handled);
+    assert.equal(reopened.nextSample(1160)?.incident, next.incident);
+    assert.equal(reopened.report().handoffs[0]?.id, handled);
+  } finally { reopened.close(); }
+});

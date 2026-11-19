@@ -181,7 +181,7 @@ export class OwnerMatters {
   }
 
   hasNamedMatters(message: IncomingMessage): boolean {
-    return this.admission.store.matters.list(this.scope(message), 1).length > 0;
+    return this.admission.store.matters.list(this.scope(message), 1, 0, false).length > 0;
   }
 
   overridesNaturalSteer(message: IncomingMessage): boolean {
@@ -247,7 +247,7 @@ export class OwnerMatters {
     }
     // A quoted parent may be a visible card whose delivery is still unconfirmed.
     if (selected && !message.parentId) return submit(selected);
-    if (!candidates.length && (!message.parentId || !this.hasNamedMatters(message))) return submit();
+    if (!candidates.length) return submit();
     return this.clarify(store.hold(scope, message, [...candidates.slice(0, PAGE_SIZE).map(m => m.id), DEFAULT_MATTER]));
   }
 

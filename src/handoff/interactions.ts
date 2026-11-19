@@ -168,7 +168,7 @@ export class PilotInteractions {
       }
     }
     const quotedSupplement = message.parentId && !reference && /^\/steer\s/.test(message.text.trim()) &&
-      (!ordinaryOwner || !this.matters.hasNamedMatters(message));
+      (!ordinaryOwner || (!this.matters.hasNamedMatters(message) && !this.transport.state.matterReference(message)));
     if (!execution || (!approval && message.parentId && reference !== execution.id && !quotedSupplement)) {
       this.transport.state.transaction(() => {
         if (!this.transport.state.remember(message)) return;

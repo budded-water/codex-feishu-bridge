@@ -12,7 +12,7 @@ const outcomes = { completed: '完成', degraded: '降级', failed: '失败', ti
 const timestamp = (seconds: number) => new Date(seconds * 1000).toISOString().replace('.000Z', 'Z');
 
 export function projectRefundNotices(observer: RefundObserver, admission: PilotAdmission, transport: State): void {
-  if (admission.store.maintenance.paused) return;
+  if (admission.store.maintenance.paused || !admission.ownerPrivateChatConfirmed()) return;
   const { tenant, operator: user, chat } = admission.scope;
   const scope = { owner: ownerKey({ tenant, user, chat }), project: admission.project };
   for (const notice of observer.pendingNotices()) {
@@ -62,12 +62,16 @@ export class ManagedRefundObserver {
     });
   }
 
+  private canContinue(): boolean {
+    if (this.stopping || this.admission.store.maintenance.paused) return false;
+    this.assertHeld();
+    return true;
+  }
+
   private async cycle(): Promise<void> {
-    if (this.admission.store.maintenance.paused) return;
-    this.assertHeld();
-    if (!await this.poll(this.observer, this.config) || this.stopping) return;
-    this.assertHeld();
-    projectRefundNotices(this.observer, this.admission, this.transport);
+    if (!this.canContinue()) return;
+    const caughtUp = await this.poll(this.observer, this.config, { canContinue: () => this.canContinue() });
+    if (caughtUp && this.canContinue()) projectRefundNotices(this.observer, this.admission, this.transport);
   }
 
   async close(): Promise<void> {

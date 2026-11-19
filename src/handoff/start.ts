@@ -40,8 +40,8 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   shutdown = () => closing ??= (async () => {
     stopping = true;
     feishu.close();
-    await opening?.catch(() => {});
     await observer?.close();
+    await opening?.catch(() => {});
     await interactions?.close();
     native?.closePermissions();
     admission?.close();
@@ -60,10 +60,6 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       if (stopping) return;
       verifyImportedState(directory, readFence(lease.root)!.operation);
       admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope, config.projectRouting);
-      if (refund && ((config.allowedTenant && config.allowedTenant !== admission.scope.tenant) ||
-        (config.accessMode === 'allowlist' && !config.allowedUsers.includes(admission.scope.operator)))) {
-        throw Error('SLS refund notices require an allowed pilot owner');
-      }
       native = new NativeExecutions(admission, config, undefined, profiles, { nativePermissions: nativePermissions(value.nativePermissions) });
       const source = new SourceOutbox(admission, new AutoloopSource(hubUrl, sourceKey));
       interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu, profiles);
@@ -74,7 +70,12 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     if (stopping) return;
     if (compromised) throw new Error('Consumer ownership unavailable');
     lease.assertHeld();
-    await feishu.start(message => { interactions!.receive(message); void interactions!.flush().catch(() => {}); },
+    await feishu.start(message => {
+      if (stopping) return;
+      if (refund) admission!.confirmOwnerPrivateChat(message);
+      interactions!.receive(message);
+      void interactions!.flush().catch(() => {});
+    },
       click => interactions!.cardAction(click), click => interactions!.taskRefresh(click), click => interactions!.reviewAction(click), click => interactions!.matterAction(click));
     if (stopping) return;
     if (refund) {

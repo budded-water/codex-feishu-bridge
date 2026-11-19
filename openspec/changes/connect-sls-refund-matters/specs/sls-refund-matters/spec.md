@@ -12,11 +12,22 @@ The managed pilot SHALL poll only the configured fixed read-only refund source w
 #### Scenario: Maintenance begins during a read
 
 - **WHEN** maintenance starts during a poll
-- **THEN** the result is retained as observer evidence and no new card is projected during the pause
+- **THEN** the completed read is retained as observer evidence and no new query or card projection starts during the pause
 
 ### Requirement: Durable owner-private incident matter
 
 The gateway SHALL associate each incident with one scoped matter and use durable transport identity for each projected milestone. It SHALL leave active conversational focus and ordinary implicit routing independent of machine observations.
+
+#### Scenario: Unverified private destination
+
+- **WHEN** the configured chat has yet to deliver a verified private message from the bound owner
+- **THEN** no incident card is queued for it
+
+#### Scenario: A separate firing after human handoff
+
+- **WHEN** an inactive evaluation separates a later firing from an earlier incident that already needs attention
+- **THEN** the later firing starts a new observation budget and matter
+- **AND** the earlier handoff disposition is preserved
 
 #### Scenario: Restart after a transport commit
 

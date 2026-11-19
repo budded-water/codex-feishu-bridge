@@ -52,6 +52,16 @@ export class PilotAdmission {
     return message;
   }
 
+  confirmOwnerPrivateChat(message: IncomingMessage): void {
+    if (this.operator(message)?.chatType === 'p2p' && !this.ownerPrivateChatConfirmed()) {
+      this.store.bindChannel('feishu-owner-private', message.chat);
+    }
+  }
+
+  ownerPrivateChatConfirmed(): boolean {
+    return this.store.channelBound('feishu-owner-private', this.scope.chat);
+  }
+
   projectAddress(text: string): { input: string; outsidePilot: boolean } | undefined {
     if (this.projectRouting === 'workspace') return;
     const prefix = /^([^\s:：]+)[:：]\s*([\s\S]+)$/.exec(text.trim());

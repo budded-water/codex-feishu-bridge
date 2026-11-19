@@ -19,6 +19,7 @@ import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/a
 import { ManagedRefundObserver, projectRefundNotices } from '../src/handoff/refund-monitor.js';
 import { RefundObserver } from '../src/sls-refund/observer.js';
 import { parseObserverConfig, readEvaluations, readEvidence } from '../src/sls-refund/sls-source.js';
+import { pollRefundObserver } from '../src/sls-refund/poll.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
   async start() { this.ready = true; this.generation = randomUUID(); }
@@ -1841,6 +1842,17 @@ test('refund milestones retain one private matter across failed projection ackno
   function project() { projectRefundNotices(observer, h.admission, h.interactions.transport.state); }
 
   apply(0);
+  for (const actor of [
+    h.actor('/status', { chatType: 'group' }),
+    h.actor('/status', { user: 'ou_other' }),
+    h.actor('/status', { chat: 'different-private-chat' }),
+  ]) {
+    h.admission.confirmOwnerPrivateChat(actor);
+    project();
+    assert.equal(h.interactions.transport.state.drainStatus().outbox, 0);
+  }
+  assert.equal(h.admission.store.matters.list({ owner: ownerKey(h.actor('')), project: h.admission.project }, 1).length, 0);
+  h.admission.confirmOwnerPrivateChat(h.actor('/status'));
   const loseAck = t.mock.method(observer, 'noticeProjected', () => { throw Error('lost projection acknowledgement'); });
   assert.throws(project, /lost projection acknowledgement/);
   loseAck.mock.restore();
@@ -1861,7 +1873,7 @@ test('refund milestones retain one private matter across failed projection ackno
   assert.equal(h.codex.calls.length, 0);
   const scope = { owner: ownerKey(h.actor('')), project: h.admission.project };
   assert.equal(h.admission.store.matters.focus(scope), undefined);
-  const ordinary = h.interactions.receive(h.actor('Check local setup'));
+  const ordinary = h.interactions.receive(h.actor('Check local setup', { parentId: 'unrelated-message' }));
   assert.ok('request' in ordinary);
   assert.notEqual(ordinary.request.conversation, matter);
 
@@ -1877,6 +1889,8 @@ test('refund milestones retain one private matter across failed projection ackno
   const running = h.native.run(firstGrant.permit);
   await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
   const thread = String(h.codex.calls.find(call => call.method === 'turn/start')!.params.threadId);
+  assert.equal(h.interactions.receive(h.actor('/steer apply elsewhere', { parentId: 'delivered-' + first.id })).status, 'rejected');
+  assert.equal(h.interactions.receive(h.actor('/steer focus the report', { parentId: 'unrelated-message' })).status, 'control');
   h.codex.complete(thread, 'turn-2');
   await running;
 
@@ -1909,13 +1923,24 @@ test('managed refund observation retries a failed read and defers notifications 
   const error = t.mock.method(console, 'error', () => {});
   let iterations = 0;
   let finishRead: () => void = () => {};
-  const monitor = new ManagedRefundObserver(observer, config, h.admission, h.interactions.transport.state, () => {}, async () => {
-    iterations++;
-    if (iterations === 1) throw Error('read failed');
-    await new Promise<void>(resolve => { finishRead = resolve; });
-    if (iterations === 2) observer.acceptWindow(100, 160, [{ id: 'firing', at: 140, status: 'firing' }], 200);
-    return true;
-  });
+  let diagnosticReads = 0;
+  h.admission.confirmOwnerPrivateChat(h.actor('/status'));
+  const monitor = new ManagedRefundObserver(observer, config, h.admission, h.interactions.transport.state, () => {},
+    (store, source, options) => pollRefundObserver(store, source, {
+      ...options, now: 220 + iterations * 120,
+      read: async (_config, kind, from) => {
+        if (kind === 'evidence') {
+          diagnosticReads++;
+          throw Error('diagnostics should not start after shutdown or pause');
+        }
+        iterations++;
+        if (iterations === 1) throw Error('read failed');
+        await new Promise<void>(resolve => { finishRead = resolve; });
+        return JSON.stringify({ meta: { progress: 'Complete', isAccurate: true }, data: iterations === 2
+          ? [{ AlertID: 'firing', AlertName: 'refund', AlertStatus: 'firing', __time__: String(from + 1) }]
+          : [] });
+      },
+    }));
   t.after(async () => { finishRead(); await monitor.close(); });
   const settle = () => new Promise<void>(resolve => setImmediate(resolve));
   monitor.start();
@@ -1939,6 +1964,7 @@ test('managed refund observation retries a failed read and defers notifications 
   const closing = monitor.close();
   finishRead();
   await closing;
+  assert.equal(diagnosticReads, 0);
   assert.equal(h.interactions.transport.state.drainStatus().outbox, 0);
   assert.equal(h.admission.store.requests().length, 0);
 });

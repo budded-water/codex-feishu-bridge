@@ -154,7 +154,11 @@ export class RefundObserver {
     }
     if (!firing || at <= latestFiring) return;
     const latest = this.latestIncident();
-    if (latest && latest.state !== 'resolved') {
+    const recoveredBetweenFirings = latest?.state === 'needs-attention' && this.db.prepare(`
+      SELECT 1 FROM evaluations AS quiet WHERE quiet.status='inactive' AND quiet.at>? AND quiet.at<?
+      AND NOT EXISTS (SELECT 1 FROM evaluations AS other WHERE other.at=quiet.at AND other.status!='inactive')
+      LIMIT 1`).get(latest.last_firing, at);
+    if (latest && latest.state !== 'resolved' && !recoveredBetweenFirings) {
       this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(at, latest.id);
     } else {
       this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), at, at, now);
