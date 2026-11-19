@@ -191,6 +191,45 @@ test('conflicting samples at the same time are unavailable regardless of result 
   }
 });
 
+test('late firings before confirmed recovery stay on the resolved incident boundary', t => {
+  for (const invalidates of [false, true]) {
+    const { open } = setup(t);
+    const observer = open();
+    try {
+      observer.acceptWindow(100, 121, [{ id: 'initial', at: 110, status: 'firing' }], 120 + 1);
+      observer.observe(observer.nextSample(421)!, 421, samples(419));
+      observer.acceptWindow(121, 1005, [{ id: 'inactive', at: 1003, status: 'inactive' }], 1020);
+      observer.observe(observer.nextSample(1021)!, 1021, samples(1000));
+      const original = observer.report().incident!;
+      assert.equal(original.state, 'resolved');
+      observer.acceptWindow(100, 1025, [{ id: 'delayed', at: invalidates ? 500 : 140, status: 'firing' }], 1025);
+      assert.equal(observer.report().evaluations, 3);
+      assert.equal(observer.report().incident?.id, original.id);
+      assert.equal(observer.report().incident?.state, invalidates ? 'needs-attention' : 'resolved');
+      if (!invalidates) {
+        observer.acceptWindow(1025, 1090, [{ id: 'new', at: 1080, status: 'firing' }], 1100);
+        assert.notEqual(observer.report().incident?.id, original.id);
+        assert.equal(observer.report().incident?.state, 'open');
+      }
+    } finally { observer.close(); }
+  }
+});
+
+test('tied monitor runs and contradictory terminal outcomes identify source conflicts', () => {
+  const scope = 'managed:local_product_order:native_case_refunds';
+  const row = (body: Record<string, unknown>) => ({ __time__: '120', content: JSON.stringify({ scope, ...body }) });
+  const terminal = (outcome: string) => row({ event: 'merchant_refund_recovery', outcome, run_id: 'recovery',
+    query_errors: outcome === 'completed' ? 0 : 1, deferred: 0 });
+  const backlog = (run: string, channel: string) => row({ event: 'merchant_refund_backlog', outcome: 'completed',
+    channel, run_id: run, pending: 0, queryable: 0, missing_channel_identity: 0, oldest_age_seconds: 0 });
+  assert.equal(readEvidence(response([terminal('completed'), terminal('completed')])).recovery?.outcome, 'completed');
+  for (const data of [[backlog('a', 'wechat_pay'), backlog('b', 'alipay')],
+    [terminal('completed'), terminal('degraded')]]) {
+    assert.equal(readEvidence(response(data)).unavailable, 'invalid-or-incomplete-source');
+    assert.equal(readEvidence(response([...data].reverse())).unavailable, 'invalid-or-incomplete-source');
+  }
+});
+
 test('CLI preserves the cursor on incomplete history and records sanitized diagnostic transport errors', t => {
   const { directory } = setup(t);
   const mock = join(directory, 'aliyun');

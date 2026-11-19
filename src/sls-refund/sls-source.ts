@@ -96,7 +96,10 @@ export function readEvidence(value: unknown): Evidence {
   const recent = backlog.reduce<typeof backlog[number] | undefined>((latest, value) => !latest || value.at > latest.at ? value : latest, undefined);
   const accepted = new Map<Channel, BacklogSample>();
   const conflicts = new Set<Channel>();
-  if (recent && recent.at > failedBacklogAt && !backlog.some(sample => sample.at === recent.at && sample.run !== recent.run)) {
+  if (recent && backlog.some(sample => sample.at === recent.at && sample.run !== recent.run)) {
+    return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
+  }
+  if (recent && recent.at > failedBacklogAt) {
     for (const { run, ...sample } of backlog) {
       if (run !== recent.run || sample.at <= failedBacklogAt) continue;
       const prior = accepted.get(sample.channel);
@@ -112,7 +115,7 @@ export function readEvidence(value: unknown): Evidence {
   const recentTerminal = terminal.filter(sample => sample.at === latestTerminalAt);
   const terminalSample = recentTerminal[0];
   const unambiguous = terminalSample && recentTerminal.every(sample => JSON.stringify(sample) === JSON.stringify(terminalSample));
-  if (conflicts.size) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
+  if (conflicts.size || (terminalSample && !unambiguous)) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
   if (!unambiguous) return { backlog: [...accepted.values()] };
   const { run, ...recovery } = terminalSample;
   return { backlog: [...accepted.values()], ...(recent && { backlogRun: fingerprint(recent.run) }),

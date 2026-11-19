@@ -121,13 +121,32 @@ export class RefundObserver {
         if (event.at > newest && event.status === 'firing') {
           const active = this.active();
           if (active) this.db.prepare('UPDATE incidents SET last_firing=? WHERE id=?').run(event.at, active.id);
-          else this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), event.at, event.at, now);
+          else this.retainFiring(event.at, now);
         }
         if (event.status === 'firing') newest = Math.max(newest, event.at);
       }
 
       if (to > previous) this.db.prepare('UPDATE source SET through=? WHERE id=1').run(to);
     });
+  }
+
+  private retainFiring(at: number, now: number): void {
+    const closed = this.db.prepare(`SELECT i.id,COALESCE(final.evidence_through,final.observed+1) AS through,first.body
+      FROM incidents i JOIN observations final ON final.incident=i.id AND final.slot=2
+      JOIN observations first ON first.incident=i.id AND first.slot=1
+      WHERE i.state='resolved' ORDER BY i.rowid DESC LIMIT 1`).get() as
+      { id: string; through: number; body: string } | undefined;
+    if (closed && at < closed.through) {
+      const earlier = JSON.parse(closed.body) as Evidence;
+      const firstHealthy = Math.min(earlier.recovery!.at, ...earlier.backlog.map(sample => sample.at));
+      if (at >= firstHealthy) {
+        // Late data can invalidate a confirmed recovery without creating a
+        // second incident or granting another automatic observation budget.
+        this.db.prepare("UPDATE incidents SET last_firing=?,state='needs-attention' WHERE id=?").run(at, closed.id);
+      }
+      return;
+    }
+    this.db.prepare("INSERT INTO incidents VALUES (?,?,?,?,'open')").run(randomUUID(), at, at, now);
   }
 
   private active(): Incident | undefined {
