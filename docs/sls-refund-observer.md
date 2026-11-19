@@ -53,12 +53,54 @@ npm run sls:refund -- observe /absolute/path/to/private-state /absolute/path/to/
 
 在 M6 的私有 `HANDOFF_CONFIG` 中加入可选的 `slsRefundObserver` 对象，字段与上面的生产观察 JSON 相同。未配置时，网关不运行观察。启动前核对部署账号在无人值守环境可使用该 profile、只具备已登记日志读取权限，并选择短回看窗口。网关使用独立的 `<pilot-state>/sls-refund/refund-observer.db`，单次命令使用另一目录。保持来源配置、已读时间和关联的聊天状态一起保留。
 
-网关连接飞书后开始首轮，上一轮结束后间隔两分钟。原有观测使用首次发现、约 5 分钟和约 15 分钟三个采证点，具体采样受轮询、入库延迟和主机状态影响。重新启动后从 SQLite 保留的进度读起。补读未追上当前窗口期间不投递新卡。告警查询失败记录固定错误，原有飞书功能继续工作。维护暂停期间不启动新查询或投递新卡，关闭时等待进行中的查询结束。
+没有配置订阅时，网关连接飞书后开始首轮，上一轮结束后间隔两分钟。原有观测使用首次发现、约 5 分钟和约 15 分钟三个采证点，具体采样受轮询、入库延迟和主机状态影响。重新启动后从 SQLite 保留的进度读起。补读未追上当前窗口期间不投递新卡。告警查询失败记录固定错误，原有飞书功能继续工作。维护暂停期间不启动新查询或投递新卡，关闭时等待进行中的查询结束。
 
 首次启用后，在目标本人私聊发送一次 `/status`，让网关从真实消息确认聊天、租户及操作者。只有该记录已确认才会投递，重启会沿用记录。每个事件用一个飞书事项。首次观察、证据确认恢复或需要人工核对时，网关将当前结果发给绑定的本人私聊。卡片仅展示聚合计数与观测时间。重复读取、投递重试和网关重启沿用已有投递身份。尚未入队的旧状态可由更新的状态取代。按 `/matters` 查看，点卡片可切换，或直接回复该卡。回复会带上该卡的历史证据，并在同一事项中启动或续接 Codex。自动观测本身不启动模型、执行退款或修改生产。旧卡代表该次观测时间的状态。卡片投递身份待确认时，无法识别的引用会提示用户重发。
 
 停用时从私有配置移除 `slsRefundObserver` 后按正常网关流程重启。备份和迁移时保留稳定的观察库、`handoff.db` 和 `transport/bridge.db`。回滚归档会保留观察库，迁移到旧入口后使用兼容网关才能继续显示事项卡片。
 
+## 订阅 SLS 起警事件
+
+私有 `slsRefundObserver` 增加 `smq` 后，网关等待专用队列的消息。收到新起警后读 SLS 取证，随后沿用同一事件的复查和飞书事项。没有待处理事件或到期复查时，空队列响应不触发 SLS 查询。停机期间保留的消息使用原始起警时间，并从重新处理时安排复查。已完成的日志读取位置只有在完整读完窗口后才前进。空闲期后的首轮跳过远处的空闲历史，事件复查开始后保持已有读取范围的连续性。
+
+SLS 行动策略增设 EventBridge 渠道。保留原邮件行动和触发条件。如果当前行动策略被多条规则共用，将新增通知限制到已核对的退款规则。EventBridge 用下面的模式匹配，投递完整 CloudEvent 到同地域的普通 SMQ 专用队列。通知模板的 `data` 使用六个字段，分别是账号 `aliuid`、地域 `region`、项目 `project`、规则 `alert_id`、状态 `status` 和秒级起警评估时间 `alert_time`。这些字段在 SLS 默认 EventBridge 模板中已有，专用模板可只保留六项。
+
+```json
+{
+  "source": ["acs.sls.alert"],
+  "specversion": ["1.0"],
+  "type": ["sls:AlertEvent:Firing"],
+  "data": {
+    "aliuid": ["1234567890123456"],
+    "region": ["cn-hangzhou"],
+    "project": ["example-observability"],
+    "alert_id": ["example-merchant-refund-rule"],
+    "status": ["firing"]
+  }
+}
+```
+
+在现有 `slsRefundObserver` 对象内追加下列字段。选择在启用发送之前记录的 `start` 时间，将实际队列、账号和角色保存在私有配置中。
+
+```json
+{
+  "smq": {
+    "account": "1234567890123456",
+    "name": "example-refund-alerts",
+    "profile": "example-assume-queue-role",
+    "roleArn": "acs:ram::1234567890123456:role/example-refund-queue-consumer"
+  }
+}
+```
+
+`smq.profile` 只需获准 AssumeRole 到已登记的消费角色。网关附加队列级临时会话策略，操作为 `mns:ReceiveMessage` 和 `mns:DeleteMessage`，资源为该队列的消息路径。部署前也应在角色本身限制同一操作和范围。EventBridge 投递身份单独获准向这条队列发送。临时凭据在内存中更新。观测继续用原来的 SLS profile。上线前核对实际后台续期和接收权限。
+
+网关只消费匹配专用范围的起警。SMQ 重投使用最新接收句柄。通过范围核对的事件先与取证意图一同保存，再确认该消息。同一 EventBridge 事件重投沿用原记录。格式错误或不属于指定规则的消息保留在队列供检查，应用日志不输出消息正文或接收句柄。维护暂停开始前正在等待的消息若在暂停后返回，将由队列重新投递。
+
+现场验收先使用隔离队列。检查真实模板字段、长轮询、单条确认、重投、接收权限和 EventBridge 的失败投递策略。随后核对生产规则的邮件行动、保存原配置及现有网关备份，再进行已授权切换。保留首次真实告警投递和本人回复续接的证据。退回独立日志补查可使用 `sls:refund observe` 和单独的私有状态目录。停用托管观测时移除整个 `slsRefundObserver` 配置。保留队列和本地观察记录，后续可按队列保留期继续消费。
+
+参考 [SLS EventBridge 集成](https://help.aliyun.com/zh/sls/handle-sls-alarm-via-event-bus)、[默认模板](https://help.aliyun.com/zh/sls/default-alert-templates)、[队列目标](https://help.aliyun.com/zh/eventbridge/user-guide/route-events-to-simple-message-queue-formerly-mns) 和 [SMQ 权限](https://help.aliyun.com/en/mns/permission-policies-and-examples)。
+
 ## 当前交付范围
 
-本地回放和一次有界生产只读观察已分别验收。生产观察核对了已登记规则、历史评估、恢复状态及积压样本的实际格式。真实观测留在本机私有目录。网关的调度、去重和关联续接先在隔离环境验证。无人值守鉴权、现场投递及 M6 激活证据由[本阶段 OpenSpec](../openspec/changes/connect-sls-refund-matters/tasks.md)跟踪。机器来源自主触发 Codex 或变更生产需要另行设计。
+本地回放和一次有界生产只读观察已分别验收。生产观察核对了已登记规则、历史评估、恢复状态及积压样本的实际格式。真实观测留在本机私有目录。网关的调度、去重和关联续接先在隔离环境验证。SLS 的短时无人值守读取已使用一次性 M6 后台作业验证。订阅链路的现场鉴权、投递及 M6 激活由 [OpenSpec 任务](../openspec/changes/subscribe-sls-refund-events/tasks.md)跟踪。机器来源自主触发 Codex 或变更生产需要另行设计。

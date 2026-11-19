@@ -101,7 +101,7 @@ flowchart LR
 | [Agent 系统方案](docs/agent-system-plan.md) / [P0 执行探针](docs/autoloop-p0.md) / [OpenSpec 工作流](openspec/README.md) | 维护者：阶段规划、隔离验证与一个 M6 实例的 owner 私聊验收及恢复边界 |
 | [P1 交接方案与组件](openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/README.md) | 维护者：持久化接单、原生执行、控制转发和结果投递组件；迁移与回滚工具已通过临时数据演练，已完成限定范围的 owner 私聊验收 |
 | [实施状态](docs/implementation-plan.md) / [真实验收记录](docs/live-acceptance.md) | 维护者：已实现、已观察、待验收的区别 |
-| [SLS 商家退款只读观测](docs/sls-refund-observer.md) | 维护者：独立回放、只读定时复查和本人私聊事项 |
+| [SLS 商家退款只读观测](docs/sls-refund-observer.md) | 维护者：支持 SLS 告警订阅、只读复查和本人私聊事项 |
 
 ## 配置与授权
 

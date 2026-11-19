@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { openPrivateDatabase } from '../private-database.js';
 
@@ -57,6 +57,9 @@ export class RefundObserver {
         this.db.exec(`
           CREATE TABLE IF NOT EXISTS source (id INTEGER PRIMARY KEY CHECK(id=1), binding TEXT NOT NULL, through INTEGER NOT NULL);
           CREATE TABLE IF NOT EXISTS evaluations (id TEXT PRIMARY KEY, at INTEGER NOT NULL, status TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS refund_notifications (
+            id TEXT PRIMARY KEY, at INTEGER NOT NULL, scanned INTEGER NOT NULL DEFAULT 0
+          );
           CREATE TABLE IF NOT EXISTS incidents (
             id TEXT PRIMARY KEY, opened INTEGER NOT NULL, last_firing INTEGER NOT NULL,
             detected INTEGER NOT NULL, state TEXT NOT NULL
@@ -77,8 +80,10 @@ export class RefundObserver {
         if (!columns.some(column => column.name === 'evidence_through')) {
           this.db.exec('ALTER TABLE observations ADD COLUMN evidence_through INTEGER');
         }
+        const sourceColumns = this.db.prepare('PRAGMA table_info(source)').all() as { name: string }[];
+        if (!sourceColumns.some(column => column.name === 'idle_floor')) this.db.exec('ALTER TABLE source ADD COLUMN idle_floor INTEGER');
         const identity = JSON.stringify([binding.mode, binding.region, binding.project, binding.rule, binding.start]);
-        this.db.prepare('INSERT OR IGNORE INTO source VALUES (1,?,?)').run(identity, binding.start);
+        this.db.prepare('INSERT OR IGNORE INTO source(id,binding,through) VALUES (1,?,?)').run(identity, binding.start);
         const found = this.db.prepare('SELECT binding FROM source WHERE id=1').get() as { binding: string };
         if (found.binding !== identity) throw new Error('Observer state belongs to a different source or starting point');
       });
@@ -104,6 +109,42 @@ export class RefundObserver {
     return (this.db.prepare('SELECT through FROM source WHERE id=1').get() as { through: number }).through;
   }
 
+  discoveryCursor(): number {
+    return (this.db.prepare('SELECT MAX(through,COALESCE(idle_floor,through)) AS cursor FROM source WHERE id=1')
+      .get() as { cursor: number }).cursor;
+  }
+
+  retainNotification(notification: { id: string; at: number }, now: number): void {
+    if (!/^[a-zA-Z0-9_.:-]{1,160}$/.test(notification.id) || !isSecond(notification.at) || !isSecond(now) ||
+      notification.at < this.binding.start || notification.at > now) throw new Error('Invalid firing notification');
+    const id = 'notification:' + createHash('sha256').update(notification.id).digest('hex');
+    this.transaction(() => {
+      const saved = this.db.prepare('SELECT at FROM refund_notifications WHERE id=?').get(id) as { at: number } | undefined;
+      if (saved) {
+        if (saved.at !== notification.at) throw new Error('A firing notification ID changed its meaning');
+        return;
+      }
+      const latest = this.db.prepare("SELECT MAX(at) AS at FROM evaluations WHERE status='firing'").get() as { at: number | null };
+      if (this.latestIncident()?.state !== 'open' && notification.at > (latest.at ?? -1)) {
+        // This is a lower bound for the next read, not completed history coverage.
+        const floor = Math.max(this.binding.start, now - 120);
+        this.db.prepare('UPDATE source SET idle_floor=MAX(COALESCE(idle_floor,through),?) WHERE id=1').run(floor);
+      }
+      this.db.prepare('INSERT INTO refund_notifications(id,at) VALUES (?,?)').run(id, notification.at);
+      this.db.prepare("INSERT INTO evaluations VALUES (?,?,'firing')").run(id, notification.at);
+      this.reconcileEvaluation({ id, at: notification.at, status: 'firing' }, now, latest.at ?? -1);
+      this.splitAfterHandoff(now);
+    });
+  }
+
+  notificationReadDue(before: number): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM refund_notifications WHERE scanned=0 AND at<? LIMIT 1').get(before));
+  }
+
+  finishNotificationReads(): void {
+    this.db.prepare('UPDATE refund_notifications SET scanned=1 WHERE scanned=0 AND at<(SELECT through FROM source WHERE id=1)').run();
+  }
+
   acceptWindow(from: number, to: number, evaluations: Evaluation[], now: number): void {
     if (![from, to, now].every(isSecond) || from < this.binding.start || from >= to || to > now ||
       evaluations.some(event => !isSecond(event.at) || event.at < from || event.at >= to ||
@@ -112,7 +153,7 @@ export class RefundObserver {
     }
     this.transaction(() => {
       const previous = this.through();
-      if (from > previous) throw new Error('The evaluation window would skip unread history');
+      if (from > this.discoveryCursor()) throw new Error('The evaluation window would skip unread history');
 
       const latest = this.db.prepare("SELECT MAX(at) AS at FROM evaluations WHERE status='firing'").get() as { at: number | null };
       let newest = latest.at ?? -1;
@@ -128,7 +169,7 @@ export class RefundObserver {
       }
 
       this.splitAfterHandoff(now);
-      if (to > previous) this.db.prepare('UPDATE source SET through=? WHERE id=1').run(to);
+      if (to > previous) this.db.prepare('UPDATE source SET through=?,idle_floor=CASE WHEN idle_floor>? THEN idle_floor END WHERE id=1').run(to, to);
     });
   }
 

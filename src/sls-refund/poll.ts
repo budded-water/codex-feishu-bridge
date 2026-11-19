@@ -3,7 +3,7 @@ import { readEvaluations, readEvidence, readSls, type ObserverConfig } from './s
 
 const overlapSeconds = 120;
 const maxCatchupSeconds = 15 * 60;
-const logDelaySeconds = 60;
+export const logDelaySeconds = 60;
 
 export function evidenceFrom(value: unknown): Evidence {
   if (value === undefined) return { backlog: [] };
@@ -15,7 +15,7 @@ export async function pollRefundObserver(observer: RefundObserver, config: Obser
   { now = Math.floor(Date.now() / 1000), read = readSls, canContinue = () => true }:
   { now?: number; read?: typeof readSls; canContinue?: () => boolean } = {}): Promise<boolean> {
   if (config.binding.start > now - logDelaySeconds) throw new Error('Live observation start has not reached the ingestion delay');
-  const cursor = observer.through();
+  const cursor = observer.discoveryCursor();
   const to = Math.min(now - logDelaySeconds, cursor + maxCatchupSeconds);
   if (to > cursor) {
     const from = Math.max(config.binding.start, cursor - overlapSeconds);

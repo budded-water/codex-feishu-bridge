@@ -1979,3 +1979,110 @@ test('managed refund observation retries a failed read and defers notifications 
   assert.equal(h.interactions.transport.state.drainStatus().outbox, 0);
   assert.equal(h.admission.store.requests().length, 0);
 });
+
+test('SMQ notification starts an offline incident after a durable receipt, and restart processes it once without idle SLS scans', async t => {
+  const now = 1_700_001_000;
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: now * 1000 });
+  const h = setup(t);
+  const config = parseObserverConfig({ region: 'fixture', project: 'fixture', rule: 'refund', start: now - 7 * 86_400 }, 'replay');
+  const directory = join(h.config.stateDirectory, 'sls-refund');
+  h.admission.confirmOwnerPrivateChat(h.actor('/status'));
+  const flushLoop = () => new Promise<void>(resolve => setImmediate(resolve));
+  const event = { id: 'notice-spanning-gateway-downtime', at: now - 86_400 };
+  let historyReads = 0;
+  let evidenceReads = 0;
+  let received = 0;
+  const acknowledgements: string[] = [];
+  t.mock.method(console, 'error', () => {});
+
+  const poll: typeof pollRefundObserver = (ledger, source, options) => pollRefundObserver(ledger, source, {
+    ...options, read: async (_config, kind, from, to) => {
+      if (kind === 'evaluations') {
+        historyReads++;
+        assert.ok(from > now - 15 * 60, 'historical idle time is not walked minute by minute');
+        assert.ok(to > from);
+      } else evidenceReads++;
+      return JSON.stringify({ meta: { progress: 'Complete', isAccurate: true }, data: [] });
+    },
+  });
+  let ledger = new RefundObserver(directory, config.binding);
+  const first = new ManagedRefundObserver(ledger, config, h.admission, h.interactions.transport.state, () => {}, poll, {
+    receive: async () => ++received === 2 ? { ...event, receipt: 'failed-ack' } : undefined,
+    acknowledge: async receipt => {
+      acknowledgements.push(receipt);
+      assert.equal(ledger.report().incident?.opened, event.at);
+      assert.equal(ledger.through(), config.binding.start);
+      assert.ok(ledger.notificationReadDue(now));
+      throw new Error('queue acknowledgement lost');
+    },
+  });
+  t.after(() => first.close());
+  first.start();
+  await flushLoop();
+  assert.equal(historyReads, 0);
+  t.mock.timers.tick(1000);
+  await flushLoop();
+  assert.deepEqual(acknowledgements, ['failed-ack']);
+  const original = ledger.report().incident!.id;
+  await first.close();
+
+  ledger = new RefundObserver(directory, config.binding);
+  const second = new ManagedRefundObserver(ledger, config, h.admission, h.interactions.transport.state, () => {}, poll, {
+    receive: async () => ++received === 3 ? { ...event, receipt: 'fresh-receipt' } : undefined,
+    acknowledge: async receipt => { acknowledgements.push(receipt); },
+  });
+  t.after(() => second.close());
+  second.start();
+  await flushLoop();
+  t.mock.timers.tick(1000);
+  await flushLoop();
+  assert.deepEqual(acknowledgements, ['failed-ack', 'fresh-receipt']);
+  assert.equal(ledger.report().incident?.id, original);
+  assert.equal(ledger.report().incident?.observations.length, 1);
+  assert.equal(ledger.notificationReadDue(now), false);
+  assert.equal(historyReads, 1);
+  assert.equal(evidenceReads, 1);
+  await drain(h);
+  assert.equal(h.sent.filter(message => message.options?.matterCard?.anchor === original).length, 1);
+  assert.equal(h.admission.store.requests().length, 0);
+  assert.equal(h.codex.calls.length, 0);
+
+  t.mock.timers.tick(299_000);
+  await flushLoop();
+  t.mock.timers.tick(600_000);
+  await flushLoop();
+  await drain(h);
+  assert.deepEqual(ledger.report().incident?.observations.map(item => item.slot), [0, 1, 2]);
+  assert.equal(ledger.report().incident?.state, 'needs-attention');
+  assert.equal(historyReads, 3);
+  assert.equal(evidenceReads, 3);
+  assert.equal(h.sent.filter(message => message.options?.matterCard?.anchor === original).length, 2);
+  assert.equal(h.admission.store.requests().length, 0);
+  await second.close();
+});
+
+test('SMQ receipt arriving during maintenance remains available for redelivery', async t => {
+  const h = setup(t);
+  const now = Math.floor(Date.now() / 1000);
+  const config = parseObserverConfig({ region: 'fixture', project: 'fixture', rule: 'refund', start: now - 360 }, 'replay');
+  const ledger = new RefundObserver(join(h.config.stateDirectory, 'sls-refund'), config.binding);
+  let settle = () => {};
+  const delivery = new Promise<{ id: string; at: number; receipt: string }>(resolve => {
+    settle = () => resolve({ id: 'paused-firing', at: now - 1, receipt: 'unconfirmed' });
+  });
+  let received = 0;
+  let acknowledged = 0;
+  const monitor = new ManagedRefundObserver(ledger, config, h.admission, h.interactions.transport.state, () => {},
+    async () => { throw new Error('Unscheduled SLS read'); },
+    { receive: () => { received++; return delivery; }, acknowledge: async () => { acknowledged++; } });
+  t.after(async () => { settle(); await monitor.close(); });
+  monitor.start();
+  assert.equal(received, 1);
+  h.admission.store.maintenance.quiesce();
+  settle();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(acknowledged, 0);
+  assert.equal(ledger.report().incident, null);
+  assert.equal(h.interactions.transport.state.drainStatus().outbox, 0);
+  await monitor.close();
+});

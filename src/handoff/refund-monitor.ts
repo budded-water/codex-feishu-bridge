@@ -2,7 +2,8 @@ import { join } from 'node:path';
 import type { State } from '../state.js';
 import { ownerKey } from '../types.js';
 import { RefundObserver } from '../sls-refund/observer.js';
-import { pollRefundObserver } from '../sls-refund/poll.js';
+import { logDelaySeconds, pollRefundObserver } from '../sls-refund/poll.js';
+import type { RefundQueue } from '../sls-refund/smq.js';
 import type { ObserverConfig } from '../sls-refund/sls-source.js';
 import type { PilotAdmission } from './gateway.js';
 
@@ -48,7 +49,7 @@ export class ManagedRefundObserver {
   private stopping = false;
 
   constructor(private observer: RefundObserver, private config: ObserverConfig, private admission: PilotAdmission,
-    private transport: State, private assertHeld: () => void, private poll = pollRefundObserver) {}
+    private transport: State, private assertHeld: () => void, private poll = pollRefundObserver, private queue?: RefundQueue) {}
 
   start(): void {
     if (this.work || this.timer || this.stopping) throw Error('SLS refund observer already started or stopped');
@@ -56,9 +57,13 @@ export class ManagedRefundObserver {
   }
 
   private schedule(): void {
-    this.work = this.cycle().catch(() => console.error('SLS refund cycle unavailable; retained state will be retried')).finally(() => {
+    let delay = this.queue ? 1_000 : intervalMs;
+    this.work = this.cycle().catch(() => {
+      console.error('SLS refund cycle unavailable; retained state will be retried');
+      if (this.queue) delay = 15_000;
+    }).finally(() => {
       this.work = undefined;
-      if (!this.stopping) this.timer = setTimeout(() => { this.timer = undefined; this.schedule(); }, intervalMs);
+      if (!this.stopping) this.timer = setTimeout(() => { this.timer = undefined; this.schedule(); }, delay);
     });
   }
 
@@ -70,8 +75,26 @@ export class ManagedRefundObserver {
 
   private async cycle(): Promise<void> {
     if (!this.canContinue()) return;
+    if (this.queue) return this.subscriptionCycle(this.queue);
     const caughtUp = await this.poll(this.observer, this.config, { canContinue: () => this.canContinue() });
     if (caughtUp && this.canContinue()) projectRefundNotices(this.observer, this.admission, this.transport);
+  }
+
+  private async subscriptionCycle(queue: RefundQueue): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    try {
+      if (this.observer.nextSample(now) || this.observer.notificationReadDue(now - logDelaySeconds)) {
+        const caughtUp = await this.poll(this.observer, this.config, { canContinue: () => this.canContinue() });
+        if (caughtUp && this.canContinue()) this.observer.finishNotificationReads();
+      }
+    } finally {
+      if (this.canContinue()) projectRefundNotices(this.observer, this.admission, this.transport);
+    }
+    if (!this.canContinue()) return;
+    const delivery = await queue.receive();
+    if (!delivery || !this.canContinue()) return;
+    this.observer.retainNotification(delivery, Math.floor(Date.now() / 1000));
+    await queue.acknowledge(delivery.receipt);
   }
 
   async close(): Promise<void> {
@@ -83,7 +106,8 @@ export class ManagedRefundObserver {
   }
 }
 
-export function managedRefundObserver(config: ObserverConfig, admission: PilotAdmission, transport: State, assertHeld: () => void) {
+export function managedRefundObserver(config: ObserverConfig, admission: PilotAdmission, transport: State, assertHeld: () => void,
+  queue?: RefundQueue) {
   return new ManagedRefundObserver(new RefundObserver(join(admission.stateDirectory, 'sls-refund'), config.binding),
-    config, admission, transport, assertHeld);
+    config, admission, transport, assertHeld, pollRefundObserver, queue);
 }

@@ -29,7 +29,7 @@ The delivered [matter follow-up refinement](changes/archive/2026-11-19-clarify-o
 
 ## Active SLS observer
 
-The [SLS refund observer](changes/add-sls-refund-observer/proposal.md) covers standalone replay, bounded read-only observation and durable follow-up evidence. The [managed SLS matter change](changes/connect-sls-refund-matters/proposal.md) adds scheduled observation and durable owner-private cards. Its [tasks](changes/connect-sls-refund-matters/tasks.md) distinguish implementation and M6 activation from future external-source task admission.
+The [SLS refund observer](changes/add-sls-refund-observer/proposal.md) covers standalone replay, bounded read-only observation and durable follow-up evidence. The [managed SLS matter change](changes/connect-sls-refund-matters/proposal.md) adds scheduled observation and durable owner-private cards. The [refund subscription change](changes/subscribe-sls-refund-events/proposal.md) adds optional EventBridge and SMQ ingress while keeping diagnostic queries in the existing observer. Its [tasks](changes/subscribe-sls-refund-events/tasks.md) record the isolated validation and live activation gates.
 
 ## Active P3 change
 

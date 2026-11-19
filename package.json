@@ -30,6 +30,7 @@
     "handoff": "node --import tsx src/handoff/migrate-cli.ts"
   },
   "dependencies": {
+    "@alicloud/mns": "1.2.0",
     "@larksuiteoapi/node-sdk": "1.74.0",
     "proper-lockfile": "4.1.2"
   },
@@ -38,5 +39,10 @@
     "@types/proper-lockfile": "4.1.4",
     "tsx": "4.23.15",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@alicloud/mns": {
+      "xml2js": "0.6.2"
+    }
   }
 }

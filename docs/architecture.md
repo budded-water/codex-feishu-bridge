@@ -18,7 +18,7 @@ Named owner matters are separate native conversation records within the same can
 
 ## Goal and boundary
 
-The standalone [SLS refund observer](sls-refund-observer.md) reads a configured alert rule and sanitized service evidence into an independent SQLite incident ledger. Its CLI and optional managed gateway schedule share a bounded poll. The gateway projects each incident into one owner-private matter using the existing durable card outbox. A confirmed owner reply enters ordinary admission and uses that matter’s native thread. Scheduled cycles do not submit requests.
+The standalone [SLS refund observer](sls-refund-observer.md) reads a configured alert rule and sanitized service evidence into an independent SQLite incident ledger. Its CLI and optional managed gateway share bounded SLS reads. The opt-in SMQ intake records scoped firing notifications and observation intent before acknowledgment. Idle queue responses leave SLS untouched. The gateway projects each incident into one owner-private matter using the existing durable card outbox. A confirmed owner reply enters ordinary admission and uses that matter’s native thread. Scheduled cycles do not submit requests.
 
 P1 transport synchronization uses a read-only join over admission and transport facts before loading request payloads. Missing projections, changed status, pending notices, unprojected execution evidence and outstanding reference cleanup remain candidates after a restart. Source publication prepares missing group references for unstarted pending and legacy scheduled submissions. These reads retain the existing reconciliation, delivery and authorization paths. See [local metrics](operation.md#metrics-after-live-setup) for aggregate observation of the same runtime.
 
