@@ -86,10 +86,9 @@ export class ManagedRefundObserver {
     const now = Math.floor(Date.now() / 1000);
     const canContinue = () => this.canContinue();
     if (Date.now() >= this.retryObservationAt &&
-      (this.observer.nextSample(now) || this.observer.notificationReadDue(now - logDelaySeconds))) {
+      (this.observer.nextSample(now) || this.observer.notificationReadDue(now - logDelaySeconds) || this.observer.nextClosureCheck(now))) {
       try {
-        const caughtUp = await this.poll(this.observer, this.config, { canContinue });
-        if (caughtUp && canContinue()) this.observer.finishNotificationReads();
+        await this.poll(this.observer, this.config, { canContinue, subscription: true });
       } catch {
         this.retryObservationAt = Date.now() + retryMs;
         console.error('SLS refund evidence unavailable; queue intake continues');

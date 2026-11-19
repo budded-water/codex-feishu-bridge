@@ -6,7 +6,9 @@ Add one EventBridge channel to the scoped SLS action strategy. Match the exact r
 
 An authenticated notification records that SLS reported a firing. Diagnostic findings and recovery still use bounded SLS reads and the existing observation rules. A durable inbox marker keeps the read due after a restart. Repeated receipts for the same CloudEvent reuse the existing marker. After an idle gap, the first read starts around the current observation period. The retained history watermark advances only after successful reads. An open incident or previous handoff keeps continuous history so a later firing can be separated from the earlier episode.
 
-The single gateway loop waits on the queue between work items. Empty receives alone cause no SLS reads. Shutdown and maintenance prevent later receive cycles and leave a receipt that returns during the pause available for redelivery. Queue intake continues when SLS evidence is unavailable. A card can show the observed firing and pending diagnosis.
+The single gateway loop waits on the queue between work items. Empty receives alone cause no SLS reads. A subscribed incident without samples starts its observation clock when catch-up reaches the target and covers its pending notification. Existing samples retain their schedule. A resolved subscription incident retains one overlap recheck of the closure window, due two minutes later. Late conflicting evaluations use the existing handoff and card projection. Shutdown and maintenance prevent later receive cycles and leave a receipt that returns during the pause available for redelivery. Queue intake continues when SLS evidence is unavailable. A card can show the observed firing and pending diagnosis.
+
+Subscription metadata uses separate tables. Opening a ledger from the first deployed candidate moves its idle floor into that metadata and restores the legacy source table layout in one transaction, leaving the evaluation cursor and incident identities intact.
 
 ## Deployment
 

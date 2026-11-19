@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { channels, RefundObserver, type Binding, type Evidence } from '../src/sls-refund/observer.js';
+import { pollRefundObserver } from '../src/sls-refund/poll.js';
 import { parseObserverConfig, readEvaluations, readEvidence } from '../src/sls-refund/sls-source.js';
 
 const binding: Binding = { mode: 'replay', region: 'cn-hangzhou', project: 'fixture', rule: 'refund-rule', start: 100 };
@@ -406,4 +408,104 @@ test('a delayed queue firing after a human handoff preserves unread history need
     assert.equal(current.opened, 1140);
     assert.equal(observer.report().handoffs[0]?.id, handedOff);
   } finally { observer.close(); }
+});
+
+test('existing subscription state migrates the idle floor without breaking the previous observer initializer', t => {
+  const { directory, open } = setup(t);
+  const observer = open();
+  observer.retainNotification({ id: 'original', at: 120 }, 500);
+  const incident = observer.report().incident!.id;
+  observer.close();
+
+  const path = join(directory, 'refund-observer.db');
+  let db = new DatabaseSync(path);
+  db.exec(`ALTER TABLE source ADD COLUMN idle_floor INTEGER;
+    UPDATE source SET idle_floor=380;
+    DROP TABLE IF EXISTS refund_subscription;`);
+  db.close();
+
+  const upgraded = open();
+  try {
+    assert.equal(upgraded.discoveryCursor(), 380);
+    assert.equal(upgraded.through(), 100);
+    assert.equal(upgraded.report().incident?.id, incident);
+    assert.equal(upgraded.notificationReadDue(400), true);
+  } finally { upgraded.close(); }
+
+  db = new DatabaseSync(path);
+  try {
+    const previousInsert = db.prepare('INSERT OR IGNORE INTO source VALUES (1,?,?)');
+    assert.equal(previousInsert.run('previous observer', 100).changes, 0);
+  } finally { db.close(); }
+});
+
+test('a delayed subscription catch-up after human handoff preserves the new incident observation budget', async t => {
+  const observer = setup(t).open();
+  t.after(() => observer.close());
+  observer.acceptWindow(100, 151, [{ id: 'first', at: 120, status: 'firing' }], 160);
+  assert.ok(observer.observe(observer.nextSample(1060)!, 1060, { backlog: [] }));
+  const previous = observer.report().incident!.id;
+  observer.retainNotification({ id: 'new-episode', at: 6000 }, 6100);
+  let evidenceReads = 0;
+  const poll = (now: number) => pollRefundObserver(observer, { binding }, {
+    now, subscription: true, read: async (_config, kind, from, to) => {
+      if (kind === 'evidence') evidenceReads++;
+      return JSON.stringify(response(kind === 'evaluations' && from <= 500 && to > 500
+        ? [{ AlertID: 'quiet', AlertName: binding.rule, AlertStatus: 'inactive', __time__: '500' }] : []));
+    },
+  });
+  assert.equal(await poll(6100), false);
+  assert.notEqual(observer.report().incident?.id, previous);
+  assert.equal(evidenceReads, 0);
+  for (let window = 0; window < 6; window++) assert.equal(await poll(7300), false);
+  assert.equal(await poll(7300), true);
+  assert.equal(evidenceReads, 1);
+  assert.equal(observer.report().incident?.state, 'open');
+  assert.deepEqual(observer.report().incident?.observations.map(row => row.slot), [0]);
+  assert.deepEqual(observer.report().incident?.followups, [7600, 8200]);
+  assert.equal(observer.notificationReadDue(7300), false);
+});
+
+test('subscription schedules one persisted closure overlap that can undo a delivered recovery', async t => {
+  const { open } = setup(t);
+  const initial = open();
+  let incident: string;
+  try {
+    initial.acceptWindow(100, 121, [{ id: 'fire', at: 110, status: 'firing' }], 121);
+    initial.observe(initial.nextSample(421)!, 421, samples(419));
+    initial.acceptWindow(121, 1005, [{ id: 'quiet', at: 1003, status: 'inactive' }], 1065);
+    const scope = 'managed:local_product_order:native_case_refunds';
+    const evidence = [
+      ...channels.map(channel => ({ event: 'merchant_refund_backlog', channel, run_id: 'new-backlog',
+        outcome: 'completed', pending: 0, queryable: 0, missing_channel_identity: 0, oldest_age_seconds: 0 })),
+      { event: 'merchant_refund_recovery', run_id: 'new-recovery', outcome: 'completed', query_errors: 0, deferred: 0 },
+    ].map(row => ({ __time__: '1000', content: JSON.stringify({ scope, ...row }) }));
+    await pollRefundObserver(initial, { binding }, { now: 1065, subscription: true, read: async (_config, kind) => {
+      assert.equal(kind, 'evidence');
+      return JSON.stringify(response(evidence));
+    } });
+    const card = initial.pendingNotices()[0]!;
+    assert.equal(card.state, 'resolved');
+    incident = card.incident;
+    initial.noticeProjected(card.card);
+  } finally { initial.close(); }
+
+  const reopened = open();
+  t.after(() => reopened.close());
+  const calls: [string, number, number][] = [];
+  const poll = (now: number) => pollRefundObserver(reopened, { binding }, { now, subscription: true,
+    read: async (_config, kind, from, to) => {
+      calls.push([kind, from, to]);
+      return JSON.stringify(response([{ AlertID: 'late-conflict', AlertName: binding.rule, AlertStatus: 'error', __time__: '1003' }]));
+    },
+  });
+  await poll(1184);
+  assert.equal(calls.length, 0);
+  await poll(2000);
+  assert.deepEqual(calls, [['evaluations', 884, 1004]]);
+  assert.equal(reopened.through(), 1005);
+  assert.equal(reopened.report().incident?.id, incident);
+  assert.equal(reopened.pendingNotices()[0]?.state, 'needs-attention');
+  await poll(3000);
+  assert.equal(calls.length, 1);
 });

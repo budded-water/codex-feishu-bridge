@@ -60,6 +60,9 @@ export class RefundObserver {
           CREATE TABLE IF NOT EXISTS refund_notifications (
             id TEXT PRIMARY KEY, at INTEGER NOT NULL, scanned INTEGER NOT NULL DEFAULT 0
           );
+          CREATE TABLE IF NOT EXISTS refund_subscription (
+            id INTEGER PRIMARY KEY CHECK(id=1), idle_floor INTEGER NOT NULL
+          );
           CREATE TABLE IF NOT EXISTS incidents (
             id TEXT PRIMARY KEY, opened INTEGER NOT NULL, last_firing INTEGER NOT NULL,
             detected INTEGER NOT NULL, state TEXT NOT NULL
@@ -75,13 +78,21 @@ export class RefundObserver {
             incident TEXT REFERENCES incidents(id), state TEXT NOT NULL, card TEXT NOT NULL UNIQUE,
             projected INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(incident,state)
           );
+          CREATE TABLE IF NOT EXISTS refund_closure_checks (
+            incident TEXT PRIMARY KEY REFERENCES incidents(id), through INTEGER NOT NULL, due INTEGER NOT NULL
+          );
         `);
         const columns = this.db.prepare('PRAGMA table_info(observations)').all() as { name: string }[];
         if (!columns.some(column => column.name === 'evidence_through')) {
           this.db.exec('ALTER TABLE observations ADD COLUMN evidence_through INTEGER');
         }
         const sourceColumns = this.db.prepare('PRAGMA table_info(source)').all() as { name: string }[];
-        if (!sourceColumns.some(column => column.name === 'idle_floor')) this.db.exec('ALTER TABLE source ADD COLUMN idle_floor INTEGER');
+        if (sourceColumns.some(column => column.name === 'idle_floor')) {
+          // The deployed candidate used a column the previous observer cannot open.
+          this.db.exec(`INSERT OR REPLACE INTO refund_subscription
+            SELECT id,idle_floor FROM source WHERE idle_floor IS NOT NULL;
+            ALTER TABLE source DROP COLUMN idle_floor;`);
+        }
         const identity = JSON.stringify([binding.mode, binding.region, binding.project, binding.rule, binding.start]);
         this.db.prepare('INSERT OR IGNORE INTO source(id,binding,through) VALUES (1,?,?)').run(identity, binding.start);
         const found = this.db.prepare('SELECT binding FROM source WHERE id=1').get() as { binding: string };
@@ -110,7 +121,8 @@ export class RefundObserver {
   }
 
   discoveryCursor(): number {
-    return (this.db.prepare('SELECT MAX(through,COALESCE(idle_floor,through)) AS cursor FROM source WHERE id=1')
+    return (this.db.prepare(`SELECT MAX(through,COALESCE((SELECT idle_floor FROM refund_subscription WHERE id=1),through))
+      AS cursor FROM source WHERE id=1`)
       .get() as { cursor: number }).cursor;
   }
 
@@ -130,7 +142,8 @@ export class RefundObserver {
         // A prior handoff needs continuous history to distinguish a new firing.
         // The idle floor only changes where a read starts.
         const floor = Math.max(this.binding.start, now - 120);
-        this.db.prepare('UPDATE source SET idle_floor=MAX(COALESCE(idle_floor,through),?) WHERE id=1').run(floor);
+        this.db.prepare(`INSERT INTO refund_subscription VALUES (1,?)
+          ON CONFLICT(id) DO UPDATE SET idle_floor=MAX(idle_floor,excluded.idle_floor)`).run(floor);
       }
       this.db.prepare('INSERT INTO refund_notifications(id,at) VALUES (?,?)').run(id, notification.at);
       this.db.prepare("INSERT INTO evaluations VALUES (?,?,'firing')").run(id, notification.at);
@@ -143,8 +156,25 @@ export class RefundObserver {
     return Boolean(this.db.prepare('SELECT 1 FROM refund_notifications WHERE scanned=0 AND at<? LIMIT 1').get(before));
   }
 
-  finishNotificationReads(): void {
-    this.db.prepare('UPDATE refund_notifications SET scanned=1 WHERE scanned=0 AND at<(SELECT through FROM source WHERE id=1)').run();
+  finishNotificationReads(now: number): void {
+    this.transaction(() => {
+      const through = this.through();
+      // Catch-up may cross many windows before the first sample is trustworthy.
+      this.db.prepare(`UPDATE incidents SET detected=? WHERE state='open'
+        AND NOT EXISTS (SELECT 1 FROM observations WHERE incident=incidents.id)
+        AND EXISTS (SELECT 1 FROM refund_notifications WHERE scanned=0 AND at>=incidents.opened AND at<?)`)
+        .run(now, through);
+      this.db.prepare('UPDATE refund_notifications SET scanned=1 WHERE scanned=0 AND at<?').run(through);
+    });
+  }
+
+  nextClosureCheck(now: number): { incident: string; through: number } | undefined {
+    return this.db.prepare('SELECT incident,through FROM refund_closure_checks WHERE due<=? ORDER BY due,incident LIMIT 1')
+      .get(now) as { incident: string; through: number } | undefined;
+  }
+
+  finishClosureCheck(incident: string): void {
+    this.db.prepare('DELETE FROM refund_closure_checks WHERE incident=?').run(incident);
   }
 
   acceptWindow(from: number, to: number, evaluations: Evaluation[], now: number): void {
@@ -171,7 +201,10 @@ export class RefundObserver {
       }
 
       this.splitAfterHandoff(now);
-      if (to > previous) this.db.prepare('UPDATE source SET through=?,idle_floor=CASE WHEN idle_floor>? THEN idle_floor END WHERE id=1').run(to, to);
+      if (to > previous) {
+        this.db.prepare('UPDATE source SET through=? WHERE id=1').run(to);
+        this.db.prepare('DELETE FROM refund_subscription WHERE idle_floor<=?').run(to);
+      }
     });
   }
 
@@ -247,7 +280,7 @@ export class RefundObserver {
     return { incident: incident.id, slot, firing: incident.last_firing, dueAt: incident.detected + followups[slot], evidenceThrough };
   }
 
-  observe(expected: DueSample, now: number, evidence: Evidence): boolean {
+  observe(expected: DueSample, now: number, evidence: Evidence, closureCheckAt?: number): boolean {
     return this.transaction(() => {
       const sample = this.nextSample(now);
       if (!sample || sample.incident !== expected.incident || sample.slot !== expected.slot || sample.firing !== expected.firing ||
@@ -264,6 +297,10 @@ export class RefundObserver {
           (JSON.parse(earlier.assessment) as Assessment).state === 'healthy' &&
           this.samplesAdvance(JSON.parse(earlier.body) as Evidence, evidence);
         this.db.prepare('UPDATE incidents SET state=? WHERE id=?').run(resolved ? 'resolved' : 'needs-attention', sample.incident);
+        if (resolved && closureCheckAt !== undefined) {
+          this.db.prepare('INSERT INTO refund_closure_checks VALUES (?,?,?)')
+            .run(sample.incident, sample.evidenceThrough, closureCheckAt);
+        }
       }
       return true;
     });

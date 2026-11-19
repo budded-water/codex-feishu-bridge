@@ -25,3 +25,20 @@ When a dedicated SMQ source is configured, the gateway SHALL receive only matchi
 
 - **WHEN** maintenance starts before a receive response returns
 - **THEN** the gateway retains no new notification and acknowledges no new receipt during the pause
+
+#### Scenario: Catch-up delays the first subscription sample
+
+- **WHEN** unread history must be caught up for an incident without any samples
+- **THEN** the first completed catch-up through the pending firing starts the observation budget
+- **AND** prior recorded samples retain their deadlines
+
+#### Scenario: A closure evaluation arrives late
+
+- **WHEN** a subscription observation confirms recovery
+- **THEN** the observer retains one bounded overlap recheck of the closure window across restart
+- **AND** a conflicting late evaluation returns the original incident to human handoff
+
+#### Scenario: The previous observer opens the retained ledger
+
+- **WHEN** the ledger has been opened by the current observer and is opened by the previous observer
+- **THEN** the previous observer can read the stored source, cursor, evaluation and incident identities
