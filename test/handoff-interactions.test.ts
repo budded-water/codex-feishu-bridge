@@ -125,7 +125,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
     return { imagePath, entry: { run, checkpoint, label, reportSha256: fingerprint(json) } };
   };
   const home = make('home', '游客首页');
-  const profile = make('profile', '个人中心');
+  const profile = make('profile', '个人中心 ~~选中态~~');
   const plan = join(root, '.ui-eval/receipt.json');
   const planFor = (scenes: (typeof home.entry)[], overrides = {}) => writeFileSync(plan, JSON.stringify({
     projectRoot: root, projectId: 'fixture', commit, reviewFocus: '检查选中态', scenes, ...overrides,
@@ -221,10 +221,11 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   assert.equal(gallery.tag, 'column_set');
   assert.equal(gallery.flex_mode, 'bisect');
   assert.deepEqual(gallery.columns.map(({ elements: [name, result, image] }: { elements: [
-    { content: string }, { text: { content: string } }, { tag: string; img_key: string; scale_type: string; preview: boolean },
-  ] }) => [name.content, result.text.content, image.tag, image.img_key, image.scale_type, image.preview]), [
-    ['**游客首页**', '通过 · 断言 4/4', 'img', 'img_fixture_1', 'fit_horizontal', true],
-    ['**个人中心**', '通过 · 断言 4/4', 'img', 'img_fixture_2', 'fit_horizontal', true],
+    { text: { tag: string; content: string } }, { text: { content: string } },
+    { tag: string; img_key: string; scale_type: string; preview: boolean },
+  ] }) => [name.text.tag, name.text.content, result.text.content, image.tag, image.img_key, image.scale_type, image.preview]), [
+    ['plain_text', '游客首页', '通过 · 断言 4/4', 'img', 'img_fixture_1', 'fit_horizontal', true],
+    ['plain_text', '个人中心 ~~选中态~~', '通过 · 断言 4/4', 'img', 'img_fixture_2', 'fit_horizontal', true],
   ]);
   assert.equal(state.confirmedAnswer(quote), execution);
   assert.equal(state.confirmedAnswer({ ...quote, user: 'someone-else' }), undefined);

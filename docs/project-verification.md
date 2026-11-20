@@ -99,6 +99,9 @@ The Feishu reply separates the automated result, candidate and pending human
 review. The first two screenshots appear side by side with their scene names
 and assertion counts. A single screenshot or a third screenshot has its own
 row. Tap a screenshot to open the original.
+The receipt uses Card JSON 2.0 and needs Feishu client 7.20 or later.
+Check the reviewing device's version during mobile acceptance.
+See [Feishu client compatibility](https://open.feishu.cn/document/feishu-cards/card-json-v2-breaking-changes-release-notes).
 
 The gateway reads only the selected checkpoint PNGs with verified digests, the
 same clean captured source and runtime across scenes, and a matching origin and
