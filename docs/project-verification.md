@@ -90,20 +90,28 @@ The operator prepares an owner-only (`0600`) local JSON file with:
 | --- | --- |
 | `projectRoot` | Canonical absolute path to the clean candidate Git worktree. |
 | `projectId`, `commit` | Exact project ID and full candidate commit recorded in each planned report. |
+| `repository` | The UI-eval source identity. For a regular HTTPS origin, use the normalized origin URL without credentials or query. This binds the report digest to the clean candidate with the given commit. |
 | `reviewFocus` | Brief text describing what the reviewer should inspect in the pictures. |
 | `scenes` | One to three entries, each with the WeChat run UUID in `run`, exact `report.json` SHA-256 (hex, no prefix) in `reportSha256`, and a declared `checkpoint` and readable `label`. |
 
 Invoke `npm run handoff -- visual-receipt <consumer-state-root> <execution-id> <absolute-private-plan>` against the running pilot. The state root identifies the managed consumer; the receipt replies to the original request rather than an arbitrary Feishu address. The command returns the queued delivery ID. The Feishu app needs image upload and existing message permissions. A confirmed reply becomes another quotation anchor for the same task.
 
 The gateway reads only the selected checkpoint PNGs with verified digests, the
-same source/runtime across scenes, and a matching HEAD before and after the
-read. The outbox holds temporary private image bytes until upload returns
+same clean captured source and runtime across scenes, and a matching HEAD
+before and after the read. The outbox holds temporary private image bytes until upload returns
 an `image_key`. It reuses the confirmed keys and message UUID for message
 retry. Supplemental receipts in retry backoff let ordinary replies go
 through. Duplicate requests for the same task/report set reuse the receipt.
 Apply the same privacy controls to the transport database and its snapshots
 as to the source screenshots. Uploading sends the selected image bytes to
 Feishu. The original validation and its scope remain in UI-eval.
+
+For an unconfirmed local command, retry the same execution and plan. A
+confirmed queue ID means the receipt was recorded for delivery. Before a
+code-only downgrade, quiesce the current gateway to stop new visual receipt
+admission and drain its outbox with that version. Older gateways cannot
+transport pending images. Keep the current gateway running if its outbox
+cannot drain.
 
 Older pinned Web engines can emit an integration source digest without the source object. The runner uses the pinned engine's digest function to match a canonical adapter report and its embedded source to the digests in the integration summary before retaining its commit.
 

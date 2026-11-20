@@ -1,8 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync, type ReadStream } from 'node:fs';
+import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -18,6 +18,7 @@ import { Feishu } from '../src/feishu.js';
 import { Outbox } from '../src/outbox.js';
 import { queueVisualReceipt } from '../src/handoff/visual-receipt.js';
 import { fingerprint } from '../src/handoff/verification-profile.js';
+import { acquireRoot, fenceFile, manageRuntime, openRuntimeControl, writePrivate } from '../src/handoff/ownership.js';
 import { matterCard, normalizeMatterClick } from '../src/matter-card.js';
 import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
 
@@ -106,8 +107,9 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   git('add', '.gitignore');
   git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
   const commit = git('rev-parse', 'HEAD');
+  const repository = 'https://example.test/ui.git';
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB9sAAAAASUVORK5CYII=', 'base64');
-  const make = (checkpoint: string, label: string) => {
+  const make = (checkpoint: string, label: string, dirtyTree = false) => {
     const run = randomUUID();
     const dir = join(root, '.ui-eval/wechat-runs', run);
     mkdirSync(dir, { recursive: true });
@@ -115,7 +117,8 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
     writeFileSync(imagePath, png);
     const json = JSON.stringify({ apiVersion: 'uieval.io/wechat-pilot-v1', kind: 'WechatPilotResult',
       executionId: run, projectId: 'fixture', sourceCommit: commit, scenarioId: checkpoint, status: 'passed', cleanup: 'completed',
-      sourceDigest: 'sha256:' + 'a'.repeat(64), runtimeDigest: 'sha256:' + 'b'.repeat(64), assertions: { passed: 4, failed: 0 },
+      sourceDigest: 'sha256:' + fingerprint(JSON.stringify({ commitSha: commit, dirtyTree, repository })),
+      runtimeDigest: 'sha256:' + 'b'.repeat(64), assertions: { passed: 4, failed: 0 },
       screenshots: [{ checkpointId: checkpoint, path: checkpoint + '.png', digest: 'sha256:' + fingerprint(png), widthPx: 1, heightPx: 1 }] });
     writeFileSync(join(dir, 'report.json'), json);
     return { imagePath, entry: { run, checkpoint, label, reportSha256: fingerprint(json) } };
@@ -123,13 +126,22 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   const home = make('home', '游客首页');
   const profile = make('profile', '个人中心');
   const plan = join(root, '.ui-eval/receipt.json');
-  writeFileSync(plan, JSON.stringify({ projectRoot: root, projectId: 'fixture', commit, reviewFocus: '检查选中态',
-    scenes: [home.entry, profile.entry] }), { mode: 0o600 });
+  const planFor = (scenes: (typeof home.entry)[]) => writeFileSync(plan, JSON.stringify({
+    projectRoot: root, projectId: 'fixture', repository, commit, reviewFocus: '检查选中态', scenes,
+  }), { mode: 0o600 });
+  planFor([home.entry, profile.entry]);
   const queue = () => queueVisualReceipt(h.admission, state, execution, plan, () => {});
   await assert.rejects(queue, /completed owner-private/);
   h.codex.complete(active.thread, active.turn);
   await active.running;
   await drain(h);
+  await assert.rejects(queueVisualReceipt(h.admission, state, execution, plan, () => {
+    h.admission.store.maintenance.quiesce();
+  }), /paused/);
+  h.admission.store.maintenance.resume();
+  planFor([make('dirty', '临时改动', true).entry]);
+  await assert.rejects(queue, /Invalid or foreign visual receipt report/);
+  planFor([home.entry, profile.entry]);
   writeFileSync(home.imagePath, Buffer.concat([png, Buffer.from('changed')]));
   await assert.rejects(queue, /differs from its report/);
   writeFileSync(home.imagePath, png);
@@ -142,9 +154,12 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   const ordinary: string[] = [];
   const replies: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
   Object.assign(sdk, { client: { im: { v1: {
-    image: { create: async ({ data }: { data: { image_type: string; image: Buffer } }) => {
+    image: { create: async ({ data }: { data: { image_type: string; image: ReadStream } }) => {
       assert.equal(data.image_type, 'message');
-      uploads.push(data.image);
+      assert.equal(basename(String(data.image.path)), 'screenshot.png');
+      const chunks = [];
+      for await (const chunk of data.image) chunks.push(Buffer.from(chunk));
+      uploads.push(Buffer.concat(chunks));
       return { image_key: 'img_fixture_' + uploads.length };
     } },
     message: { reply: async (value: typeof replies[number]) => {
@@ -184,6 +199,20 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   assert.equal(state.confirmedAnswer({ ...quote, user: 'someone-else' }), undefined);
   assert.deepEqual(await queue(), receipt);
   assert.equal(state.pending().length, 0);
+});
+
+test('managed visual submission can acknowledge validation slower than native controls', async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'visual-control-')));
+  writePrivate(join(root, fenceFile), { version: 1, role: 'pilot', root, data: root, operation: 'fixture' });
+  const lease = await acquireRoot(root, 'pilot', root);
+  const controller = await openRuntimeControl(lease, async request => {
+    if (request.reference !== 'approved-plan') throw Error('Fixture rejection');
+    await new Promise(resolve => setTimeout(resolve, 1600));
+    return { delivery: 'fixture-receipt' };
+  });
+  t.after(async () => { await controller.close(true); await lease.release(); rmSync(root, { recursive: true, force: true }); });
+  await assert.rejects(manageRuntime(root, 'visual-receipt', 'task', 'wrong-plan'), /rejected by the gateway/);
+  assert.deepEqual(await manageRuntime(root, 'visual-receipt', 'task', 'approved-plan'), { delivery: 'fixture-receipt' });
 });
 
 for (const [name, reference] of [

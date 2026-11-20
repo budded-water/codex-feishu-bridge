@@ -20,19 +20,22 @@ export async function readVisualReceipt(path: string) {
     throw Error('Visual receipt plan must be private to the runtime owner');
   }
   const plan = privateRecord(path);
-  const { projectRoot, projectId, commit, reviewFocus, scenes } = plan;
+  const { projectRoot, projectId, repository, commit, reviewFocus, scenes } = plan;
   if (typeof projectRoot !== 'string' || !isAbsolute(projectRoot) || realpathSync(projectRoot) !== projectRoot ||
     typeof projectId !== 'string' || !segment.test(projectId) ||
+    typeof repository !== 'string' || !repository.trim() || repository.length > 1024 ||
     typeof commit !== 'string' || !/^[a-f0-9]{40}$/.test(commit) ||
     typeof reviewFocus !== 'string' || !reviewFocus.trim() || reviewFocus.length > 300 ||
     !Array.isArray(scenes) || !scenes.length || scenes.length > 3) throw Error('Invalid visual receipt plan');
   if (await gitRead(projectRoot, ['rev-parse', '--show-toplevel']) !== projectRoot) throw Error('Visual receipt requires the candidate worktree root');
   const source = await verificationSourceState(projectRoot);
   if (!source.clean || source.commit !== commit) throw Error('Visual receipt candidate changed');
+  // UI-eval hashes the clean source record with these keys in canonical order.
+  const sourceDigest = 'sha256:' + fingerprint(JSON.stringify({ commitSha: commit, dirtyTree: false, repository }));
   const images: VisualImage[] = [];
   const references: string[] = [];
   const scenarios = new Set<string>();
-  let sourceIdentity: string | undefined;
+  let runtimeDigest: string | undefined;
   let passed = 0;
   for (const value of scenes) {
     const { run, reportSha256, checkpoint, label } = record(value);
@@ -48,15 +51,14 @@ export async function readVisualReceipt(path: string) {
     if (report.apiVersion !== 'uieval.io/wechat-pilot-v1' || report.kind !== 'WechatPilotResult' ||
       report.executionId !== run || report.projectId !== projectId || report.sourceCommit !== commit ||
       typeof report.scenarioId !== 'string' || !segment.test(report.scenarioId) || scenarios.has(report.scenarioId) ||
-      typeof report.sourceDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(report.sourceDigest) ||
+      report.sourceDigest !== sourceDigest ||
       typeof report.runtimeDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(report.runtimeDigest) ||
       !verdict || !Number.isSafeInteger(assertions.passed) || !Number.isSafeInteger(assertions.failed) ||
       Number(assertions.passed) < 0 || Number(assertions.failed) < 0 ||
       (report.status === 'passed' && (assertions.failed !== 0 || Number(assertions.passed) < 1 || report.cleanup !== 'completed')) ||
       !Array.isArray(report.screenshots)) throw Error('Invalid or foreign visual receipt report');
-    const identity = report.sourceDigest + '/' + report.runtimeDigest;
-    if (sourceIdentity && sourceIdentity !== identity) throw Error('Visual receipt findings have different source or runtime');
-    sourceIdentity = identity;
+    if (runtimeDigest && runtimeDigest !== report.runtimeDigest) throw Error('Visual receipt reports have different runtimes');
+    runtimeDigest = report.runtimeDigest;
     scenarios.add(report.scenarioId);
     const matches = report.screenshots.map(record).filter(shot => shot.checkpointId === checkpoint);
     const shot = matches[0];
@@ -78,6 +80,7 @@ export async function readVisualReceipt(path: string) {
 
 export async function queueVisualReceipt(admission: PilotAdmission, transport: State, executionId: unknown, path: unknown, assertOwned: () => void) {
   if (typeof executionId !== 'string' || !uuid.test(executionId) || typeof path !== 'string') throw Error('Visual receipt requires an execution and private plan');
+  if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
   const execution = admission.store.execution(executionId);
   const request = execution && admission.store.request(execution.request);
   const scope = admission.scope;
@@ -89,6 +92,7 @@ export async function queueVisualReceipt(admission: PilotAdmission, transport: S
   }
   const receipt = await readVisualReceipt(path);
   assertOwned();
+  if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
   const delivery = transport.projectVisualReceipt(request, receipt);
   return { execution: executionId, delivery };
 }

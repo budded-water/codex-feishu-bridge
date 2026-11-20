@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path';
 import type { Config } from '../config.js';
 import { Feishu } from '../feishu.js';
 import { record } from '../types.js';
-import { acquireRoot, openRuntimeControl, readFence, verifyImportedState } from './ownership.js';
+import { acquireRoot, openRuntimeControl, readFence, verifyImportedState, visualReceiptValidationMs } from './ownership.js';
 import { PilotAdmission, type PilotScope } from './gateway.js';
 import { NativeExecutions } from './native.js';
 import { AutoloopSource, SourceOutbox } from './source.js';
@@ -60,9 +60,10 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       control = await openRuntimeControl(lease, request => {
         if (!admission || !interactions || !native) throw new Error('Pilot is opening');
         if (request.command === 'visual-receipt') {
+          const deadline = performance.now() + visualReceiptValidationMs;
           if (stopping) throw Error('Pilot is closing');
           return queueVisualReceipt(admission, interactions.transport.state, request.task, request.reference, () => {
-            if (stopping) throw Error('Pilot is closing');
+            if (stopping || performance.now() >= deadline) throw Error('Visual receipt validation window closed');
             lease.assertHeld();
           });
         }

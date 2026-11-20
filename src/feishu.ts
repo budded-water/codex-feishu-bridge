@@ -1,4 +1,8 @@
 import { matterCard, normalizeMatterClick, type MatterClick } from './matter-card.js';
+import { createReadStream } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { reviewCard, normalizeReviewClick, type ReviewPresentation, type ReviewHandler } from './review-card.js';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { attachImages, contextText, mentionText, postRows } from './chat-images.js';
@@ -203,10 +207,21 @@ export class Feishu implements ContextPort, ReactionPort {
   }
 
   async uploadImage(png: Buffer): Promise<string> {
-    const response = await this.client.im.v1.image.create({ data: { image_type: 'message', image: png } });
-    const key = response?.image_key;
-    if (!key || !/^[a-zA-Z0-9_-]{1,200}$/.test(key)) throw Error('Feishu rejected visual receipt upload');
-    return key;
+    const directory = await mkdtemp(join(tmpdir(), 'feishu-receipt-'));
+    const path = join(directory, 'screenshot.png');
+    let image: ReturnType<typeof createReadStream> | undefined;
+    try {
+      // The SDK's Buffer multipart field has no filename. A file stream supplies it.
+      await writeFile(path, png, { mode: 0o600, flag: 'wx' });
+      image = createReadStream(path);
+      const response = await this.client.im.v1.image.create({ data: { image_type: 'message', image } });
+      const key = response?.image_key;
+      if (!key || !/^[a-zA-Z0-9_-]{1,200}$/.test(key)) throw Error('Feishu rejected visual receipt upload');
+      return key;
+    } finally {
+      image?.destroy();
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 
   async updateApproval(message: string, approval: ApprovalPresentation, view: ApprovalView): Promise<void> {
