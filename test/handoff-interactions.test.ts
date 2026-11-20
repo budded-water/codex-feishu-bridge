@@ -38,9 +38,9 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   const config: Config = { allowedUsers: ['ou_owner', 'ou_admin'], accessMode: 'allowlist', allowedTenant: 'tenant', enableGroups: false,
     groupContextMessages: 0, groupContextImages: 0, approvalUsers: ['ou_admin'], approvalChat: 'admin', codexExecutable: 'codex',
     stateDirectory: join(root, 'state'), approvalTimeoutSeconds: 300, projects: scope.projects, projectRouting: 'manual' };
-  const admission = new PilotAdmission(config.stateDirectory, scope);
+  let admission = new PilotAdmission(config.stateDirectory, scope);
   const codex = new ManagedFake();
-  const native = new NativeExecutions(admission, config, () => codex);
+  let native = new NativeExecutions(admission, config, () => codex);
   const sent: { chat: string; text: string; id: string; options?: DeliveryOptions }[] = [];
   const reactions = new Map<string, string>();
   let send = async (chat: string, text: string, id: string, options?: DeliveryOptions): Promise<string | void> => {
@@ -69,14 +69,146 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
     const thread = String(call.params.threadId), turn = 'turn-2';
     return { message, request: admitted.request, running, thread, turn };
   };
-  const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context); await interactions.recover(); return interactions; };
+  const restart = async (reopenAdmission = false) => {
+    await interactions.close();
+    if (reopenAdmission) {
+      admission.close();
+      admission = new PilotAdmission(config.stateDirectory, scope);
+      native = new NativeExecutions(admission, config, () => codex);
+    }
+    interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
+    await interactions.recover();
+    return interactions;
+  };
   t.after(async () => { await native.stop(); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
-  return { config, admission, native, codex, sent, cardUpdates, reactions, actor, launch, restart, get interactions() { return interactions; },
+  return { config, get admission() { return admission; }, get native() { return native; }, codex, sent, cardUpdates, reactions, actor, launch, restart, get interactions() { return interactions; },
     setSend: (value: typeof send) => { send = value; }, setAdd: (value: typeof add) => { add = value; },
     setRemove: (value: typeof remove) => { remove = value; } };
 }
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
+
+for (const [name, reference] of [
+  ['iOS candidate', 'ios:release-41@sha256:' + 'a'.repeat(64)],
+  ['Web preview', 'https://preview.example.test/build/17?commit=' + 'b'.repeat(40)],
+] as const) test('owner confirms the exact ' + name + ' checkpoint after reopening admission and resumes once', async t => {
+  const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
+  const first = await h.launch();
+  const wait = h.actor('/delivery-wait ' + first.request.execution + ' ' + reference);
+  h.interactions.receive(wait);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, first.request.project, first.request.execution), undefined);
+  h.codex.complete(first.thread, first.turn);
+  await first.running;
+
+  const registered = h.actor(wait.text);
+  h.interactions.receive(registered);
+  const saved = h.admission.store.deliveryCheckpoint(registered, first.request.project, first.request.execution);
+  assert.ok(saved);
+  assert.deepEqual({ ...saved }, { execution: first.request.execution, reference, resumed: null });
+  await h.restart(true);
+  const before = h.admission.store.requests().length;
+  const query = h.actor('/delivery ' + first.request.execution);
+  h.interactions.receive(query);
+  await drain(h);
+  const view = h.sent.find(row => row.options?.replyTo === query.id);
+  assert.ok(view);
+  assert.ok(view.text.includes('等待确认这份证据'));
+  assert.ok(view.text.includes(reference));
+  const confirmationHeader = '/delivery-confirm ' + first.request.execution + ' ' + reference;
+  const copyable = view.text.split('\n').find(line => line.startsWith('/delivery-confirm '));
+  assert.equal(copyable, confirmationHeader);
+  assert.doesNotMatch(view.text, /\n后续任务内容/);
+  const waitReplacement = h.actor(wait.text + '-other');
+  h.interactions.receive(waitReplacement);
+  const followup = '  candidate: inspect\n    requested: Check the recorded candidate only';
+  const confirm = (candidate = reference) => '/delivery-confirm ' + first.request.execution + ' ' + candidate + '\n' + followup;
+  for (const malformed of [confirm(reference + '-other'), copyable!]) {
+    h.interactions.receive(h.actor(malformed));
+  }
+  for (const overrides of [{ user: 'ou_admin' }, { chat: 'admin' }, { tenant: 'foreign' }, { chatType: 'group' }]) {
+    assert.equal(h.interactions.receive(h.actor(confirm(), overrides)).status, 'ignored');
+  }
+  assert.equal(h.admission.store.requests().length, before);
+  const action = h.actor(confirm());
+  assert.equal(h.interactions.receive(action).status, 'task-reply');
+  assert.equal(h.interactions.receive(action).status, 'ignored');
+  h.interactions.receive(h.actor(confirm()));
+  assert.equal(h.admission.store.requests().length, before + 1);
+  await h.restart(true);
+  await drain(h);
+  const checkpoint = h.admission.store.deliveryCheckpoint(action, first.request.project, first.request.execution);
+  assert.ok(checkpoint?.resumed);
+  const continuation = h.admission.store.request(checkpoint.resumed)!;
+  assert.equal(continuation.conversation, first.request.conversation);
+  assert.equal(h.admission.store.conversationThread(continuation.conversation), first.thread);
+  assert.ok(continuation.input.includes(reference));
+  assert.ok(continuation.input.includes('\n' + followup + '\n\n'));
+  const receipt = h.sent.filter(row => row.options?.replyTo === action.id && row.text.includes('已记录证据确认'));
+  assert.equal(receipt.length, 1);
+  const grant = h.admission.store.reserve(continuation.id, 2);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected continuation reservation');
+  h.codex.calls.length = 0;
+  const running = h.native.run(grant.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  assert.equal(h.codex.calls.find(call => call.method === 'thread/resume')?.params.threadId, first.thread);
+  const turns = h.codex.calls.filter(call => call.method === 'turn/start');
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0]!.params.threadId, first.thread);
+  assert.ok(JSON.stringify(turns[0]!.params.input).includes(reference));
+  h.codex.complete(first.thread, 'turn-3');
+  await running;
+});
+
+test('delivery confirmation waits for verifiable original journal evidence', async t => {
+  const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
+  const first = await h.launch();
+  h.codex.complete(first.thread, first.turn);
+  await first.running;
+  const reference = 'ios:release-42@sha256:example';
+  const register = h.actor('/delivery-wait ' + first.request.execution + ' ' + reference);
+  const journal = join(h.config.stateDirectory, 'executions', first.request.execution, 'bridge.db');
+  const original = readFileSync(journal);
+  unlinkSync(journal);
+  h.interactions.receive(register);
+  assert.equal(h.admission.store.deliveryCheckpoint(register, first.request.project, first.request.execution), undefined);
+  writeFileSync(journal, original, { mode: 0o600 });
+  h.interactions.receive(h.actor(register.text));
+  unlinkSync(journal);
+  const confirm = '/delivery-confirm ' + first.request.execution + ' ' + reference + '\nInspect the candidate';
+  const attempt = h.actor(confirm);
+  h.interactions.receive(attempt);
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.equal(h.admission.store.deliveryCheckpoint(attempt, first.request.project, first.request.execution)?.resumed, null);
+  writeFileSync(journal, original, { mode: 0o600 });
+  assert.equal(h.interactions.receive(h.actor(confirm)).status, 'task-reply');
+  assert.equal(h.admission.store.requests().length, 2);
+});
+
+test('delivery confirmation preserves the checkpoint when the original conversation no longer points at its thread', async t => {
+  const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
+  const first = await h.launch();
+  h.codex.complete(first.thread, first.turn);
+  await first.running;
+  const reference = 'web:preview@version-42';
+  const wait = h.actor('/delivery-wait ' + first.request.execution + ' ' + reference);
+  h.interactions.receive(wait);
+  const db = new DatabaseSync(join(h.config.stateDirectory, 'handoff.db'));
+  db.prepare('UPDATE conversations SET thread=? WHERE id=?').run('replacement-thread', first.request.conversation);
+  db.close();
+  const input = h.actor('/delivery-confirm ' + first.request.execution + ' ' + reference + '\nInspect the preview');
+  h.interactions.receive(input);
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.equal(h.admission.store.deliveryCheckpoint(input, first.request.project, first.request.execution)?.resumed, null);
+  await drain(h);
+  assert.ok(h.sent.some(row => row.options?.replyTo === input.id && row.text.includes('交付未续接')));
+});
 
 test('plain owner replies merge into the referenced queued request once and reach the eventual native turn', async t => {
   const h = setup(t);
