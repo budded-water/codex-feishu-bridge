@@ -7,5 +7,5 @@ observed scenario outcomes and corresponding screenshots in one reply.
 
 Import selected screenshots from one to three completed WeChat DevTools report
 directories under an operator-reviewed clean candidate. Deliver one owner-private
-rich post tied to the completed ordinary task. UI Eval owns the source evidence.
+review card tied to the completed ordinary task. UI Eval owns the source evidence.
 Managed gateway ownership and outbox semantics apply.

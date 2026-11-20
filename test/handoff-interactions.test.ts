@@ -125,7 +125,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
     return { imagePath, entry: { run, checkpoint, label, reportSha256: fingerprint(json) } };
   };
   const home = make('home', '游客首页');
-  const profile = make('profile', '个人中心');
+  const profile = make('profile', '个人中心 ~~选中态~~');
   const plan = join(root, '.ui-eval/receipt.json');
   const planFor = (scenes: (typeof home.entry)[], overrides = {}) => writeFileSync(plan, JSON.stringify({
     projectRoot: root, projectId: 'fixture', commit, reviewFocus: '检查选中态', scenes, ...overrides,
@@ -212,14 +212,20 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   assert.deepEqual(replies[0], replies[1]);
   assert.equal(replies[1]?.path.message_id, active.message.id);
   assert.equal(replies[1]?.data.uuid, receipt.delivery);
-  assert.equal(replies[1]?.data.msg_type, 'post');
-  const rendered = JSON.parse(replies[1]!.data.content).zh_cn;
-  assert.match(rendered.title, /2\/2 个场景通过/);
-  assert.deepEqual(rendered.content.slice(-4), [
-    [{ tag: 'text', text: '游客首页 · 通过 · 已执行断言 4/4', style: ['bold'] }],
-    [{ tag: 'img', image_key: 'img_fixture_1' }],
-    [{ tag: 'text', text: '个人中心 · 通过 · 已执行断言 4/4', style: ['bold'] }],
-    [{ tag: 'img', image_key: 'img_fixture_2' }],
+  assert.equal(replies[1]?.data.msg_type, 'interactive');
+  const rendered = JSON.parse(replies[1]!.data.content);
+  assert.equal(rendered.schema, '2.0');
+  assert.equal(rendered.header.title.content, '微信 UI 验证 · 2/2 个场景通过');
+  assert.equal(rendered.body.elements[1].content, '**待人工验收**');
+  const gallery = rendered.body.elements.at(-1);
+  assert.equal(gallery.tag, 'column_set');
+  assert.equal(gallery.flex_mode, 'bisect');
+  assert.deepEqual(gallery.columns.map(({ elements: [name, result, image] }: { elements: [
+    { text: { tag: string; content: string } }, { text: { content: string } },
+    { tag: string; img_key: string; scale_type: string; preview: boolean },
+  ] }) => [name.text.tag, name.text.content, result.text.content, image.tag, image.img_key, image.scale_type, image.preview]), [
+    ['plain_text', '游客首页', '通过 · 断言 4/4', 'img', 'img_fixture_1', 'fit_horizontal', true],
+    ['plain_text', '个人中心 ~~选中态~~', '通过 · 断言 4/4', 'img', 'img_fixture_2', 'fit_horizontal', true],
   ]);
   assert.equal(state.confirmedAnswer(quote), execution);
   assert.equal(state.confirmedAnswer({ ...quote, user: 'someone-else' }), undefined);

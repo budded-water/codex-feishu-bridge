@@ -61,7 +61,7 @@ npm start
 | P1 检查后恢复 | 已登记本人兼审批人可在私聊用 `/recover` 查看并确认检查；诊断版本补充进程、队列和 Hub 事实，范围见 [恢复边界](docs/usage.md#p2检查后恢复p1-网关) |
 | P1 排队管理 | 已登记本人兼审批人可用 `/queue` 查看未开始的请求，并用 `/withdraw 完整请求编号` 或引用原任务发送 `/withdraw`；已取得执行授权的任务不能撤回 |
 | P1 可选项目验证 | 私有配置登记 profile 后，本人可用 `/verify profile 任务` 显式选择 UI-eval 验证；原生任务、验证、review、发布分开，部署和验收见 [项目验证](docs/project-verification.md) |
-| 微信 UI 图文证据 | 本机操作者可把已生成的微信 UI-eval 报告和主图关联到已完成的本人私聊任务，见 [图文回执](docs/project-verification.md#wechat-visual-receipts) |
+| 微信 UI 图文证据 | 本机操作者可把已生成的微信 UI-eval 报告和主图关联到已完成的本人私聊任务，在飞书卡片并排查看场景截图，见 [图文回执](docs/project-verification.md#wechat-visual-receipts) |
 | P1 有界修复 | repair-enabled profile 支持 `/verify-repair profile 任务`，明确功能断言失败后最多追加一轮修复；M6 本人 fixture 的两轮闭环、审批按钮与历史查询已验收，[使用与边界](docs/bounded-repair.md) |
 | P1 交付等待 | 本人审批私聊可用 `/delivery-wait` 登记普通任务的引用或绑定通过的 Web 验证报告，`/delivery` 查看，`/delivery-confirm` 确认后在原会话续接，见 [交付等待](docs/usage.md#交付等待p1-网关) |
 | P1 验证线索 | 本人兼审批人可在登记私聊用 `/findings` 只读汇总最近验证任务的非通过线索；按 profile 取最新记录，不启动模型或自动修复，见 [查询范围](docs/usage.md#验证线索p1-网关)；M6 本人 fixture 查询及记录/证据未变已验收，见 [实际记录](docs/live-acceptance.md) |
