@@ -17,6 +17,7 @@ import { readJournal } from '../src/handoff/journal.js';
 import { Feishu } from '../src/feishu.js';
 import { Outbox } from '../src/outbox.js';
 import { queueVisualReceipt } from '../src/handoff/visual-receipt.js';
+import type { VisualWorkflows } from '../src/handoff/visual-review-workflow.js';
 import { fingerprint } from '../src/handoff/verification-profile.js';
 import { acquireRoot, fenceFile, manageRuntime, openRuntimeControl, writePrivate } from '../src/handoff/ownership.js';
 import { matterCard, normalizeMatterClick } from '../src/matter-card.js';
@@ -32,7 +33,8 @@ class ManagedFake extends FakeCodex implements ManagedCodex {
   async close() { this.exit(); }
 }
 
-function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort, extraProjects: string[] = []) {
+function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort, extraProjects: string[] = [],
+  workflows: VisualWorkflows = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'handoff-interactions-')));
   const project = join(root, 'project'); mkdirSync(project);
   const projects = { pilot: project, ...Object.fromEntries(extraProjects.map(name => {
@@ -62,7 +64,7 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   let add = async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; };
   const port = { addReaction: (message: string) => add(message),
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
-  let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
+  let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context, undefined, workflows);
   const actor = (text: string, overrides = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, chatType: 'p2p' as const, ...overrides });
   const launch = async () => {
     const message = actor('Inspect this assigned task');
@@ -84,7 +86,7 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
       admission = new PilotAdmission(config.stateDirectory, scope);
       native = new NativeExecutions(admission, config, () => codex);
     }
-    interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
+    interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context, undefined, workflows);
     await interactions.recover();
     return interactions;
   };
@@ -315,6 +317,41 @@ test('managed visual submission can acknowledge validation slower than native co
   t.after(async () => { await controller.close(true); await lease.release(); rmSync(root, { recursive: true, force: true }); });
   await assert.rejects(manageRuntime(root, 'visual-receipt', 'task', 'wrong-plan'), /rejected by the gateway/);
   assert.deepEqual(await manageRuntime(root, 'visual-receipt', 'task', 'approved-plan'), { delivery: 'fixture-receipt' });
+});
+
+test('visual action reconciliation retries a failed result write without repeating the effect', async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'visual-retry-result-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const executable = join(root, 'adapter');
+  const writes = join(root, 'writes');
+  const script = '#!' + process.execPath + '\n' +
+    'require("node:fs").appendFileSync(' + JSON.stringify(writes) + ',"merge\\n");\n' +
+    'console.log(JSON.stringify({...JSON.parse(process.argv[2]),status:"merged",mergeCommit:"' + 'b'.repeat(40) + '"}));\n';
+  writeFileSync(executable, script, { mode: 0o700 });
+  const workflow = { executable, sha256: fingerprint(script), base: 'main' };
+  const repository = 'example/project';
+  const h = setup(t, undefined, undefined, [], { [repository]: workflow });
+  h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const owner = h.actor('');
+  const state = h.interactions.transport.state;
+  const id = randomUUID();
+  state.visualReviews.register(id, owner, 'fixture', { repository, commit: 'a'.repeat(40), pullRequest: 19, workflow });
+  state.visualReviews.delivered(id, 'om_fixture', [{ caption: '首页', key: 'img_fixture' }]);
+  const finish = state.visualReviews.finish.bind(state.visualReviews);
+  let attempts = 0;
+  t.mock.method(state.visualReviews, 'finish', (...args: Parameters<typeof finish>) => {
+    if (++attempts === 1) throw Error('Injected transient store failure');
+    finish(...args);
+  });
+  const click = { tenant: owner.tenant, chat: owner.chat, user: owner.user, message: 'om_fixture', id, decision: 'merge' as const };
+  assert.equal(h.interactions.visualReviewAction(click), 'accepted');
+  await h.interactions.flush();
+  await until(() => attempts === 1);
+  assert.equal(state.visualReviews.view(id)?.phase, 'merging');
+  await h.interactions.flush();
+  assert.equal(state.visualReviews.view(id)?.phase, 'merged');
+  assert.equal(readFileSync(writes, 'utf8'), 'merge\n');
+  assert.equal(h.interactions.visualReviewAction(click), 'duplicate');
 });
 
 for (const [name, reference] of [

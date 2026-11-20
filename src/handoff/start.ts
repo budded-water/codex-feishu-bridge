@@ -76,7 +76,8 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope, config.projectRouting);
       native = new NativeExecutions(admission, config, undefined, profiles, { nativePermissions: nativePermissions(value.nativePermissions) });
       const source = new SourceOutbox(admission, new AutoloopSource(hubUrl, sourceKey));
-      interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu, profiles, workflows);
+      interactions = new PilotInteractions(admission, config, source, native, feishu, feishu,
+        [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu, profiles, workflows, lease.assertHeld);
       admission.store.bindChannel('feishu', await feishu.botIdentity());
       await interactions.start();
     })();
@@ -91,7 +92,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       void interactions!.flush().catch(() => {});
     },
       click => interactions!.cardAction(click), click => interactions!.taskRefresh(click), click => interactions!.reviewAction(click),
-      click => interactions!.matterAction(click), click => interactions!.visualReviewAction(click));
+      click => interactions!.matterAction(click), click => stopping ? 'rejected' : interactions!.visualReviewAction(click));
     if (stopping) return;
     if (refund) {
       lease.assertHeld();

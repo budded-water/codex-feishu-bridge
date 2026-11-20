@@ -22,6 +22,7 @@ test('a bound visual review runs each explicit write once and presents provider 
     'const fs = require("node:fs");',
     'const input = JSON.parse(process.argv[2]);',
     'const head = fs.readFileSync(' + JSON.stringify(provider) + ', "utf8");',
+    'if (head === "foreign-target") { console.log(JSON.stringify({...input,target:"other",status:"blocked",reason:"checks"})); process.exit(0); }',
     'if (input.commit !== head) { console.log(JSON.stringify({...input,status:"blocked",reason:"stale-source"})); process.exit(0); }',
     'fs.appendFileSync(' + JSON.stringify(effects) + ', JSON.stringify(input) + "\\n");',
     'console.log(JSON.stringify(input.action === "merge" ? {...input,status:"merged",mergeCommit:"' + mergeCommit + '"}',
@@ -106,4 +107,30 @@ test('a bound visual review runs each explicit write once and presents provider 
   state.visualReviews.register(replacement, owner, body, { ...binding, pullRequest: 43 });
   state.visualReviews.delivered(replacement, 'om_new', images);
   assert.equal(decide('merge', replacement, 'om_new'), 'rejected');
+
+  const secondTarget = randomUUID();
+  state.visualReviews.register(secondTarget, owner, body, { ...binding, pullRequest: 44 });
+  state.visualReviews.delivered(secondTarget, 'om_second', images);
+  writeFileSync(provider, commit);
+  assert.equal(decide('merge', secondTarget, 'om_second'), 'accepted');
+  await run();
+  assert.equal(decide('upload', secondTarget, 'om_second'), 'accepted');
+  writeFileSync(provider, 'foreign-target');
+  const upload = state.visualReviews.take()!;
+  await assert.rejects(executeVisualOperation(upload, workflows), /receipt identity differs/);
+  state.visualReviews.finish(upload);
+  assert.equal(state.visualReviews.view(secondTarget)?.phase, 'upload-unknown');
+});
+
+test('visual workflow timeout terminates an adapter that ignores SIGTERM', { timeout: 3000 }, async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'visual-review-timeout-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const executable = join(root, 'hanging-adapter');
+  const adapter = '#!' + process.execPath + '\nprocess.on("SIGTERM", () => {}); setInterval(() => {}, 100);';
+  writeFileSync(executable, adapter, { mode: 0o700 });
+  const workflow = { executable, sha256: createHash('sha256').update(adapter).digest('hex'), base: 'main' };
+  const repository = 'example/project';
+  await assert.rejects(executeVisualOperation({ id: randomUUID(), action: 'merge',
+    binding: { repository, commit: 'a'.repeat(40), pullRequest: 1, workflow } }, { [repository]: workflow }, 180),
+  { signal: 'SIGKILL' });
 });

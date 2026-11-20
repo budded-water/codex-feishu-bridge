@@ -55,7 +55,8 @@ function matchesWorkflow(pinned: VisualWorkflow, current?: VisualWorkflow) {
     current.uploadTarget === pinned.uploadTarget;
 }
 
-export async function executeVisualOperation(operation: VisualOperation, workflows: VisualWorkflows): Promise<VisualOperationResult> {
+export async function executeVisualOperation(operation: VisualOperation, workflows: VisualWorkflows,
+  timeout = 20 * 60_000): Promise<VisualOperationResult> {
   const { binding, action, mergeCommit, id } = operation;
   const { repository, commit, pullRequest, workflow } = binding;
   if (!workflow || !pullRequest || !matchesWorkflow(workflow, workflows[repository]) ||
@@ -75,11 +76,14 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
     ...(action === 'upload' && { mergeCommit, target: workflow.uploadTarget }) };
   const { PATH, HOME, LANG, TMPDIR } = process.env;
   const { stdout } = await runFile(executable, [JSON.stringify(payload)], {
-    env: { PATH, HOME, LANG, TMPDIR }, timeout: 20 * 60_000, maxBuffer: 32 * 1024,
+    env: { PATH, HOME, LANG, TMPDIR }, timeout, killSignal: 'SIGKILL', maxBuffer: 32 * 1024,
   });
   const result = record(JSON.parse(stdout));
   if (result.id !== id || result.action !== action || result.repository !== repository ||
-      result.commit !== commit || result.pullRequest !== pullRequest || result.base !== workflow.base) throw Error('Visual workflow receipt identity differs');
+      result.commit !== commit || result.pullRequest !== pullRequest || result.base !== workflow.base ||
+      (action === 'upload' && (result.mergeCommit !== mergeCommit || result.target !== workflow.uploadTarget))) {
+    throw Error('Visual workflow receipt identity differs');
+  }
   if (result.status === 'blocked' &&
     ['stale-source','checks','authorization','target-unavailable'].includes(String(result.reason))) {
     return { status: 'blocked', reason: result.reason as Extract<VisualOperationResult, { status: 'blocked' }>['reason'] };
@@ -87,8 +91,7 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
   if (action === 'merge' && result.status === 'merged' && typeof result.mergeCommit === 'string' && fullCommit.test(result.mergeCommit)) {
     return { status: 'merged', mergeCommit: result.mergeCommit };
   }
-  if (action === 'upload' && result.status === 'uploaded' && result.mergeCommit === mergeCommit &&
-    result.target === workflow.uploadTarget && typeof result.version === 'string' && targetName.test(result.version) &&
+  if (action === 'upload' && result.status === 'uploaded' && typeof result.version === 'string' && targetName.test(result.version) &&
     typeof result.receipt === 'string' && targetName.test(result.receipt)) {
     return { status: 'uploaded', version: result.version, receipt: result.receipt };
   }
