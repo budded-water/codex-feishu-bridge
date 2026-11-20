@@ -99,7 +99,8 @@ export async function runVerification(profile: VerificationProfile, signal: Abor
     const stages = result.stages as { cleanupSettled?: boolean }[];
     const cleanupSettled = !stages.some(stage => stage.cleanupSettled === false);
     const after = result.status === 'pass' ? await verificationSourceState(profile.projectRoot).catch(() => undefined) : undefined;
-    const cleanSource = before?.clean && after?.clean && before.commit === source.commitSha && after.commit === source.commitSha;
+    const cleanSource = before?.clean && after?.clean && before.commit === source.commitSha && after.commit === source.commitSha &&
+      typeof engine.canonicalDigest === 'function' && engine.canonicalDigest(source) === result.sourceDigest;
     if (repairSeal) { try { if (await repairSourceSeal(profile) !== repairSeal) repairSeal = undefined; } catch { repairSeal = undefined; } }
     return { status: result.status as VerificationObservation['status'], code: exit.code, signal: exit.signal, cleanupSettled,
       reason: cleanupSettled ? 'Observed pinned CLI handoff' : 'Engine reported incomplete cleanup',

@@ -88,7 +88,10 @@ export async function verificationSourceState(root: string): Promise<{ commit: s
   const status = (await gitRead(root, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '--ignore-submodules=none'])).split('\n');
   const commit = status.find(line => line.startsWith('# branch.oid '))?.slice('# branch.oid '.length);
   if (!commit || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit)) throw new Error('Verification source commit unavailable');
-  return { commit, clean: !/^[-+U][a-f0-9]+ /m.test(submodules) && status.every(line => line.startsWith('# ')) };
+  if (/^[-+U][a-f0-9]+ /m.test(submodules) || status.some(line => !line.startsWith('# '))) return { commit, clean: false };
+  const nested = submodules && await gitRead(root, ['submodule', 'foreach', '--quiet', '--recursive',
+    'git --no-optional-locks status --porcelain=v2 --untracked-files=all --ignore-submodules=none']);
+  return { commit, clean: !nested };
 }
 
 export async function verifyEngine(p: VerificationProfile): Promise<void> {

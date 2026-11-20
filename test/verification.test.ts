@@ -2,7 +2,7 @@ import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, realpathSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
@@ -309,17 +309,33 @@ test('a permit lost during thread resume prevents verified turn submission', asy
   assert.ok(h.sent.some(text => text.includes('续接的启动权限已失效')));
 });
 
-function addIgnoredSubmodule(h: ReturnType<typeof handoff>) {
-  const dependency = join(h.root, 'dependency');
+test('app-server exit before submission seals an interruption without an unknown guard', async t => {
+  const h = handoff(t), { grant } = await queuedVerifiedDelivery(h);
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T,>(method: string, input: unknown) => {
+    if (method === 'thread/resume') setImmediate(() => h.codex.exit());
+    if (method === 'turn/start') throw Error('No model turn should be submitted');
+    return request<T>(method, input);
+  };
+  const report = await h.native.run(grant.permit);
+  await drain(h);
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(report.outcome.turn, null);
+  assert.deepEqual(h.admission.store.unsettled(), []);
+  assert.ok(h.sent.some(text => text.includes('没有提交本轮模型任务')));
+});
+
+function addIgnoredSubmodule(h: ReturnType<typeof handoff>, parent = h.project, name = 'dependency') {
+  const dependency = join(h.root, name + '-source');
   const commit = (directory: string, subject: string) => h.git(directory,
     ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', subject]);
   mkdirSync(dependency);
   writeFileSync(join(dependency, 'content.txt'), 'reviewed');
   h.git(dependency, ['init', '-q']); h.git(dependency, ['add', '.']); commit(dependency, 'dependency');
-  h.git(h.project, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', dependency, 'dependency']);
-  h.git(h.project, ['config', '-f', '.gitmodules', 'submodule.dependency.ignore', 'all']);
-  h.git(h.project, ['add', '.gitmodules']); commit(h.project, 'pinned dependency');
-  return join(h.project, 'dependency/content.txt');
+  h.git(parent, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', dependency, name]);
+  h.git(parent, ['config', '-f', '.gitmodules', 'submodule.' + name + '.ignore', 'all']);
+  h.git(parent, ['add', '.gitmodules']); commit(parent, 'pinned dependency');
+  return join(parent, name, 'content.txt');
 }
 
 test('delivery detects changes in a Git submodule before registration', async t => {
@@ -363,14 +379,28 @@ test('a missing submodule checkout is ineligible even when Git status is clean',
   assert.ok(h.sent.some(text => text.includes('未提交变更')));
 });
 
-test('failed and dirty-source observations are ineligible for delivery waits', async t => {
-  for (const mode of ['fail', 'pass']) {
+test('a nested submodule with hidden edits cannot be registered as delivery evidence', async t => {
+  const h = handoff(t), dependency = dirname(addIgnoredSubmodule(h));
+  const nested = addIgnoredSubmodule(h, dependency, 'nested');
+  h.git(h.project, ['add', '--force', '--', 'dependency']);
+  h.git(h.project, ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', 'pin updated dependency']);
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  writeFileSync(nested, 'changed');
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  h.interactions.receive(wait); await drain(h);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
+  assert.ok(h.sent.some(text => text.includes('未提交变更')));
+});
+
+test('failed, dirty-source and internally mismatched observations are ineligible for delivery waits', async t => {
+  for (const mode of ['fail', 'pass', 'inline-source-mismatch']) {
     const h = handoff(t, mode);
     const dirty = join(h.project, 'uncommitted.txt');
     if (mode === 'pass') writeFileSync(dirty, 'not part of the Git commit');
     const task = await h.launch(); await task.running;
     if (mode === 'pass') rmSync(dirty);
-    assert.equal(h.admission.store.verification(task.admitted.request.execution)!.observation!.status, mode);
+    assert.equal(h.admission.store.verification(task.admitted.request.execution)!.observation!.status, mode === 'fail' ? 'fail' : 'pass');
     const wait = message('/delivery-wait ' + task.admitted.request.execution, { chatType: 'p2p' });
     h.interactions.receive(wait);
     await drain(h);

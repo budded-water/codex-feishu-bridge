@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 const args = process.argv.slice(2);
 const root = args[args.indexOf('--project-root') + 1];
 const mode = JSON.parse(readFileSync(join(root, 'mode.json'), 'utf8')).mode;
+const digest = value => 'sha256:' + createHash('sha256').update(JSON.stringify(value)).digest('hex');
 writeFileSync(join(root, '.spawns'), String(Number(existsSync(join(root, '.spawns')) ? readFileSync(join(root, '.spawns'), 'utf8') : 0) + 1));
 writeFileSync(join(root, '.ready'), String(process.pid));
 if (mode === 'environment') writeFileSync(join(root, '.environment.json'), JSON.stringify({
@@ -21,10 +22,10 @@ const finish = (status = mode, code) => {
     stages: [{ cleanupSettled: mode !== 'cleanup' }], suiteDigest: 'fixture-suite', source: {
       commitSha: execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
       dirtyTree: Boolean(execFileSync('git', ['-C', root, 'status', '--porcelain'], { encoding: 'utf8' }).trim()),
-    }, sourceDigest: 'sha256:' + '0'.repeat(64),
+    },
     summaryPath: join(directory, 'summary.json'), summaryHtmlPath: join(directory, 'summary.html') };
+  result.sourceDigest = mode.endsWith('source-mismatch') ? 'sha256:' + '0'.repeat(64) : digest(result.source);
   if (mode.startsWith('legacy-web')) {
-    const digest = value => 'sha256:' + createHash('sha256').update(JSON.stringify(value)).digest('hex');
     const report = { spec: { inputs: { sourceRevision: result.source } } };
     const reportPath = join('.ui-eval/integration', id, 'adapter.json');
     writeFileSync(join(root, reportPath), JSON.stringify(report));
@@ -45,4 +46,4 @@ if (mode === 'hold' || mode === 'stubborn') {
   process.on('SIGTERM', () => { if (mode === 'hold') finish('interrupted', 143); });
   setInterval(() => {}, 1000);
 } else finish(mode.startsWith('legacy-web') ||
-  ['missing-html', 'mismatch', 'foreign', 'linked', 'old', 'cleanup', 'wrong-exit', 'environment'].includes(mode) ? 'pass' : undefined);
+  ['missing-html', 'mismatch', 'foreign', 'linked', 'old', 'cleanup', 'wrong-exit', 'environment', 'inline-source-mismatch'].includes(mode) ? 'pass' : undefined);

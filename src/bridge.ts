@@ -523,7 +523,7 @@ export class Bridge {
         };
         active.stage = context?.status === 'available' ? '群聊参考资料已读取，正在等待 Codex 回复' : '正在等待 Codex 回复';
         active.executionStarting = true;
-        active.executionSubmitted = true;
+        if (!this.beforeTurn) active.executionSubmitted = true;
         await this.permissions?.authorize(this.codex, active.thread);
         if (this.beforeTurn) {
           const refusal = await this.beforeTurn();
@@ -533,6 +533,7 @@ export class Bridge {
             continue;
           }
         }
+        active.executionSubmitted = true;
         let response: {turn:{id:string;status:string}};
         try { response = await this.codex.request('turn/start', params); } finally { active.executionStarting = false; }
         if (!response.turn?.id) throw new Error('Invalid turn response');
@@ -546,7 +547,10 @@ export class Bridge {
           await completion;
         }
       } catch {
-        if (!active.done) this.complete(active, !this.codex.ready || active.executionSubmitted ? 'unknown' : 'failed', '任务未确认完成。请检查实际结果；恢复历史失败时可用 /new 创建会话。');
+        if (!active.done) {
+          if (this.beforeTurn && !active.executionSubmitted) this.complete(active, 'interrupted', '续接在准备期间已结束，没有提交本轮模型任务。');
+          else this.complete(active, !this.codex.ready || active.executionSubmitted ? 'unknown' : 'failed', '任务未确认完成。请检查实际结果；恢复历史失败时可用 /new 创建会话。');
+        }
       } finally {
         if (this.active.get(directory) === active) this.active.delete(directory);
       }
@@ -883,7 +887,8 @@ export class Bridge {
 
   private exited(): void {
     for (const active of this.active.values()) {
-      this.complete(active, 'unknown', '本机 Codex 进程退出，任务结果未确认，请检查实际结果后继续。');
+      if (this.beforeTurn && !active.executionSubmitted) this.complete(active, 'interrupted', '续接在准备期间已结束，没有提交本轮模型任务。');
+      else this.complete(active, 'unknown', '本机 Codex 进程退出，任务结果未确认，请检查实际结果后继续。');
     }
     for (const directory of this.state.directories()) this.state.cancelQueued(directory);
     for (const prompt of [...this.prompts.values()]) this.forget(prompt);
