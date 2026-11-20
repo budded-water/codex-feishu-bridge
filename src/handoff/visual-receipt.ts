@@ -5,6 +5,7 @@ import { privateRecord } from './ownership.js';
 import { boundedFile, fingerprint, gitRead, verificationSourceState } from './verification-profile.js';
 import type { PilotAdmission } from './gateway.js';
 import type { State } from '../state.js';
+import { githubRepository, type VisualWorkflows } from './visual-review-workflow.js';
 
 export interface VisualImage { caption: string; png: string; key?: string }
 const segment = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -30,12 +31,13 @@ export function readVisualReceiptPlan(path: string) {
     throw Error('Visual receipt plan must be private to the runtime owner');
   }
   const plan = privateRecord(path);
-  const { projectRoot, projectId, commit, reviewFocus, scenes } = plan;
+  const { projectRoot, projectId, commit, reviewFocus, scenes, pullRequest } = plan;
   if (typeof projectRoot !== 'string' || !isAbsolute(projectRoot) ||
     typeof projectId !== 'string' || !segment.test(projectId) ||
     typeof commit !== 'string' || !/^[a-f0-9]{40}$/.test(commit) ||
     typeof reviewFocus !== 'string' || !reviewFocus.trim() || reviewFocus.length > 300 ||
-    !Array.isArray(scenes) || !scenes.length || scenes.length > 3) throw Error('Invalid visual receipt plan');
+      !Array.isArray(scenes) || !scenes.length || scenes.length > 3 ||
+      (pullRequest !== undefined && (typeof pullRequest !== 'number' || !Number.isSafeInteger(pullRequest) || pullRequest < 1))) throw Error('Invalid visual receipt plan');
   const entries = scenes.map(value => {
     const { run, reportSha256, checkpoint, label } = record(value);
     if (typeof run !== 'string' || !uuid.test(run) || typeof reportSha256 !== 'string' || !digest.test(reportSha256) ||
@@ -43,7 +45,8 @@ export function readVisualReceiptPlan(path: string) {
       typeof label !== 'string' || !label.trim() || label.length > 90) throw Error('Invalid visual receipt scene');
     return { run, reportSha256, checkpoint, label: label.trim() };
   });
-  const normalized = { projectRoot, projectId, commit, reviewFocus: reviewFocus.trim(), entries };
+  const normalized = { projectRoot, projectId, commit, reviewFocus: reviewFocus.trim(), entries,
+    ...(pullRequest !== undefined && { pullRequest }) };
   return { ...normalized, evidence: fingerprint(JSON.stringify(normalized)) };
 }
 
@@ -92,12 +95,15 @@ export async function readVisualReceipt(plan: ReturnType<typeof readVisualReceip
   }
   const finalSource = await verificationSourceState(projectRoot);
   if (!finalSource.clean || finalSource.commit !== commit || await repositoryIdentity(projectRoot) !== repository) throw Error('Visual receipt candidate changed');
-  return { images, evidence,
+  const github = githubRepository(repository);
+  if (plan.pullRequest && !github) throw Error('Visual review PR requires a github.com origin');
+  return { images, evidence, allPassed: passed === images.length, github, repository,
     body: '微信 UI 验证 · ' + passed + '/' + images.length + ' 个场景通过\n微信开发者工具 · 候选 ' + commit.slice(0, 12) +
       '\n\n待人工看图 · ' + reviewFocus.trim() };
 }
 
-export async function queueVisualReceipt(admission: PilotAdmission, transport: State, executionId: unknown, path: unknown, assertOwned: () => void) {
+export async function queueVisualReceipt(admission: PilotAdmission, transport: State, executionId: unknown, path: unknown, assertOwned: () => void,
+  workflows: VisualWorkflows = {}) {
   if (typeof executionId !== 'string' || !uuid.test(executionId) || typeof path !== 'string') throw Error('Visual receipt requires an execution and private plan');
   const execution = admission.store.execution(executionId);
   const request = execution && admission.store.request(execution.request);
@@ -115,5 +121,8 @@ export async function queueVisualReceipt(admission: PilotAdmission, transport: S
   const receipt = await readVisualReceipt(plan);
   assertOwned();
   if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
-  return { execution: executionId, ...transport.projectVisualReceipt(request, receipt) };
+  return { execution: executionId, ...transport.projectVisualReceipt(request, { ...receipt, binding: {
+    repository: receipt.github ?? receipt.repository, commit: plan.commit, pullRequest: plan.pullRequest,
+    workflow: receipt.allPassed && receipt.github && plan.pullRequest ? workflows[receipt.github] : undefined,
+  } }) };
 }

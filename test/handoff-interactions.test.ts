@@ -55,7 +55,9 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   };
   let remove = async (message: string) => { reactions.delete(message); };
   const cardUpdates: { message: string; view: ApprovalView; approval: ApprovalPresentation }[] = [];
+  let updateVisual: import('../src/outbox.js').Sender['updateVisualReview'];
   const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options),
+    updateVisualReview: async (...args: Parameters<NonNullable<typeof updateVisual>>) => { await updateVisual?.(...args); },
     updateApproval: async (message: string, approval: ApprovalPresentation, view: ApprovalView) => { cardUpdates.push({ message, view, approval }); } };
   let add = async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; };
   const port = { addReaction: (message: string) => add(message),
@@ -89,13 +91,15 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   t.after(async () => { await native.stop(); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
   return { config, get admission() { return admission; }, get native() { return native; }, codex, sent, cardUpdates, reactions, actor, launch, restart, get interactions() { return interactions; },
     setSend: (value: typeof send) => { send = value; }, setAdd: (value: typeof add) => { add = value; },
-    setRemove: (value: typeof remove) => { remove = value; } };
+    setRemove: (value: typeof remove) => { remove = value; }, setVisualUpdate: (value: typeof updateVisual) => { updateVisual = value; } };
 }
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
 
 test('owner visual evidence is paired by scenario, sent once after retry and binds the quote to its task', async t => {
   const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
   const active = await h.launch();
   const execution = active.request.execution;
   const state = h.interactions.transport.state;
@@ -168,6 +172,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   let afterUpload = () => {};
   let standalone = false;
   const replies: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
+  const updates: { path: { message_id: string }; data: { content: string } }[] = [];
   Object.assign(sdk, { client: { im: { v1: {
     image: { create: async ({ data }: { data: { image_type: string; image: ReadStream & { name: string } } }) => {
       assert.equal(data.image_type, 'message');
@@ -179,7 +184,8 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
       afterUpload();
       return { image_key: 'img_fixture_' + uploads.length };
     } },
-    message: { create: async () => { standalone = true; return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
+    message: { create: async () => { standalone = true; return { code: 0 }; },
+      patch: async (value: typeof updates[number]) => { updates.push(value); return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
       if (recalled) return { code: 230011 };
       if (contentRejected) return { code: 230028 };
       if (value.data.uuid !== receipt.delivery) {
@@ -217,7 +223,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   assert.equal(rendered.schema, '2.0');
   assert.equal(rendered.header.title.content, '微信 UI 验证 · 2/2 个场景通过');
   assert.equal(rendered.body.elements[1].content, '**待人工验收**');
-  const gallery = rendered.body.elements.at(-1);
+  const gallery = rendered.body.elements.find((element: { tag: string }) => element.tag === 'column_set');
   assert.equal(gallery.tag, 'column_set');
   assert.equal(gallery.flex_mode, 'bisect');
   assert.deepEqual(gallery.columns.map(({ elements: [name, result, image] }: { elements: [
@@ -229,6 +235,23 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   ]);
   assert.equal(state.confirmedAnswer(quote), execution);
   assert.equal(state.confirmedAnswer({ ...quote, user: 'someone-else' }), undefined);
+  const button = rendered.body.elements.at(-1);
+  assert.equal(button.text.content, '仅确认验收');
+  assert.equal(button.width, 'fill');
+  const click = { tenant: quote.tenant, chat: quote.chat, user: quote.user, message: 'visual-receipt', id: receipt.delivery, decision: 'accept' as const };
+  const turns = h.codex.calls.filter(call => call.method === 'turn/start').length;
+  h.setVisualUpdate((...args) => sdk.updateVisualReview(...args));
+  assert.equal(h.interactions.visualReviewAction({ ...click, message: 'wrong-card' }), 'rejected');
+  assert.equal(h.interactions.visualReviewAction({ ...click, user: 'ou_admin' }), 'rejected');
+  assert.equal(h.interactions.visualReviewAction(click), 'accepted');
+  assert.equal(h.interactions.visualReviewAction(click), 'duplicate');
+  await until(() => updates.length === 1);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]?.path.message_id, 'visual-receipt');
+  const renderedUpdate = JSON.parse(updates[0]!.data.content);
+  assert.match(updates[0]!.data.content, /人工验收通过 · 待交付/);
+  assert.deepEqual(renderedUpdate.body.elements.find((element: { tag: string }) => element.tag === 'column_set'), gallery);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, turns);
   unlinkSync(home.imagePath);
   assert.deepEqual(await queue(), receipt);
   writeFileSync(home.imagePath, png);
@@ -272,6 +295,12 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   finally { afterUpload = () => {}; clock.mock.restore(); }
   assert.equal(uploads.length, uploadsBeforeExpiry + 1);
   assert.deepEqual(await queue(), { ...interrupted, status: 'delivery-unconfirmed' });
+  assert.equal(h.interactions.receive(quote).status, 'task-reply');
+  const taskReply = h.admission.store.taskReply(JSON.stringify([quote.tenant, quote.id]));
+  assert.ok(taskReply?.followup);
+  const followup = h.admission.store.request(taskReply.followup)!;
+  assert.equal(followup.conversation, active.request.conversation);
+  assert.match(followup.input, /"phase":"reviewed"/);
 });
 
 test('managed visual submission can acknowledge validation slower than native controls', async t => {

@@ -41,6 +41,9 @@ associates selected existing reports with a completed ordinary execution.
 The gateway persists the checked evidence snapshot in the existing outbox, and
 the Feishu adapter sends a native review card with matching image keys. A confirmed
 delivery is a task reply anchor and leaves native and project records intact.
+The private owner's review decision and card update use the transport ledger.
+Opt-in merge and developer upload use a pinned repository workflow with its
+own provider checks and receipts. See [review actions](project-verification.md#review-actions-on-new-receipts).
 
 Expose the Codex already installed on the owner's computer through a Feishu application bot for colleagues using private text or group @mentions. Keep project execution, Codex configuration, and local tools on that computer.
 

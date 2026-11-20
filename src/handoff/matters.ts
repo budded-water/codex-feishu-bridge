@@ -272,7 +272,8 @@ export class OwnerMatters {
           if (!sourceMatter) return;
           if (sourceMatter === click.choice) {
             if (this.state.confirmedAnswer(original) !== answerExecution) return;
-            const reply = this.admission.store.acceptTaskReply(original, scope.project, answerExecution);
+            const reply = this.admission.store.acceptTaskReply(original, scope.project, answerExecution,
+              original.parentId ? this.state.visualReviews.context(original.parentId) : undefined);
             if (reply?.status !== 'task-reply') return;
             return this.admission.store.requestForMessage(original) ? 'admitted' : 'refused';
           }

@@ -8,6 +8,9 @@ import { openPrivateDatabase } from './private-database.js';
 import { OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED, type RequestRecord, type ControlRecord } from './handoff/store.js';
 import type { JournalProjection } from './handoff/journal.js';
 import type { VisualImage } from './handoff/visual-receipt.js';
+import { VisualReviewStore } from './handoff/visual-review-store.js';
+import type { VisualReviewBinding } from './handoff/visual-review-workflow.js';
+import type { VisualAttachment } from './visual-review.js';
 import { splitReply } from './reply.js';
 import { approvalCard, approvalText, parseApproval, cardMessage, approvalReplyTarget, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
 import { parseTaskPresentation, redactTaskPresentation, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
@@ -44,12 +47,14 @@ export class State {
   private db: DatabaseSync;
   private secrets: string[];
   readonly maintenance: Maintenance;
+  readonly visualReviews: VisualReviewStore;
 
   constructor(directory: string, secrets: string[] = []) {
     this.secrets = secrets.filter(secret => secret.length > 4).sort((a, b) => b.length - a.length);
     this.db = openPrivateDatabase(directory, 'bridge.db');
     try {
       this.maintenance = new Maintenance(this.db);
+      this.visualReviews = new VisualReviewStore(this.db);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS migration_reconciliations (task TEXT PRIMARY KEY, reference TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS seen (tenant TEXT, id TEXT, PRIMARY KEY (tenant, id));
@@ -126,7 +131,7 @@ export class State {
       running: count("SELECT COUNT(*) AS n FROM tasks WHERE status='running'"),
       unknown: count("SELECT COUNT(*) AS n FROM tasks WHERE status='unknown' AND NOT EXISTS(SELECT 1 FROM migration_reconciliations WHERE task=tasks.id)"),
       prompts: count("SELECT COUNT(*) AS n FROM approvals WHERE status='pending'"),
-      outbox: count('SELECT COUNT(*) AS n FROM outbox') + this.cardChanges(Date.now()).length,
+      outbox: count('SELECT COUNT(*) AS n FROM outbox') + this.cardChanges(Date.now()).length + this.visualReviews.outstanding(),
       reactions: count('SELECT COUNT(*) AS n FROM feedback'),
       clarifications: count('SELECT COUNT(*) AS n FROM routing WHERE pending IS NOT NULL'),
     };
@@ -268,7 +273,7 @@ export class State {
     if (prior) return { delivery: String(prior.id), status: prior.status === 'observed' ? 'registered' : prior.status as VisualReceiptFailure };
   }
 
-  projectVisualReceipt(request: RequestRecord, receipt: { evidence: string; body: string; images: VisualImage[] }): NonNullable<ReturnType<State['visualReceipt']>> {
+  projectVisualReceipt(request: RequestRecord, receipt: { evidence: string; body: string; images: VisualImage[]; binding?: VisualReviewBinding }): NonNullable<ReturnType<State['visualReceipt']>> {
     return this.transaction(() => {
       const origin = 'visual-receipt/' + request.execution + '/' + receipt.evidence;
       const prior = this.visualReceipt(request.execution, receipt.evidence);
@@ -277,6 +282,7 @@ export class State {
       const images = receipt.images.map(image => ({ ...image, caption: this.redact(image.caption) }));
       this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(origin, 'observed', id);
       this.db.prepare('INSERT INTO projected_deliveries VALUES (?,?,0)').run(id, request.execution);
+      if (receipt.binding) this.visualReviews.register(id, request.message, this.redact(receipt.body), receipt.binding);
       // Feishu only deduplicates message UUIDs for one hour. Cut off all
       // retries within that window, even if a gateway has restarted.
       const deadline = Date.now() + 55 * 60_000;
@@ -734,7 +740,7 @@ export class State {
     return Boolean(current);
   }
 
-  delivered(id: string, message?: string): void {
+  delivered(id: string, message?: string, visualImages?: VisualAttachment[]): void {
     const card = this.db.prepare(`SELECT update_message,approval_view,task_view,review_card,matter_card,response_task,chat,
       ordinary_answer AND EXISTS(SELECT 1 FROM projected_deliveries WHERE projected_deliveries.id=outbox.id) AS ordinary_answer
       FROM outbox WHERE id=?`).get(id) as {
@@ -749,6 +755,7 @@ export class State {
           WHERE task=excluded.task AND chat=excluded.chat AND ordinary_answer=1`)
           .run(message, card.response_task, card.chat);
         if (!saved.changes) throw new Error('Answer delivery identity changed');
+        if (visualImages) this.visualReviews.delivered(id, message, visualImages);
         this.db.prepare('UPDATE tasks SET delivered_at=COALESCE(delivered_at,?) WHERE id=?').run(Date.now(), card.response_task);
         this.db.prepare('DELETE FROM outbox WHERE id=?').run(id);
       });

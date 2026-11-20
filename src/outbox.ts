@@ -5,6 +5,7 @@ import { State, type Delivery } from './state.js';
 import { ReplyTargetUnavailable, VisualReplyRejected } from './reply.js';
 import type { ApprovalPresentation, ApprovalView } from './approval.js';
 import { escapeTaskMarkdown, redactTaskPresentation, type TaskPresentation } from './task-card.js';
+import type { VisualAttachment, VisualReviewView } from './visual-review.js';
 
 export interface Sender {
   send(chat: string, text: string, idempotencyKey: string, options?: DeliveryOptions): Promise<void | string>;
@@ -12,6 +13,7 @@ export interface Sender {
   updateApproval?(message: string, approval: ApprovalPresentation, view: ApprovalView): Promise<void>;
   updateReview?(message: string, presentation: ReviewPresentation): Promise<void>;
   updateTask?(message: string, presentation: TaskPresentation): Promise<void>;
+  updateVisualReview?(message: string, body: string, images: VisualAttachment[], review: VisualReviewView): Promise<void>;
 }
 
 export class Outbox {
@@ -40,7 +42,7 @@ export class Outbox {
   }
 
   flushVisual(): Promise<void> {
-    return this.visualWork ??= this.deliver(true).finally(() => { this.visualWork = undefined; });
+    return this.visualWork ??= Promise.all([this.deliver(true), this.updateVisualReviews()]).then(() => {}).finally(() => { this.visualWork = undefined; });
   }
 
   private async deliver(visual = false): Promise<void> {
@@ -76,12 +78,13 @@ export class Outbox {
         const visualImages = delivery.visualImages ? await this.uploadVisualImages(delivery, delivery.visualImages) : undefined;
         if (delivery.visualImages && (!visualImages || this.visualReceiptExpired(delivery))) continue;
         const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined, visualImages,
+          visualReview: visualImages ? this.state.visualReviews.view(delivery.id) : undefined,
           mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval, taskView, reviewCard: delivery.reviewCard,
           matterCard: delivery.matterCard && redactMatterPresentation(delivery.matterCard, value => {
             for (const secret of this.secrets) if (secret) value = value.split(secret).join('[redacted]');
             return value;
           }) });
-        this.state.delivered(delivery.id, message || undefined);
+        this.state.delivered(delivery.id, message || undefined, visualImages);
       } catch (error) {
         if (delivery.visualImages && (error instanceof ReplyTargetUnavailable || error instanceof VisualReplyRejected)) {
           this.state.visualReceiptFailed(delivery.id, error instanceof ReplyTargetUnavailable ? 'target-unavailable' : 'content-rejected');
@@ -91,6 +94,20 @@ export class Outbox {
         this.state.retry(delivery);
         console.error('Message delivery failed; stored result will be retried');
       }
+    }
+  }
+
+  private async updateVisualReviews(): Promise<void> {
+    for (const update of this.state.visualReviews.pendingUpdates(Date.now())) {
+      let success = false;
+      try {
+        if (!this.sender.updateVisualReview) throw Error('Visual card update transport unavailable');
+        let body = update.body;
+        for (const secret of this.secrets) body = body.split(secret).join('[redacted]');
+        await this.sender.updateVisualReview(update.message, body, update.images, update.card);
+        success = true;
+      } catch { console.error('Visual review card update unconfirmed'); }
+      this.state.visualReviews.settleUpdate(update.card.id, update.revision, success);
     }
   }
 
