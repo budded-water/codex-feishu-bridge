@@ -108,15 +108,16 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
   const commit = git('rev-parse', 'HEAD');
   const repository = 'https://example.test/ui.git';
+  git('remote', 'add', 'origin', repository);
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB9sAAAAASUVORK5CYII=', 'base64');
-  const make = (checkpoint: string, label: string, dirtyTree = false) => {
+  const make = (checkpoint: string, label: string, dirtyTree = false, status = 'passed') => {
     const run = randomUUID();
     const dir = join(root, '.ui-eval/wechat-runs', run);
     mkdirSync(dir, { recursive: true });
     const imagePath = join(dir, checkpoint + '.png');
     writeFileSync(imagePath, png);
     const json = JSON.stringify({ apiVersion: 'uieval.io/wechat-pilot-v1', kind: 'WechatPilotResult',
-      executionId: run, projectId: 'fixture', sourceCommit: commit, scenarioId: checkpoint, status: 'passed', cleanup: 'completed',
+      executionId: run, projectId: 'fixture', sourceCommit: commit, scenarioId: checkpoint, status, cleanup: 'completed',
       sourceDigest: 'sha256:' + fingerprint(JSON.stringify({ commitSha: commit, dirtyTree, repository })),
       runtimeDigest: 'sha256:' + 'b'.repeat(64), assertions: { passed: 4, failed: 0 },
       screenshots: [{ checkpointId: checkpoint, path: checkpoint + '.png', digest: 'sha256:' + fingerprint(png), widthPx: 1, heightPx: 1 }] });
@@ -127,7 +128,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   const profile = make('profile', '个人中心');
   const plan = join(root, '.ui-eval/receipt.json');
   const planFor = (scenes: (typeof home.entry)[]) => writeFileSync(plan, JSON.stringify({
-    projectRoot: root, projectId: 'fixture', repository, commit, reviewFocus: '检查选中态', scenes,
+    projectRoot: root, projectId: 'fixture', commit, reviewFocus: '检查选中态', scenes,
   }), { mode: 0o600 });
   planFor([home.entry, profile.entry]);
   const queue = () => queueVisualReceipt(h.admission, state, execution, plan, () => {});
@@ -141,7 +142,12 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   h.admission.store.maintenance.resume();
   planFor([make('dirty', '临时改动', true).entry]);
   await assert.rejects(queue, /Invalid or foreign visual receipt report/);
+  planFor([make('changed', '候选曾变化', false, 'inconclusive').entry]);
+  await assert.rejects(queue, /Invalid or foreign visual receipt report/);
   planFor([home.entry, profile.entry]);
+  git('remote', 'set-url', 'origin', 'https://example.test/foreign.git');
+  await assert.rejects(queue, /Invalid or foreign visual receipt report/);
+  git('remote', 'set-url', 'origin', repository);
   writeFileSync(home.imagePath, Buffer.concat([png, Buffer.from('changed')]));
   await assert.rejects(queue, /differs from its report/);
   writeFileSync(home.imagePath, png);
@@ -152,6 +158,8 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   t.after(() => sdk.close());
   const uploads: Buffer[] = [];
   const ordinary: string[] = [];
+  let recalled = false;
+  let standalone = false;
   const replies: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
   Object.assign(sdk, { client: { im: { v1: {
     image: { create: async ({ data }: { data: { image_type: string; image: ReadStream } }) => {
@@ -162,7 +170,8 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
       uploads.push(Buffer.concat(chunks));
       return { image_key: 'img_fixture_' + uploads.length };
     } },
-    message: { reply: async (value: typeof replies[number]) => {
+    message: { create: async () => { standalone = true; return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
+      if (recalled) return { code: 230011 };
       if (value.data.uuid !== receipt.delivery) {
         ordinary.push(value.path.message_id);
         return { code: 0, data: { message_id: 'ordinary-reply' } };
@@ -198,6 +207,13 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   assert.equal(state.confirmedAnswer(quote), execution);
   assert.equal(state.confirmedAnswer({ ...quote, user: 'someone-else' }), undefined);
   assert.deepEqual(await queue(), receipt);
+  assert.equal(state.pending().length, 0);
+  planFor([home.entry]);
+  const orphaned = await queue();
+  recalled = true;
+  await new Outbox(state, sdk).flush();
+  assert.equal(standalone, false);
+  assert.deepEqual(await queue(), { ...orphaned, status: 'target-unavailable' });
   assert.equal(state.pending().length, 0);
 });
 

@@ -13,6 +13,16 @@ const digest = /^[a-f0-9]{64}$/;
 const pngHeader = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
 const imageLimit = 2 * 1024 * 1024;
 
+async function repositoryIdentity(root: string): Promise<string> {
+  const url = new URL(await gitRead(root, ['config', '--get', 'remote.origin.url']));
+  if (url.protocol !== 'https:') throw Error('Visual receipts require an HTTPS origin');
+  url.username = '';
+  url.password = '';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+}
+
 export async function readVisualReceipt(path: string) {
   if (!isAbsolute(path)) throw Error('Visual receipt plan requires an absolute path');
   const file = lstatSync(path);
@@ -20,16 +30,16 @@ export async function readVisualReceipt(path: string) {
     throw Error('Visual receipt plan must be private to the runtime owner');
   }
   const plan = privateRecord(path);
-  const { projectRoot, projectId, repository, commit, reviewFocus, scenes } = plan;
+  const { projectRoot, projectId, commit, reviewFocus, scenes } = plan;
   if (typeof projectRoot !== 'string' || !isAbsolute(projectRoot) || realpathSync(projectRoot) !== projectRoot ||
     typeof projectId !== 'string' || !segment.test(projectId) ||
-    typeof repository !== 'string' || !repository.trim() || repository.length > 1024 ||
     typeof commit !== 'string' || !/^[a-f0-9]{40}$/.test(commit) ||
     typeof reviewFocus !== 'string' || !reviewFocus.trim() || reviewFocus.length > 300 ||
     !Array.isArray(scenes) || !scenes.length || scenes.length > 3) throw Error('Invalid visual receipt plan');
   if (await gitRead(projectRoot, ['rev-parse', '--show-toplevel']) !== projectRoot) throw Error('Visual receipt requires the candidate worktree root');
   const source = await verificationSourceState(projectRoot);
   if (!source.clean || source.commit !== commit) throw Error('Visual receipt candidate changed');
+  const repository = await repositoryIdentity(projectRoot);
   // UI-eval hashes the clean source record with these keys in canonical order.
   const sourceDigest = 'sha256:' + fingerprint(JSON.stringify({ commitSha: commit, dirtyTree: false, repository }));
   const images: VisualImage[] = [];
@@ -47,15 +57,15 @@ export async function readVisualReceipt(path: string) {
     if (fingerprint(bytes) !== reportSha256) throw Error('Visual receipt report changed');
     const report = record(JSON.parse(bytes.toString('utf8')));
     const assertions = record(report.assertions);
-    const verdict = report.status === 'passed' ? '通过' : report.status === 'failed' ? '失败' : report.status === 'inconclusive' ? '未确认' : undefined;
+    const verdict = report.status === 'passed' ? '通过' : report.status === 'failed' ? '失败' : undefined;
     if (report.apiVersion !== 'uieval.io/wechat-pilot-v1' || report.kind !== 'WechatPilotResult' ||
       report.executionId !== run || report.projectId !== projectId || report.sourceCommit !== commit ||
       typeof report.scenarioId !== 'string' || !segment.test(report.scenarioId) || scenarios.has(report.scenarioId) ||
       report.sourceDigest !== sourceDigest ||
       typeof report.runtimeDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(report.runtimeDigest) ||
-      !verdict || !Number.isSafeInteger(assertions.passed) || !Number.isSafeInteger(assertions.failed) ||
+      !verdict || report.cleanup !== 'completed' || !Number.isSafeInteger(assertions.passed) || !Number.isSafeInteger(assertions.failed) ||
       Number(assertions.passed) < 0 || Number(assertions.failed) < 0 ||
-      (report.status === 'passed' && (assertions.failed !== 0 || Number(assertions.passed) < 1 || report.cleanup !== 'completed')) ||
+      (report.status === 'passed' ? assertions.failed !== 0 || Number(assertions.passed) < 1 : Number(assertions.failed) < 1) ||
       !Array.isArray(report.screenshots)) throw Error('Invalid or foreign visual receipt report');
     if (runtimeDigest && runtimeDigest !== report.runtimeDigest) throw Error('Visual receipt reports have different runtimes');
     runtimeDigest = report.runtimeDigest;
@@ -72,7 +82,7 @@ export async function readVisualReceipt(path: string) {
     if (report.status === 'passed') passed++;
   }
   const finalSource = await verificationSourceState(projectRoot);
-  if (!finalSource.clean || finalSource.commit !== commit) throw Error('Visual receipt candidate changed');
+  if (!finalSource.clean || finalSource.commit !== commit || await repositoryIdentity(projectRoot) !== repository) throw Error('Visual receipt candidate changed');
   return { images, evidence: fingerprint(JSON.stringify(references.sort())),
     body: '微信 UI 验证 · ' + passed + '/' + images.length + ' 个场景通过\n微信开发者工具 · 候选 ' + commit.slice(0, 12) +
       '\n\n待人工看图 · ' + reviewFocus.trim() };
@@ -93,6 +103,5 @@ export async function queueVisualReceipt(admission: PilotAdmission, transport: S
   const receipt = await readVisualReceipt(path);
   assertOwned();
   if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
-  const delivery = transport.projectVisualReceipt(request, receipt);
-  return { execution: executionId, delivery };
+  return { execution: executionId, ...transport.projectVisualReceipt(request, receipt) };
 }

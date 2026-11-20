@@ -88,17 +88,17 @@ The operator prepares an owner-only (`0600`) local JSON file with:
 
 | Field | Meaning |
 | --- | --- |
-| `projectRoot` | Canonical absolute path to the clean candidate Git worktree. |
+| `projectRoot` | Canonical absolute path to the clean candidate Git worktree with an HTTPS origin. The normalized origin contributes to the source digest. |
 | `projectId`, `commit` | Exact project ID and full candidate commit recorded in each planned report. |
-| `repository` | The UI-eval source identity. For a regular HTTPS origin, use the normalized origin URL without credentials or query. This binds the report digest to the clean candidate with the given commit. |
 | `reviewFocus` | Brief text describing what the reviewer should inspect in the pictures. |
 | `scenes` | One to three entries, each with the WeChat run UUID in `run`, exact `report.json` SHA-256 (hex, no prefix) in `reportSha256`, and a declared `checkpoint` and readable `label`. |
 
-Invoke `npm run handoff -- visual-receipt <consumer-state-root> <execution-id> <absolute-private-plan>` against the running pilot. The state root identifies the managed consumer; the receipt replies to the original request rather than an arbitrary Feishu address. The command returns the queued delivery ID. The Feishu app needs image upload and existing message permissions. A confirmed reply becomes another quotation anchor for the same task.
+Invoke `npm run handoff -- visual-receipt <consumer-state-root> <execution-id> <absolute-private-plan>` against the running pilot. The state root identifies the managed consumer. The command returns the delivery ID and registration status. The Feishu app needs image upload and existing message permissions. A confirmed reply becomes another quotation anchor for the same task. A recalled or deleted original message produces terminal `target-unavailable`, visible when the same plan is submitted again.
 
 The gateway reads only the selected checkpoint PNGs with verified digests, the
-same clean captured source and runtime across scenes, and a matching HEAD
-before and after the read. The outbox holds temporary private image bytes until upload returns
+same clean captured source and runtime across scenes, and a matching origin and
+HEAD before and after the read. Passed or failed scenarios with settled capture
+can provide evidence. Inconclusive reports stay in UI-eval. The outbox holds temporary private image bytes until upload returns
 an `image_key`. It reuses the confirmed keys and message UUID for message
 retry. Supplemental receipts in retry backoff let ordinary replies go
 through. Duplicate requests for the same task/report set reuse the receipt.

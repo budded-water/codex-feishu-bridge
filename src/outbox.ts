@@ -2,6 +2,7 @@ import { redactMatterPresentation } from './matter-card.js';
 import type { ReviewPresentation } from './review-card.js';
 import type { DeliveryOptions } from './types.js';
 import { State, type Delivery } from './state.js';
+import { ReplyTargetUnavailable } from './reply.js';
 import type { ApprovalPresentation, ApprovalView } from './approval.js';
 import { escapeTaskMarkdown, redactTaskPresentation, type TaskPresentation } from './task-card.js';
 
@@ -75,7 +76,12 @@ export class Outbox {
             return value;
           }) });
         this.state.delivered(delivery.id, message || undefined);
-      } catch {
+      } catch (error) {
+        if (delivery.visualImages && error instanceof ReplyTargetUnavailable) {
+          this.state.visualReceiptTargetUnavailable(delivery.id);
+          console.error('Feishu rejected the visual receipt reply target; no standalone post was sent');
+          continue;
+        }
         this.state.retry(delivery);
         console.error('Message delivery failed; stored result will be retried');
       }

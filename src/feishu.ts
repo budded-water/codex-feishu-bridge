@@ -8,7 +8,7 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import { attachImages, contextText, mentionText, postRows } from './chat-images.js';
 import { MAX_CONTEXT_MESSAGES, CONTEXT_WINDOW_MS } from './context-limits.js';
 import { RECEIVED_EMOJI, type ReactionPort } from './feedback.js';
-import { markdownPost, notificationPost, safeMentionText } from './reply.js';
+import { markdownPost, notificationPost, ReplyTargetUnavailable, safeMentionText } from './reply.js';
 import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext, type DeliveryOptions } from './types.js';
 import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
@@ -178,6 +178,7 @@ export class Feishu implements ContextPort, ReactionPort {
   }
 
   async send(chat: string, text: string, idempotencyKey: string, options: DeliveryOptions = {}): Promise<string | void> {
+    if (options.visualImages && !options.replyTo) throw new ReplyTargetUnavailable('Visual receipt requires the original message');
     const styled = markdownPost(safeMentionText(text)).zh_cn.content[0]![0]!.text;
     const [title, ...summary] = safeMentionText(text).split('\n');
     const visualPost = options.visualImages && {
@@ -200,6 +201,7 @@ export class Feishu implements ContextPort, ReactionPort {
       if (response.code === 0) return response.data?.message_id;
       // Only explicit recalled/deleted responses permit changing endpoints; uncertain errors retry the original UUID.
       if (![230011,230110].includes(response.code ?? -1)) throw new Error('Feishu rejected message delivery');
+      if (options.visualImages) throw new ReplyTargetUnavailable('Original visual receipt message is unavailable');
     }
     const response = await this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: { receive_id: chat, msg_type, content, uuid: idempotencyKey } });
     if (response.code !== 0) throw new Error('Feishu rejected message delivery');

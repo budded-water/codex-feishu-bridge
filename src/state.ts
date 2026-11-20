@@ -259,23 +259,30 @@ export class State {
     return Boolean(this.db.prepare('SELECT 1 FROM projected_tasks WHERE execution=? AND checkpoint IS NOT NULL').get(execution));
   }
 
-  projectVisualReceipt(request: RequestRecord, receipt: { evidence: string; body: string; images: VisualImage[] }): string {
+  projectVisualReceipt(request: RequestRecord, receipt: { evidence: string; body: string; images: VisualImage[] }): { delivery: string; status: 'registered' | 'target-unavailable' } {
     return this.transaction(() => {
       const origin = 'visual-receipt/' + request.execution + '/' + receipt.evidence;
-      const prior = this.db.prepare("SELECT id FROM projected_control_notices WHERE origin=? AND status='observed'").get(origin);
-      if (prior) return String(prior.id);
+      const prior = this.db.prepare('SELECT id,status FROM projected_control_notices WHERE origin=?').get(origin);
+      if (prior) return { delivery: String(prior.id), status: prior.status === 'target-unavailable' ? 'target-unavailable' : 'registered' };
       const id = randomUUID();
       const images = receipt.images.map(image => ({ ...image, caption: this.redact(image.caption) }));
       this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(origin, 'observed', id);
       this.db.prepare('INSERT INTO projected_deliveries VALUES (?,?,0)').run(id, request.execution);
       this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to,response_task,ordinary_answer,visual_images) VALUES (?,?,?,?,?,1,?)')
         .run(id, request.message.chat, this.redact(receipt.body), request.message.id, request.execution, JSON.stringify(images));
-      return id;
+      return { delivery: id, status: 'registered' };
     });
   }
 
   saveVisualImages(delivery: string, images: VisualImage[]): void {
     this.db.prepare('UPDATE outbox SET visual_images=? WHERE id=?').run(JSON.stringify(images), delivery);
+  }
+
+  visualReceiptTargetUnavailable(delivery: string): void {
+    this.transaction(() => {
+      this.db.prepare("UPDATE projected_control_notices SET status='target-unavailable' WHERE id=? AND status='observed'").run(delivery);
+      this.db.prepare('DELETE FROM outbox WHERE id=?').run(delivery);
+    });
   }
 
   projectAdmissionNotice(request: RequestRecord, body: string): void {

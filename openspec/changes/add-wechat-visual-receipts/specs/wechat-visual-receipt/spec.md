@@ -19,3 +19,9 @@ for quotation.
 
 - **WHEN** the candidate, report or selected screenshot differs from its binding
 - **THEN** no receipt for that submission is queued
+
+#### Scenario: Original Feishu message can no longer be replied to
+
+- **WHEN** Feishu reports that the original message was recalled or deleted
+- **THEN** the receipt retains an unavailable reply-target result
+- **AND** the gateway does not publish a standalone image post
