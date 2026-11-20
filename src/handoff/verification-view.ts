@@ -45,7 +45,7 @@ const applicabilityText: Record<Applicability, string> = {
   missing: 'unverified（没有完整验证观测）。',
   policy: 'stale（受信任验证规则已变化或不可用）。',
   changed: 'stale（源码或报告已变化）。',
-  dirty: 'unverified（当前源码有未提交变更）。',
+  dirty: 'unverified（当前源码有未提交变更或子模块未就绪）。',
   unavailable: 'unverified（源码或证据无法核实）。',
   unchanged: '历史观测，Git 版本与报告未见变化；未重新验证运行环境或发布条件。',
 };

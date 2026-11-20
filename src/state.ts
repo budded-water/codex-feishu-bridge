@@ -199,7 +199,10 @@ export class State {
           .run('browser-access/' + request.execution, 'observed', randomUUID()).changes) {
           this.send(request.message.chat, browserNotice, { taskId: request.execution, replyTo: this.replyTarget(request.execution) });
         }
-        if (admissionNotice) this.projectAdmissionNotice(request, admissionNotice);
+        if (admissionNotice && this.db.prepare('INSERT OR IGNORE INTO projected_control_notices VALUES (?,?,?)')
+          .run('native-prestart/' + request.execution, 'interrupted', randomUUID()).changes) {
+          this.send(request.message.chat, admissionNotice, { replyTo: request.message.id });
+        }
         this.db.prepare('UPDATE projected_tasks SET checkpoint=? WHERE execution=?').run(projection.checkpoint, request.execution);
       }
     });
@@ -255,12 +258,11 @@ export class State {
   }
 
   projectAdmissionNotice(request: RequestRecord, body: string): void {
-    const insert = () => {
+    this.transaction(() => {
       if (this.db.prepare('UPDATE projected_tasks SET notified=1 WHERE execution=? AND notified=0').run(request.execution).changes) {
         this.send(request.message.chat, body, { replyTo: request.message.id });
       }
-    };
-    if (this.db.isTransaction) insert(); else this.transaction(insert);
+    });
   }
 
   projectedDelivery(id: string): { execution: string; live: number } | undefined {

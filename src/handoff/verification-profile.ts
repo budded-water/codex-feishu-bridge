@@ -84,10 +84,11 @@ export async function gitRead(root: string, args: string[]): Promise<string> {
 }
 
 export async function verificationSourceState(root: string): Promise<{ commit: string; clean: boolean }> {
+  const submodules = await gitRead(root, ['submodule', 'status', '--recursive']);
   const status = (await gitRead(root, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '--ignore-submodules=none'])).split('\n');
   const commit = status.find(line => line.startsWith('# branch.oid '))?.slice('# branch.oid '.length);
   if (!commit || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit)) throw new Error('Verification source commit unavailable');
-  return { commit, clean: status.every(line => line.startsWith('# ')) };
+  return { commit, clean: !/^[-+U][a-f0-9]+ /m.test(submodules) && status.every(line => line.startsWith('# ')) };
 }
 
 export async function verifyEngine(p: VerificationProfile): Promise<void> {

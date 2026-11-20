@@ -252,6 +252,7 @@ async function queuedVerifiedDelivery(h: ReturnType<typeof handoff>) {
 
 test('evidence drift before startup settles without a turn and retries a failed refusal projection', async t => {
   const h = handoff(t), { grant, continuation, original } = await queuedVerifiedDelivery(h);
+  h.interactions.transport.state.projectAdmissionNotice(continuation, 'Earlier uncertainty notice');
   rmSync(original.observation!.integration!.summaryPath);
   h.codex.calls.length = 0;
   const report = await h.native.run(grant.permit);
@@ -270,6 +271,7 @@ test('evidence drift before startup settles without a turn and retries a failed 
   assert.equal(h.codex.calls.length, 0);
   assert.deepEqual(h.admission.store.unsettled(), []);
   assert.deepEqual(h.admission.store.verification(original.execution), original);
+  assert.equal(h.sent.filter(text => text.includes('Earlier uncertainty notice')).length, 1);
   assert.equal(h.sent.filter(text => text.includes('续接在启动前已结束')).length, 1);
 });
 
@@ -346,6 +348,19 @@ test('a submodule restored after verification cannot make the earlier report eli
   h.interactions.receive(wait); await drain(h);
   assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
   assert.ok(h.sent.some(text => text.includes('交付证据不可用')));
+});
+
+test('a missing submodule checkout is ineligible even when Git status is clean', async t => {
+  const h = handoff(t), content = addIgnoredSubmodule(h);
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  h.git(h.project, ['submodule', 'deinit', '-f', '--', 'dependency']);
+  assert.equal(existsSync(content), false);
+  assert.equal(h.git(h.project, ['status', '--porcelain', '--ignore-submodules=none']), '');
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  h.interactions.receive(wait); await drain(h);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
+  assert.ok(h.sent.some(text => text.includes('未提交变更')));
 });
 
 test('failed and dirty-source observations are ineligible for delivery waits', async t => {
