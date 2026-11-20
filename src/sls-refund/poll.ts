@@ -1,14 +1,32 @@
-import type { RefundObserver, Evidence } from './observer.js';
+import { freshBacklog, type BacklogSupplement, type DueSample, type RefundObserver, type Evidence } from './observer.js';
 import { readEvaluations, readEvidence, readSls, type ObserverConfig } from './sls-source.js';
 
 const overlapSeconds = 120;
 const maxCatchupSeconds = 15 * 60;
+const diagnosticSeconds = 15;
 export const logDelaySeconds = 60;
 
 export function evidenceFrom(value: unknown): Evidence {
   if (value === undefined) return { backlog: [] };
   try { return readEvidence(value); }
   catch { return { backlog: [], unavailable: 'invalid-or-incomplete-source' }; }
+}
+
+async function readBacklogSupplement(evidence: Evidence, sample: DueSample, now: number, config: ObserverConfig,
+  read: typeof readSls, canContinue: () => boolean): Promise<BacklogSupplement | undefined> {
+  const [known] = evidence.backlog;
+  const from = sample.evidenceThrough;
+  const through = Math.min(now, from + diagnosticSeconds);
+  if (sample.slot !== 2 || !evidence.backlogRun || evidence.backlog.length !== 1 || !known ||
+    !freshBacklog(known, now, sample.firing + 1, from) || from >= through || !canContinue()) return;
+  const channel = known.channel === 'wechat_pay' ? 'alipay' : 'wechat_pay';
+  const target = { through, channel } as const;
+  try {
+    const extra = readEvidence(await read(config, 'evidence', from, through), { run: evidence.backlogRun, from, through });
+    if (extra.unavailable) return { ...target, status: 'unavailable' };
+    const row = extra.backlog.find(row => row.channel === channel);
+    return row ? { ...target, status: 'matched', row } : { ...target, status: 'not-found' };
+  } catch { return { ...target, status: 'unavailable' }; }
 }
 
 export async function pollRefundObserver(observer: RefundObserver, config: ObserverConfig,
@@ -44,7 +62,9 @@ export async function pollRefundObserver(observer: RefundObserver, config: Obser
       try { evidence = evidenceFrom(await read(config, 'evidence', from, sample.evidenceThrough)); }
       catch { evidence = { backlog: [], unavailable: 'source-query-failed' }; }
     }
-    observer.observe(sample, now, evidence, subscription ? now + overlapSeconds : undefined);
+    const backlogSupplement = await readBacklogSupplement(evidence, sample, now, config, read, canContinue);
+    observer.observe(sample, now, backlogSupplement ? { ...evidence, backlogSupplement } : evidence,
+      subscription ? now + overlapSeconds : undefined);
   }
   return caughtUp;
 }

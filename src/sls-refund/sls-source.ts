@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
 import { record } from '../types.js';
-import { alertStatuses, channels, isSecond, type BacklogSample, type Binding, type Channel,
+import { alertStatuses, channels, freshBacklog, isSecond, type BacklogSample, type Binding, type Channel,
   type Evaluation, type Evidence, type RecoverySample } from './observer.js';
 
 const exec = promisify(execFile);
@@ -68,7 +68,7 @@ export function readEvaluations(value: unknown, binding: Binding): Evaluation[] 
   });
 }
 
-export function readEvidence(value: unknown): Evidence {
+export function readEvidence(value: unknown, supplement?: { run: string; from: number; through: number }): Evidence {
   const backlog: ({ run: string } & BacklogSample)[] = [];
   let failedBacklogAt = -1;
   const terminal: ({ run: string } & RecoverySample)[] = [];
@@ -81,17 +81,26 @@ export function readEvidence(value: unknown): Evidence {
     if (entry.scope !== refundScope) throw new Error('Unexpected refund observation scope');
     const at = second(row.__time__);
     if (entry.event === 'merchant_refund_backlog') {
+      if (supplement) {
+        if (!name(entry.run_id)) throw new Error('Unidentified backlog batch in supplemental window');
+        if (fingerprint(entry.run_id) !== supplement.run) continue;
+      }
       if (entry.outcome === 'failed') {
+        if (supplement) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
         failedBacklogAt = Math.max(at, failedBacklogAt);
         continue;
       }
       if (!oneOf(entry.channel, channels) || entry.outcome !== 'completed' || !name(entry.run_id)) {
         throw new Error('Unexpected refund backlog observation');
       }
-      backlog.push({ run: entry.run_id, channel: entry.channel, at, pending: second(entry.pending),
-        queryable: second(entry.queryable), missing: second(entry.missing_channel_identity), oldestSeconds: second(entry.oldest_age_seconds) });
+      const sample = { run: entry.run_id, channel: entry.channel, at, pending: second(entry.pending),
+        queryable: second(entry.queryable), missing: second(entry.missing_channel_identity), oldestSeconds: second(entry.oldest_age_seconds) };
+      if (supplement && !freshBacklog(sample, supplement.through, supplement.from, supplement.through)) {
+        return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
+      }
+      backlog.push(sample);
     } else if (entry.event === 'merchant_refund_recovery') {
-      if (entry.outcome === 'started') continue;
+      if (supplement || entry.outcome === 'started') continue;
       if (!oneOf(entry.outcome, recoveryOutcomes) || !name(entry.run_id)) throw new Error('Unexpected refund recovery outcome');
       terminal.push({ run: entry.run_id, at, outcome: entry.outcome, queryErrors: second(entry.query_errors), deferred: second(entry.deferred) });
     } else throw new Error('Unexpected refund observation event');
@@ -118,11 +127,12 @@ export function readEvidence(value: unknown): Evidence {
   const recentTerminal = terminal.filter(sample => sample.at === latestTerminalAt);
   const terminalSample = recentTerminal[0];
   const unambiguous = terminalSample && recentTerminal.every(sample => JSON.stringify(sample) === JSON.stringify(terminalSample));
-  if (conflicts.size || (terminalSample && !unambiguous)) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
-  if (!unambiguous) return { backlog: [...accepted.values()] };
+  if (conflicts.size) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
+  const batch = { backlog: [...accepted.values()], ...(recent && accepted.size > 0 && { backlogRun: fingerprint(recent.run) }) };
+  if (terminalSample && !unambiguous) return { ...batch, unavailable: 'invalid-or-incomplete-source' };
+  if (!unambiguous) return batch;
   const { run, ...recovery } = terminalSample;
-  return { backlog: [...accepted.values()], ...(recent && { backlogRun: fingerprint(recent.run) }),
-    recovery, recoveryRun: fingerprint(run) };
+  return { ...batch, recovery, recoveryRun: fingerprint(run) };
 }
 
 export async function readSls(config: ObserverConfig, kind: 'evaluations' | 'evidence', from: number, to: number): Promise<string> {

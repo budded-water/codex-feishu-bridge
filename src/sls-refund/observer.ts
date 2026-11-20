@@ -8,9 +8,11 @@ export const alertStatuses = ['inactive', 'firing', 'error', 'paused', 'pending'
 export type Evaluation = { id: string; at: number; status: typeof alertStatuses[number] };
 export type Binding = { mode: 'replay' | 'live'; region: string; project: string; rule: string; start: number };
 export type BacklogSample = { channel: Channel; at: number; pending: number; queryable: number; missing: number; oldestSeconds: number };
+export type BacklogSupplement = { channel: Channel; through: number } & (
+  { status: 'matched'; row: BacklogSample } | { status: 'not-found' | 'unavailable' });
 export type RecoverySample = { at: number; outcome: 'completed' | 'degraded' | 'failed' | 'timeout' | 'overlap_skipped'; queryErrors: number; deferred: number };
 export type Evidence = { backlog: BacklogSample[]; recovery?: RecoverySample; backlogRun?: string; recoveryRun?: string;
-  unavailable?: 'source-query-failed' | 'invalid-or-incomplete-source' };
+  unavailable?: 'source-query-failed' | 'invalid-or-incomplete-source'; backlogSupplement?: BacklogSupplement };
 type Assessment = {
   state: 'healthy' | 'issue' | 'unavailable';
   reason?: Evidence['unavailable'] | 'insufficient-fresh-evidence';
@@ -28,14 +30,17 @@ function fresh(at: number, now: number, lower: number, through = now + 1) {
   return isSecond(at) && at >= lower && at <= now && at < through && now - at <= maxAge;
 }
 
+export function freshBacklog(row: BacklogSample, now: number, lower: number, through: number): boolean {
+  return fresh(row.at, now, lower, through) && [row.pending, row.queryable, row.missing, row.oldestSeconds].every(isSecond) &&
+    row.queryable <= row.pending - row.missing && (row.pending > 0 || row.oldestSeconds === 0);
+}
+
 function assess(evidence: Evidence, now: number, lower: number, through: number): Assessment {
   const { recovery, backlog } = evidence;
   const allChannels = backlog.length === channels.length && channels.every(channel => backlog.some(sample => sample.channel === channel));
   if (evidence.unavailable || !recovery || !evidence.backlogRun || !evidence.recoveryRun || !allChannels ||
     !fresh(recovery.at, now, lower, through) ||
-    backlog.some(sample => !fresh(sample.at, now, lower, through) ||
-      ![sample.pending, sample.queryable, sample.missing, sample.oldestSeconds].every(isSecond) ||
-      sample.queryable > sample.pending - sample.missing || (!sample.pending && sample.oldestSeconds !== 0)) ||
+    backlog.some(sample => !freshBacklog(sample, now, lower, through)) ||
     ![recovery.queryErrors, recovery.deferred].every(isSecond)) {
     return { state: 'unavailable', signals: [], reason: evidence.unavailable ?? 'insufficient-fresh-evidence' };
   }
@@ -330,8 +335,9 @@ export class RefundObserver {
     return (this.db.prepare('SELECT slot,observed,body,assessment,evidence_through FROM observations WHERE incident=? ORDER BY slot')
       .all(incident) as { slot: number; observed: number; body: string; assessment: string; evidence_through: number | null }[])
       .map(({ slot, observed, body, assessment, evidence_through }) => {
-        const { backlog, recovery } = JSON.parse(body) as Evidence;
-        return { slot, observed, evidenceThrough: evidence_through, ...JSON.parse(assessment) as Assessment, evidence: { backlog, recovery } };
+        const { backlog, recovery, backlogSupplement } = JSON.parse(body) as Evidence;
+        return { slot, observed, evidenceThrough: evidence_through, ...JSON.parse(assessment) as Assessment, evidence: { backlog, recovery },
+          ...(backlogSupplement && { backlogSupplement }) };
       });
   }
 
