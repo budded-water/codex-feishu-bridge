@@ -90,7 +90,7 @@ async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++)
 
 for (const [name, reference] of [
   ['iOS candidate', 'ios:release-41@sha256:' + 'a'.repeat(64)],
-  ['Web preview', 'web:preview-17@commit:' + 'b'.repeat(40)],
+  ['Web preview', 'https://preview.example.test/build/17?commit=' + 'b'.repeat(40)],
 ] as const) test('owner confirms the exact ' + name + ' checkpoint after reopening admission and resumes once', async t => {
   const h = setup(t);
   h.config.approvalUsers = ['ou_owner'];
@@ -112,11 +112,19 @@ for (const [name, reference] of [
   const query = h.actor('/delivery ' + first.request.execution);
   h.interactions.receive(query);
   await drain(h);
-  assert.ok(h.sent.some(row => row.options?.replyTo === query.id && row.text.includes('等待确认这份证据') && row.text.includes(reference)));
+  const view = h.sent.find(row => row.options?.replyTo === query.id);
+  assert.ok(view);
+  assert.ok(view.text.includes('等待确认这份证据'));
+  assert.ok(view.text.includes(reference));
+  const confirmationHeader = '/delivery-confirm ' + first.request.execution + ' ' + reference;
+  const copyable = view.text.split('\n').find(line => line.startsWith('/delivery-confirm '));
+  assert.equal(copyable, confirmationHeader);
+  assert.doesNotMatch(view.text, /\n后续任务内容/);
   const waitReplacement = h.actor(wait.text + '-other');
   h.interactions.receive(waitReplacement);
-  const confirm = (candidate = reference) => '/delivery-confirm ' + first.request.execution + ' ' + candidate + '\nCheck the recorded candidate only';
-  for (const malformed of [confirm(reference + '-other'), confirm().split('\n')[0]!]) {
+  const followup = '  candidate: inspect\n    requested: Check the recorded candidate only';
+  const confirm = (candidate = reference) => '/delivery-confirm ' + first.request.execution + ' ' + candidate + '\n' + followup;
+  for (const malformed of [confirm(reference + '-other'), copyable!]) {
     h.interactions.receive(h.actor(malformed));
   }
   for (const overrides of [{ user: 'ou_admin' }, { chat: 'admin' }, { tenant: 'foreign' }, { chatType: 'group' }]) {
@@ -136,7 +144,7 @@ for (const [name, reference] of [
   assert.equal(continuation.conversation, first.request.conversation);
   assert.equal(h.admission.store.conversationThread(continuation.conversation), first.thread);
   assert.ok(continuation.input.includes(reference));
-  assert.ok(continuation.input.includes('Check the recorded candidate only'));
+  assert.ok(continuation.input.includes('\n' + followup + '\n\n'));
   const receipt = h.sent.filter(row => row.options?.replyTo === action.id && row.text.includes('已记录证据确认'));
   assert.equal(receipt.length, 1);
   const grant = h.admission.store.reserve(continuation.id, 2);
