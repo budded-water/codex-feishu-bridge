@@ -96,6 +96,29 @@ test('closed import and rollback before traffic preserve native ownership and ol
   assert.equal(readFence(h.plan.legacyDirectory)!.role, 'legacy');
 });
 
+test('rollback treats the empty delivery table as compatible with an older staged baseline', async t => {
+  const h = await fixture(t);
+  const original = readFileSync(join(h.plan.legacyDirectory, 'bridge.db'));
+  await stageHandoff(h.plan);
+
+  const db = new DatabaseSync(join(h.plan.pilotDirectory, 'handoff.db'));
+  db.exec('DROP TABLE delivery_checkpoints');
+  const oldTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='maintenance' ORDER BY name").all() as { name: string }[];
+  const canonical = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
+  const oldFacts = oldTables.map(({ name }) => ({
+    name, rows: db.prepare('SELECT * FROM "' + name + '"').all().map(canonical).sort(),
+  }));
+  db.close();
+  const bundle = join(h.plan.bundleDirectory, 'handoff-bundle.json');
+  const metadata = JSON.parse(readFileSync(bundle, 'utf8'));
+  metadata.pilotFacts = createHash('sha256').update(canonical(oldFacts)).digest('hex');
+  writeFileSync(bundle, JSON.stringify(metadata));
+
+  assert.equal((await rollbackHandoff(h.plan)).window, 'before-traffic');
+  assert.deepEqual(readFileSync(join(h.plan.legacyDirectory, 'bridge.db')), original);
+});
+
 test('post-traffic rollback imports deduplication, native continuation and delivered reply associations', async t => {
   const h = await fixture(t);
   const history = new State(h.plan.legacyDirectory);

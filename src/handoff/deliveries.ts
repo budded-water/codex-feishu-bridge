@@ -3,6 +3,7 @@ import { copyBlock, message as present, section } from '../presentation.js';
 import type { State } from '../state.js';
 import type { IncomingMessage } from '../types.js';
 import type { PilotAdmission } from './gateway.js';
+import type { NativeExecutions } from './native.js';
 import { isMaintenanceOwner } from './owner-access.js';
 import type { DeliveryCheckpoint } from './store.js';
 
@@ -15,7 +16,8 @@ const usage = present('交付等待', section('命令', [
 ]));
 
 export class OwnerDeliveries {
-  constructor(private admission: PilotAdmission, private config: Config, private state: State) {}
+  constructor(private admission: PilotAdmission, private config: Config, private state: State,
+    private native: Pick<NativeExecutions, 'evidence'>) {}
 
   receive(message: IncomingMessage) {
     if (!isMaintenanceOwner(this.admission.scope, this.config, message)) return { status: 'ignored' as const };
@@ -33,10 +35,10 @@ export class OwnerDeliveries {
       const checkpoint = store.deliveryCheckpoint(message, project, execution);
       response = checkpoint ? this.detail(checkpoint) : '未找到可查看的交付等待记录。';
     } else if (execution && command === 'delivery-wait' && reference && !hasInput) {
-      const checkpoint = store.registerDelivery(message, project, execution, reference);
+      const checkpoint = store.registerDelivery(message, project, execution, reference, () => this.sealedEvidence(execution));
       response = checkpoint ? this.detail(checkpoint) : '交付等待未登记。请核对原普通任务已完成、会话可续接，或者该任务是否已有不同证据。';
     } else if (execution && command === 'delivery-confirm' && reference && hasInput) {
-      const result = store.resumeDelivery(message, project, execution, reference, input);
+      const result = store.resumeDelivery(message, project, execution, reference, input, () => this.sealedEvidence(execution));
       if (result === 'task-reply') return { status: result };
       response = '交付未续接。请用 /delivery 核对证据引用、确认情况和原任务状态。';
     }
@@ -44,6 +46,13 @@ export class OwnerDeliveries {
       if (this.state.remember(message)) this.state.send(message.chat, response, { replyTo: message.id });
     });
     return { status: 'delivery-view' as const };
+  }
+
+  private sealedEvidence(execution: string): string | undefined {
+    try {
+      const report = this.native.evidence(execution);
+      if (report.outcome.status === 'completed') return 'native-checkpoint/' + report.checkpoint;
+    } catch { /* Missing or changed files cannot confirm a delivery. */ }
   }
 
   private detail(checkpoint: DeliveryCheckpoint): string {

@@ -49,7 +49,7 @@ export class PilotInteractions {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
     this.queue = new OwnerQueue(admission, config, this.transport.state);
-    this.deliveries = new OwnerDeliveries(admission, config, this.transport.state);
+    this.deliveries = new OwnerDeliveries(admission, config, this.transport.state, native);
     this.matters = new OwnerMatters(admission, this.transport.state);
     this.tasks = new OwnerTasks(admission, config, native, this.transport.state, profiles);
     this.permissions = new OwnerPermissions(admission, config, native, this.transport.state);

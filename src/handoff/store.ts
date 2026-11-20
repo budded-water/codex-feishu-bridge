@@ -321,26 +321,31 @@ export class AdmissionStore {
       .get(execution) as DeliveryCheckpoint | undefined;
   }
 
-  registerDelivery(message: IncomingMessage, project: string, execution: string, reference: string): DeliveryCheckpoint | undefined {
+  private verifiedDeliverySource(source: RequestRecord, verify: () => string | undefined): boolean {
+    return this.settledConversation(source) === 'completed' && this.execution(source.execution)?.evidence === verify();
+  }
+
+  registerDelivery(message: IncomingMessage, project: string, execution: string, reference: string,
+    verify: () => string | undefined): DeliveryCheckpoint | undefined {
     return this.transaction(() => {
       const existing = this.deliveryCheckpoint(message, project, execution);
       if (existing) return existing.reference === reference ? existing : undefined;
       const source = this.ownedTask(execution, ownerKey(message), project);
       if (this.maintenance.paused || source?.message.chatType !== 'p2p' || this.hasDedicatedContinuation(execution) ||
-        this.settledConversation(source) !== 'completed') return;
+        !this.verifiedDeliverySource(source, verify)) return;
       this.db.prepare('INSERT INTO delivery_checkpoints VALUES (?,?,NULL)').run(execution, reference);
       return { execution, reference, resumed: null };
     });
   }
 
-  resumeDelivery(message: IncomingMessage, project: string, execution: string, reference: string, input: string):
-    'task-reply' | 'rejected' {
+  resumeDelivery(message: IncomingMessage, project: string, execution: string, reference: string, input: string,
+    verify: () => string | undefined): 'task-reply' | 'rejected' {
     return this.transaction(() => {
       const checkpoint = this.deliveryCheckpoint(message, project, execution);
       if (!checkpoint || checkpoint.resumed || checkpoint.reference !== reference ||
         this.maintenance.paused || this.uncertainProject(project)) return 'rejected';
       const source = this.ownedTask(execution, ownerKey(message), project)!;
-      if (this.settledConversation(source) !== 'completed') return 'rejected';
+      if (!this.verifiedDeliverySource(source, verify)) return 'rejected';
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.retained(message) || this.requestForMessage(message) || this.control(message)) return 'rejected';
       this.saveTaskReply(origin, source, message, 'live', null);

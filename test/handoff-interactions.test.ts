@@ -162,6 +162,33 @@ for (const [name, reference] of [
   await running;
 });
 
+test('delivery confirmation waits for verifiable original journal evidence', async t => {
+  const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
+  const first = await h.launch();
+  h.codex.complete(first.thread, first.turn);
+  await first.running;
+  const reference = 'ios:release-42@sha256:example';
+  const register = h.actor('/delivery-wait ' + first.request.execution + ' ' + reference);
+  const journal = join(h.config.stateDirectory, 'executions', first.request.execution, 'bridge.db');
+  const original = readFileSync(journal);
+  unlinkSync(journal);
+  h.interactions.receive(register);
+  assert.equal(h.admission.store.deliveryCheckpoint(register, first.request.project, first.request.execution), undefined);
+  writeFileSync(journal, original, { mode: 0o600 });
+  h.interactions.receive(h.actor(register.text));
+  unlinkSync(journal);
+  const confirm = '/delivery-confirm ' + first.request.execution + ' ' + reference + '\nInspect the candidate';
+  const attempt = h.actor(confirm);
+  h.interactions.receive(attempt);
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.equal(h.admission.store.deliveryCheckpoint(attempt, first.request.project, first.request.execution)?.resumed, null);
+  writeFileSync(journal, original, { mode: 0o600 });
+  assert.equal(h.interactions.receive(h.actor(confirm)).status, 'task-reply');
+  assert.equal(h.admission.store.requests().length, 2);
+});
+
 test('delivery confirmation preserves the checkpoint when the original conversation no longer points at its thread', async t => {
   const h = setup(t);
   h.config.approvalUsers = ['ou_owner'];
