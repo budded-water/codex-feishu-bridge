@@ -20,6 +20,7 @@ import { repairText } from './repair-view.js';
 import { type VerificationProfiles } from './verification-profile.js';
 import { verificationApplicability, verificationText } from './verification-view.js';
 import { verificationFindings } from './findings.js';
+import { OwnerDeliveries } from './deliveries.js';
 import { OwnerTasks } from './tasks.js';
 import type { TaskRefreshClick } from '../task-card.js';
 import { OwnerPermissions } from './permissions.js';
@@ -30,6 +31,7 @@ export class PilotInteractions {
   private recovery: FeishuRecovery;
   private queue: OwnerQueue;
   private tasks: OwnerTasks;
+  private deliveries: OwnerDeliveries;
   private matters: OwnerMatters;
   private permissions: OwnerPermissions;
   private browserAccess: OwnerBrowserAccess;
@@ -47,6 +49,7 @@ export class PilotInteractions {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
     this.queue = new OwnerQueue(admission, config, this.transport.state);
+    this.deliveries = new OwnerDeliveries(admission, config, this.transport.state);
     this.matters = new OwnerMatters(admission, this.transport.state);
     this.tasks = new OwnerTasks(admission, config, native, this.transport.state, profiles);
     this.permissions = new OwnerPermissions(admission, config, native, this.transport.state);
@@ -65,6 +68,7 @@ export class PilotInteractions {
     }
     if (/^\/browser-retry(?:\s|$)/.test(message.text.trim()) || browserAllowIntent(message.text)) return this.browserAccess.receive(message);
     if (/^\/(?:matters|matter-new|matter-bind)(?:\s|$)/.test(message.text.trim())) return this.matters.receive(message);
+    if (/^\/delivery(?:-wait|-confirm)?(?:\s|$)/.test(message.text.trim())) return this.deliveries.receive(message);
     if (/^\/(?:tasks|task)(?:\s|$)/.test(message.text.trim())) return this.tasks.receive(message);
     if (/^\/(?:rules|reviews|review|review-retry)(?:\s|$)/.test(message.text.trim())) return this.permissions.receive(message);
     if (/^\/findings(?:\s|$)/.test(message.text.trim())) return this.findingsCommand(message);
@@ -125,6 +129,7 @@ export class PilotInteractions {
         present('使用帮助',
           section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。', '在本人私聊回复原任务消息，可补充正在等待或执行的任务，或追问已结束的任务。']),
           section('按事项接续', ['- `/matter-new 事项名称` 新建并切换 · `/matters` 查看及切换', '- 可回复 Bot 的普通最终答案，或用「事项名：任务」、事项卡片、已绑定的 PR 直达', '- `/matter-bind PR链接` 绑定已选中的事项']),
+          section('交付等待', ['- `/delivery-wait 任务编号 证据引用` 登记 · `/delivery 任务编号` 查看', '- `/delivery-confirm 任务编号 证据引用`，换行写后续任务']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),
           section('本人私聊维护', ['- `/tasks [页码]` 任务列表 · `/task 完整编号` 查看/刷新进度', '- `/rules` 原生规则 · `/reviews` 非通过审查记录', '- `/browser-retry 编号 local-change-confirmed` 本机处理后检查并续接普通任务', '- `/recover [编号 检查依据]` 检查后恢复', '- `/queue` 查看队列 · `/withdraw [完整请求编号]` 撤回', '维护操作还须具备审批角色；撤回仅处理尚未取得执行授权的请求。']),
           Object.keys(this.profiles).length ? section('项目验证', ['- `/verify profile 任务内容` 新建验证任务',

@@ -62,6 +62,7 @@ npm start
 | P1 排队管理 | 已登记本人兼审批人可用 `/queue` 查看未开始的请求，并用 `/withdraw 完整请求编号` 或引用原任务发送 `/withdraw`；已取得执行授权的任务不能撤回 |
 | P1 可选项目验证 | 私有配置登记 profile 后，本人可用 `/verify profile 任务` 显式选择 UI-eval 验证；原生任务、验证、review、发布分开，部署和验收见 [项目验证](docs/project-verification.md) |
 | P1 有界修复 | repair-enabled profile 支持 `/verify-repair profile 任务`，明确功能断言失败后最多追加一轮修复；M6 本人 fixture 的两轮闭环、审批按钮与历史查询已验收，[使用与边界](docs/bounded-repair.md) |
+| P1 交付等待 | 本人审批私聊可用 `/delivery-wait` 登记原任务的证据，`/delivery` 查看，`/delivery-confirm` 确认后在原会话续接，见 [交付等待](docs/usage.md#交付等待p1-网关) |
 | P1 验证线索 | 本人兼审批人可在登记私聊用 `/findings` 只读汇总最近验证任务的非通过线索；按 profile 取最新记录，不启动模型或自动修复，见 [查询范围](docs/usage.md#验证线索p1-网关)；M6 本人 fixture 查询及记录/证据未变已验收，见 [实际记录](docs/live-acceptance.md) |
 | 浏览器权限阻塞 | 本人私聊可查看结构化拒绝与本机处理指引；处理后用 `/browser-retry 编号 local-change-confirmed` 请求一次关联续接，权限仍由浏览器实际校验；M6 本人历史拒绝查看与一次关联续接已验收，见 [边界](docs/browser-access.md) |
 | Codex 审批 / 提问 | 支持命令与文件请求审批、单个非敏感问题；同一审批人私聊可点击批准本次 / 拒绝；原生提供有效前缀建议时，“批准并记住”独占一行并先展示用户级范围；其他范围保留英文命令 |

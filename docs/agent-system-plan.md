@@ -64,6 +64,8 @@ The default entry retains its legacy queue; the authorized M6 pilot uses the del
 - Initially serialize writes to a project. Worktrees isolate source; shared ports, browsers, simulators and backends require their own admission policy.
 - Preserve existing tenant/user, chat, mention, administrator and project-directory checks. Scheduling cannot confer new authority.
 
+Owner delivery checkpoints provide a bounded cross-round wait. The owner records a version-bound reference against a completed ordinary task, then confirms that exact reference and supplies the next task. The shared state stores the reference and one linked continuation. Each project tool still owns its evidence and detailed stage.
+
 ## Completion and autonomy
 
 A round ending is not a business objective being achieved. Completion needs the required work, valid evidence and an accurate account of unresolved items and delivery state.

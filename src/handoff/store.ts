@@ -28,6 +28,7 @@ export type TaskReplyRecord = {
   origin: string; request: string; message: IncomingMessage;
   kind: 'merged' | 'live' | 'followup' | 'rejected'; result: string | null; followup: string | null;
 };
+export type DeliveryCheckpoint = { execution: string; reference: string; resumed: string | null };
 export type RecoveryRecord = { origin: string; execution: string; actor: string; evidence: string; created: number };
 export type WithdrawalRecord = { origin: string; request: string; actor: string; previous_blocked: string | null; previous_problem: string | null; created: number };
 export const OWNER_WITHDRAWN = 'owner_withdrawn';
@@ -88,6 +89,10 @@ export class AdmissionStore {
         CREATE TABLE IF NOT EXISTS task_replies (
           origin TEXT PRIMARY KEY, request TEXT NOT NULL REFERENCES requests(id), message TEXT NOT NULL,
           kind TEXT NOT NULL, result TEXT, followup TEXT REFERENCES requests(id)
+        );
+        CREATE TABLE IF NOT EXISTS delivery_checkpoints (
+          execution TEXT PRIMARY KEY REFERENCES executions(id), reference TEXT NOT NULL,
+          resumed TEXT UNIQUE REFERENCES requests(id)
         );
         CREATE TABLE IF NOT EXISTS recoveries (
           origin TEXT PRIMARY KEY, execution TEXT NOT NULL REFERENCES executions(id), actor TEXT NOT NULL,
@@ -239,11 +244,7 @@ export class AdmissionStore {
       const execution = this.execution(request.execution);
       const text = '用户补充要求：\n' + message.text;
       const combined = request.input + '\n\n' + text;
-      const save = (kind: TaskReplyRecord['kind'], result: string | null) => {
-        this.db.prepare('INSERT INTO task_replies VALUES (?,?,?,?,?,NULL)').run(origin, request.id, JSON.stringify(message), kind, result);
-        // A reverse migration must retain the Feishu message identity for every disposition, even an in-place merge.
-        this.db.prepare("INSERT INTO retained_receipts VALUES (?,?,'task_reply')").run(message.tenant, message.id);
-      };
+      const save = (kind: TaskReplyRecord['kind'], result: string | null) => this.saveTaskReply(origin, request, message, kind, result);
       if (this.maintenance.paused || request.blocked || this.submission(request.id)?.status === 'blocked' || this.uncertainProject(project)) {
         save('rejected', '当前任务无法接收补充。请查看原任务状态后再发送新消息。');
       } else if (this.hasDedicatedContinuation(request.execution)) {
@@ -280,13 +281,24 @@ export class AdmissionStore {
     });
   }
 
-  private finishTaskReply(reply: TaskReplyRecord, request: RequestRecord, chosenInput = reply.message.text): void {
+  private saveTaskReply(origin: string, request: RequestRecord, message: IncomingMessage, kind: TaskReplyRecord['kind'], result: string | null): void {
+    this.db.prepare('INSERT INTO task_replies VALUES (?,?,?,?,?,NULL)').run(origin, request.id, JSON.stringify(message), kind, result);
+    // Reverse conversion retains the ingress identity for every disposition, even an in-place merge.
+    this.db.prepare("INSERT INTO retained_receipts VALUES (?,?,'task_reply')").run(message.tenant, message.id);
+  }
+
+  private settledConversation(request: RequestRecord): 'completed' | 'interrupted' | undefined {
     const source = this.db.prepare('SELECT status,evidence,native_thread,native_turn FROM executions WHERE id=?')
       .get(request.execution) as { status: string; evidence: string | null; native_thread: string | null; native_turn: string | null } | undefined;
+    if (source && (source.status === 'completed' || source.status === 'interrupted') &&
+      source.evidence?.startsWith('native-checkpoint/') && source.native_thread && source.native_turn &&
+      this.conversationThread(request.conversation) === source.native_thread) return source.status;
+  }
+
+  private finishTaskReply(reply: TaskReplyRecord, request: RequestRecord, chosenInput = reply.message.text): void {
     let failure: string | undefined;
     if (this.maintenance.paused || this.uncertainProject(request.project)) failure = '当前无法排入追问，请核对任务状态后再发送新消息。';
-    else if (!source || !['completed', 'interrupted'].includes(source.status) || !source.evidence?.startsWith('native-checkpoint/') ||
-      !source.native_thread || !source.native_turn || this.conversationThread(request.conversation) !== source.native_thread) {
+    else if (!this.settledConversation(request)) {
       failure = '原任务的执行结果或会话尚无法确认，这条回复未排为追问。请查看原任务。';
     }
     const original = Array.from(request.message.text).slice(0, 1000).join('');
@@ -300,6 +312,47 @@ export class AdmissionStore {
       this.db.prepare("UPDATE task_replies SET kind='followup',result=?,followup=? WHERE origin=?")
         .run('原任务已结束，已排为原会话的后续追问。', followup.id, reply.origin);
     }
+  }
+
+  deliveryCheckpoint(message: IncomingMessage, project: string, execution: string): DeliveryCheckpoint | undefined {
+    const source = this.ownedTask(execution, ownerKey(message), project);
+    if (source?.message.chatType !== 'p2p') return;
+    return this.db.prepare('SELECT execution, reference, resumed FROM delivery_checkpoints WHERE execution=?')
+      .get(execution) as DeliveryCheckpoint | undefined;
+  }
+
+  registerDelivery(message: IncomingMessage, project: string, execution: string, reference: string): DeliveryCheckpoint | undefined {
+    return this.transaction(() => {
+      const existing = this.deliveryCheckpoint(message, project, execution);
+      if (existing) return existing.reference === reference ? existing : undefined;
+      const source = this.ownedTask(execution, ownerKey(message), project);
+      if (this.maintenance.paused || source?.message.chatType !== 'p2p' || this.hasDedicatedContinuation(execution) ||
+        this.settledConversation(source) !== 'completed') return;
+      this.db.prepare('INSERT INTO delivery_checkpoints VALUES (?,?,NULL)').run(execution, reference);
+      return { execution, reference, resumed: null };
+    });
+  }
+
+  resumeDelivery(message: IncomingMessage, project: string, execution: string, reference: string, input: string):
+    'task-reply' | 'rejected' {
+    return this.transaction(() => {
+      const checkpoint = this.deliveryCheckpoint(message, project, execution);
+      if (!checkpoint || checkpoint.resumed || checkpoint.reference !== reference ||
+        this.maintenance.paused || this.uncertainProject(project)) return 'rejected';
+      const source = this.ownedTask(execution, ownerKey(message), project)!;
+      if (this.settledConversation(source) !== 'completed') return 'rejected';
+      const origin = JSON.stringify([message.tenant, message.id]);
+      if (this.retained(message) || this.requestForMessage(message) || this.control(message)) return 'rejected';
+      this.saveTaskReply(origin, source, message, 'live', null);
+      this.finishTaskReply(this.taskReply(origin)!, source, input + '\n\n已确认的交付证据引用\n' + reference);
+      const reply = this.taskReply(origin)!;
+      if (reply.followup) {
+        this.db.prepare('UPDATE delivery_checkpoints SET resumed=? WHERE execution=?').run(reply.followup, execution);
+        this.db.prepare('UPDATE task_replies SET result=? WHERE origin=?')
+          .run('已记录证据确认，续接任务已排入原会话。', origin);
+      }
+      return 'task-reply';
+    });
   }
 
   permissionRetry(execution: string): PermissionRetry | undefined {
