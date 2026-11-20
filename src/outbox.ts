@@ -73,9 +73,8 @@ export class Outbox {
           this.state.delivered(delivery.id);
           continue;
         }
-        if (this.visualReceiptExpired(delivery)) continue;
-        const visualImages = delivery.visualImages ? await this.uploadVisualImages(delivery.visualImages, delivery.id) : undefined;
-        if (this.visualReceiptExpired(delivery)) continue;
+        const visualImages = delivery.visualImages ? await this.uploadVisualImages(delivery, delivery.visualImages) : undefined;
+        if (delivery.visualImages && (!visualImages || this.visualReceiptExpired(delivery))) continue;
         const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined, visualImages,
           mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval, taskView, reviewCard: delivery.reviewCard,
           matterCard: delivery.matterCard && redactMatterPresentation(delivery.matterCard, value => {
@@ -106,14 +105,16 @@ export class Outbox {
     return true;
   }
 
-  private async uploadVisualImages(attachments: NonNullable<Delivery['visualImages']>, id: string): Promise<DeliveryOptions['visualImages']> {
+  private async uploadVisualImages(delivery: Delivery, attachments: NonNullable<Delivery['visualImages']>): Promise<DeliveryOptions['visualImages']> {
     const images = [];
     for (const image of attachments) {
       if (!image.key) {
+        if (this.visualReceiptExpired(delivery)) return;
         if (!this.sender.uploadImage) throw Error('Visual receipt upload transport unavailable');
         image.key = await this.sender.uploadImage(Buffer.from(image.png, 'base64'));
+        if (this.visualReceiptExpired(delivery)) return;
         image.png = '';
-        this.state.saveVisualImages(id, attachments);
+        this.state.saveVisualImages(delivery.id, attachments);
       }
       let caption = image.caption;
       for (const secret of this.secrets) caption = caption.split(secret).join('[redacted]');

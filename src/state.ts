@@ -299,6 +299,16 @@ export class State {
     });
   }
 
+  private expireVisualReceipts(now: number): void {
+    const expired = 'SELECT id FROM outbox WHERE visual_images IS NOT NULL AND COALESCE(visual_expires,0)<=?';
+    if (!this.db.prepare(expired + ' LIMIT 1').get(now)) return;
+    this.db.exec('PRAGMA secure_delete=ON');
+    this.transaction(() => {
+      this.db.prepare("UPDATE projected_control_notices SET status='delivery-unconfirmed' WHERE id IN (" + expired + ')').run(now);
+      this.db.prepare('DELETE FROM outbox WHERE id IN (' + expired + ')').run(now);
+    });
+  }
+
   projectAdmissionNotice(request: RequestRecord, body: string): void {
     this.transaction(() => {
       if (this.db.prepare('UPDATE projected_tasks SET notified=1 WHERE execution=? AND notified=0').run(request.execution).changes) {
@@ -695,6 +705,7 @@ export class State {
   }
 
   pending(now = Date.now(), visual = false): Delivery[] {
+    if (visual) this.expireVisualReceipts(now);
     this.queueCardUpdates(Date.now());
     // A delayed status must never appear after its task has finished.
     this.db.prepare(`DELETE FROM outbox WHERE task IS NOT NULL AND task IN

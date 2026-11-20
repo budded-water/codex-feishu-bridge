@@ -165,6 +165,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   const uploadGate = new Promise<void>(resolve => { releaseUpload = resolve; });
   let recalled = false;
   let contentRejected = false;
+  let afterUpload = () => {};
   let standalone = false;
   const replies: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
   Object.assign(sdk, { client: { im: { v1: {
@@ -175,6 +176,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
       for await (const chunk of data.image) chunks.push(Buffer.from(chunk));
       uploads.push(Buffer.concat(chunks));
       if (uploads.length === 1) await uploadGate;
+      afterUpload();
       return { image_key: 'img_fixture_' + uploads.length };
     } },
     message: { create: async () => { standalone = true; return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
@@ -238,17 +240,32 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   await new Outbox(state, sdk).flushVisual();
   assert.deepEqual(await queue(), { ...rejected, status: 'content-rejected' });
   contentRejected = false;
+  state.send(quote.chat, 'Earlier blocked reply', { replyTo: 'ordinary-trigger' });
   planFor([profile.entry], { reviewFocus: '再核对颜色' });
   const expired = await queue();
   const expiryDb = new DatabaseSync(databasePath);
-  try { expiryDb.prepare('UPDATE outbox SET visual_expires=0 WHERE id=?').run(expired.delivery); }
-  finally { expiryDb.close(); }
+  expiryDb.prepare('UPDATE outbox SET next=? WHERE visual_images IS NULL').run(Date.now() + 60_000);
+  expiryDb.prepare('UPDATE outbox SET visual_expires=0 WHERE id=?').run(expired.delivery);
   const uploadsBeforeExpiry = uploads.length;
-  await new Outbox(state, sdk).flushVisual();
+  try { await new Outbox(state, sdk).flushVisual(); }
+  finally {
+    expiryDb.prepare('DELETE FROM outbox WHERE visual_images IS NULL').run();
+    expiryDb.close();
+  }
   assert.equal(uploads.length, uploadsBeforeExpiry);
   assert.deepEqual(await queue(), { ...expired, status: 'delivery-unconfirmed' });
   assert.equal(readFileSync(databasePath).includes(png.toString('base64')), false);
   assert.equal(state.pending(Date.now(), true).length, 0);
+
+  planFor([home.entry, profile.entry], { reviewFocus: '核对短屏图标' });
+  const interrupted = await queue();
+  let now = Date.now();
+  const clock = t.mock.method(Date, 'now', () => now);
+  afterUpload = () => { now += 56 * 60_000; };
+  try { await new Outbox(state, sdk).flushVisual(); }
+  finally { afterUpload = () => {}; clock.mock.restore(); }
+  assert.equal(uploads.length, uploadsBeforeExpiry + 1);
+  assert.deepEqual(await queue(), { ...interrupted, status: 'delivery-unconfirmed' });
 });
 
 test('managed visual submission can acknowledge validation slower than native controls', async t => {
