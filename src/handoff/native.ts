@@ -11,11 +11,12 @@ import { Bridge } from '../bridge.js';
 import { State } from '../state.js';
 import { ownerKey, record, type CodexPort, type IncomingMessage, type NativeControlTarget, type ControlDisposition, type NativeActivity } from '../types.js';
 import { PilotAdmission } from './gateway.js';
-import type { Permit, RequestRecord } from './store.js';
+import type { Permit, RequestRecord, VerificationRecord } from './store.js';
 import { openOwnerChannel, probeOwner, requestOwner } from './owner-channel.js';
 import { journalControl, journalProjection, readJournal } from './journal.js';
 import { ProcessObserver, parseProcessObservation, readProcessTable, processState, type ProcessObservation, type ProcessTable } from './processes.js';
-import { profileDigest, type VerificationProfiles } from './verification-profile.js';
+import { fingerprint, profileDigest, type VerificationProfiles } from './verification-profile.js';
+import { verificationApplicabilityState, verificationDeliveryReference } from './verification-evidence.js';
 import { runVerification } from './verification-runner.js';
 import { RepairOwner, type RepairReport } from './repair-owner.js';
 
@@ -206,11 +207,25 @@ export class NativeExecutions {
             source.outcome.turn !== browserRetry.turn || JSON.stringify(projection.accessBlocks) !== JSON.stringify(browserRetry.blocks)) throw Error('Browser source evidence differs');
         }
         const permissions = this.permissions && request.message.chatType === 'p2p' ? new PermissionSession(this.options.nativePermissions!, this.permissions, request.execution, retry?.review) : undefined;
+        const delivery = this.gateway.store.deliveryForContinuation(request.id);
+        const verification = delivery && this.gateway.store.verification(delivery.execution);
+        const checkStart = delivery && verification ? async () => {
+          if (verificationDeliveryReference(verification) !== delivery.reference ||
+            await verificationApplicabilityState(verification, this.profiles) !== 'unchanged' ||
+            !this.deliverySourceMatches(delivery.execution, verification, request)) {
+            return '交付证据已变化或无法核实，续接未启动。\n/delivery ' + delivery.execution;
+          }
+          try { this.gateway.store.startableRequest(permit); }
+          catch { return '续接的启动权限已失效，没有启动本轮模型任务。'; }
+        } : undefined;
         this.active = this.gateway.store.repairs.get(request.execution)
           ? new RepairOwner(this.gateway, this.config, request, permit, folder, binding(this.gateway, request), factory, this.profiles, this.options.outerDeadline, permissions)
           : new NativeOwner(this.gateway, this.config, request, permit, folder, factory(), this.profiles, permissions);
         if (this.stopping) await this.active.stop();
-        try { await this.active.run(); }
+        try {
+          if (this.active instanceof NativeOwner) await this.active.run(checkStart);
+          else await this.active.run();
+        }
         catch (failure) {
           try { return this.apply(permit.execution); }
           catch { this.gateway.store.ownerUnconfirmed(permit.execution); throw failure; }
@@ -222,6 +237,15 @@ export class NativeExecutions {
       this.active = undefined;
       await release();
     }
+  }
+
+  private deliverySourceMatches(execution: string, verification: VerificationRecord, request: RequestRecord): boolean {
+    try {
+      const source = this.evidence(execution);
+      return source.version === 1 && source.verification === fingerprint(JSON.stringify(verification)) &&
+        source.outcome.status === 'completed' && source.outcome.thread === this.gateway.store.conversationThread(request.conversation) &&
+        this.gateway.store.execution(execution)?.evidence === 'native-checkpoint/' + source.checkpoint;
+    } catch { return false; }
   }
 
   async relay(execution: string, message: IncomingMessage, target: NativeControlTarget): Promise<ControlDisposition> {
@@ -430,7 +454,7 @@ class NativeOwner {
         .map(row => ({ id: row.id, chat: row.chat, body: row.body.slice(0, 2000), truncated: row.body.length > 2000 })) ?? [] };
   }
 
-  async run(): Promise<void> {
+  async run(checkStart?: () => Promise<string | undefined>): Promise<void> {
     const channel = await openOwnerChannel(this.permit.token, this.permit.execution, async incoming => {
       if (incoming.op === 'diagnostic') return { execution: this.permit.execution, pid: process.pid };
       if (incoming.op === 'progress') return { execution: this.permit.execution, pid: process.pid, generation: this.codex.generation, activity: this.bridge?.progress() ?? null };
@@ -469,6 +493,7 @@ class NativeOwner {
     const marker: Owner = { version: 1, binding: binding(this.gateway, this.request), permit: this.permit, socket: channel.path, pid: process.pid };
     try {
       writeFileSync(join(this.folder, ownerFile), JSON.stringify(marker), { mode: 0o600, flag: 'wx' });
+      if (checkStart && await checkStart()) return;
       if (this.stopping) return;
       this.gateway.store.startableRequest(this.permit);
       await this.codex.start();
@@ -486,7 +511,7 @@ class NativeOwner {
           if (!saved?.context) throw new Error('Missing retained group references');
           return saved.context;
         },
-      }, this.permissions);
+      }, this.permissions, checkStart);
       this.state.transaction(() => {
         if (!this.state!.remember(this.request.message)) throw new Error('Assigned request already exists');
         const { id, chatType, createTime, parentId } = this.request.message;

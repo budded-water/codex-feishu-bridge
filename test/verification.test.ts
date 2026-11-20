@@ -2,12 +2,12 @@ import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, realpathSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { verificationProfiles, fingerprint, profileDigest, type VerificationProfile } from '../src/handoff/verification-profile.js';
+import { verificationProfiles, fingerprint, profileDigest, verificationSourceState, type VerificationProfile } from '../src/handoff/verification-profile.js';
 import { runVerification } from '../src/handoff/verification-runner.js';
 import { verificationApplicability } from '../src/handoff/verification-view.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
@@ -24,7 +24,9 @@ function fixture(t: TestContext, mode = 'pass', cleanup = true) {
   writeFileSync(join(engine, 'package.json'), '{"type":"module"}');
   writeFileSync(join(engine, '.gitignore'), 'revision\n');
   copyFileSync(new URL('./fixtures/verification-cli.mjs', import.meta.url), join(engine, 'dist/cli.js'));
-  writeFileSync(join(engine, 'dist/index.js'), `export function assertIntegrationResult(v) {
+  writeFileSync(join(engine, 'dist/index.js'), `import { createHash } from 'node:crypto';
+  export const canonicalDigest = value => 'sha256:' + createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  export function assertIntegrationResult(v) {
     if(v.kind!=='IntegrationResult'||!['pass','fail','needs-review','inconclusive','interrupted'].includes(v.status)||!Array.isArray(v.stages)) throw Error('invalid fixture result');
   }`);
   writeFileSync(join(project, 'mode.json'), JSON.stringify({ mode }));
@@ -56,6 +58,20 @@ test('real pinned child outcomes retain separate status and paired report bytes'
     assert.equal(result.integration!.htmlHash, fingerprint(readFileSync(result.integration!.htmlPath)));
     assert.equal(readFileSync(join(f.project, '.spawns'), 'utf8'), '1');
   }
+});
+
+test('a digest-only Web summary binds the commit from its verified adapter report', async t => {
+  const f = fixture(t, 'legacy-web');
+  const result = await runVerification(f.profile, new AbortController().signal);
+  assert.equal(result.status, 'pass');
+  assert.equal(result.gitHead, f.git(f.project, ['rev-parse', 'HEAD']));
+  assert.deepEqual(result.integration?.source, { commitSha: result.gitHead, dirtyTree: false });
+  assert.equal(JSON.parse(readFileSync(result.integration!.summaryPath, 'utf8')).source, undefined);
+
+  const mismatch = fixture(t, 'legacy-web-mismatch');
+  const rejected = await runVerification(mismatch.profile, new AbortController().signal);
+  assert.equal(rejected.status, 'unverified');
+  assert.equal(rejected.integration, undefined);
 });
 
 test('unconfirmed child evidence never becomes pass or settled cleanup', async t => {
@@ -140,6 +156,328 @@ function handoff(t: TestContext, mode = 'pass') {
 }
 
 async function drain(h: ReturnType<typeof handoff>) { for (let i = 0; i < 10; i++) await h.interactions.flush(); }
+
+test('passing verification registers an exact report and resumes its original thread once', async t => {
+  const h = handoff(t), task = await h.launch();
+  const initial = await task.running;
+  const { execution, project, conversation } = task.admitted.request;
+  const actor = (text: string) => message(text, { chatType: 'p2p' });
+  const lookup = () => h.admission.store.deliveryCheckpoint(task.trigger, project, execution);
+  const observation = h.admission.store.verification(execution)!.observation!;
+  const { summaryPath, htmlPath } = observation.integration!;
+  const digest = fingerprint(JSON.stringify([fingerprint(readFileSync(summaryPath)), fingerprint(readFileSync(htmlPath))]));
+  const reference = 'ui-eval:' + h.git(h.project, ['rev-parse', 'HEAD']) + '@sha256:' + digest;
+  const register = '/delivery-wait ' + execution;
+  h.interactions.receive(actor(register + ' unverified-reference'));
+  assert.equal(h.interactions.receive(message(register, { chatType: 'group' })).status, 'ignored');
+  await drain(h);
+  assert.equal(lookup(), undefined);
+  h.interactions.receive(actor(register));
+  await drain(h);
+  assert.equal(lookup()?.reference, reference);
+  assert.equal(h.admission.store.requests().length, 1);
+  await h.restart();
+  h.interactions.receive(actor('/delivery ' + execution));
+  await drain(h);
+  assert.ok(h.sent.some(text => text.includes(reference) && text.includes('等待确认')));
+  const journal = join(h.config.stateDirectory, 'executions', execution, 'bridge.db');
+  const originalJournal = readFileSync(journal);
+  rmSync(journal);
+  h.interactions.receive(actor(register));
+  await drain(h);
+  assert.ok(h.sent.some(text => text.includes('证据无法核实')));
+  assert.equal(lookup()?.reference, reference);
+  writeFileSync(journal, originalJournal);
+
+  const policy = join(h.project, 'ui-eval/project.json');
+  const originalPolicy = readFileSync(policy);
+  writeFileSync(policy, '{"projectId":"changed"}');
+  assert.match(await verificationApplicability(h.admission.store.verification(execution)!, h.profiles), /stale.*验证规则/);
+  writeFileSync(policy, originalPolicy);
+
+  const confirm = '/delivery-confirm ' + execution + ' ';
+  h.interactions.receive(actor(confirm + reference + '0\nCheck the result'));
+  const html = readFileSync(htmlPath);
+  writeFileSync(htmlPath, '<html>different report</html>');
+  h.interactions.receive(actor(confirm + reference + '\nCheck the result'));
+  await drain(h);
+  assert.equal(lookup()?.resumed, null);
+  assert.match(h.sent.at(-1)!, /stale.*报告已变化/);
+  writeFileSync(htmlPath, html);
+
+  const head = h.git(h.project, ['rev-parse', 'HEAD']);
+  h.git(h.project, ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '--allow-empty', '-qm', 'new candidate']);
+  h.interactions.receive(actor(confirm + reference + '\nCheck the result'));
+  await drain(h);
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.match(h.sent.at(-1)!, /stale.*源码/);
+  h.git(h.project, ['checkout', '--detach', head]);
+
+  const confirmation = actor(confirm + reference + '\nCheck the result');
+  h.interactions.receive(confirmation);
+  h.interactions.receive(confirmation);
+  h.interactions.receive(actor(confirmation.text));
+  await drain(h);
+  const resumed = h.admission.store.request(lookup()!.resumed!)!;
+  assert.equal(h.admission.store.requests().length, 2);
+  assert.equal(resumed.conversation, conversation);
+  assert.match(resumed.input, /Check the result/);
+  assert.ok(resumed.input.includes(reference));
+  const grant = h.admission.store.reserve(resumed.id, 2);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected continuation reservation');
+  h.codex.calls.length = 0;
+  const running = h.native.run(grant.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  assert.equal(h.codex.calls.find(call => call.method === 'thread/resume')?.params.threadId, initial.outcome.thread);
+  h.codex.complete(initial.outcome.thread!, 'turn-3');
+  assert.equal((await running).outcome.status, 'completed');
+  assert.equal(readFileSync(join(h.project, '.spawns'), 'utf8'), '1');
+});
+
+async function queuedVerifiedDelivery(h: ReturnType<typeof handoff>) {
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  const lookup = () => h.admission.store.deliveryCheckpoint(task.trigger, project, execution)!;
+  h.interactions.receive(message('/delivery-wait ' + execution, { chatType: 'p2p' }));
+  await drain(h);
+  h.interactions.receive(message('/delivery-confirm ' + execution + ' ' + lookup().reference + '\nCheck the result', { chatType: 'p2p' }));
+  await drain(h);
+  const continuation = h.admission.store.request(lookup().resumed!)!;
+  const grant = h.admission.store.reserve(continuation.id, 2);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected continuation reservation');
+  return { grant, continuation, original: h.admission.store.verification(execution)! };
+}
+
+test('evidence drift before startup settles without a turn and retries a failed refusal projection', async t => {
+  const h = handoff(t), { grant, continuation, original } = await queuedVerifiedDelivery(h);
+  h.interactions.transport.state.projectAdmissionNotice(continuation, 'Earlier uncertainty notice');
+  rmSync(original.observation!.integration!.summaryPath);
+  h.codex.calls.length = 0;
+  const report = await h.native.run(grant.permit);
+  const state = h.interactions.transport.state, send = state.send.bind(state);
+  state.send = (...args) => {
+    if (args[1].includes('续接在启动前已结束')) throw Error('Synthetic refusal transport write failure');
+    return send(...args);
+  };
+  try {
+    await drain(h);
+    assert.equal(state.projectedFinal(continuation.execution), false);
+  } finally { state.send = send; }
+  await h.restart(); await drain(h); await drain(h);
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(report.outcome.turn, null);
+  assert.equal(h.codex.calls.length, 0);
+  assert.deepEqual(h.admission.store.unsettled(), []);
+  assert.deepEqual(h.admission.store.verification(original.execution), original);
+  assert.equal(h.sent.filter(text => text.includes('Earlier uncertainty notice')).length, 1);
+  assert.equal(h.sent.filter(text => text.includes('续接在启动前已结束')).length, 1);
+});
+
+test('an evidence change during thread resume prevents turn submission', async t => {
+  const h = handoff(t), { grant, original } = await queuedVerifiedDelivery(h);
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T,>(method: string, input: unknown) => {
+    if (method === 'thread/resume') rmSync(original.observation!.integration!.htmlPath);
+    if (method === 'turn/start') throw Error('No model turn should be submitted with stale evidence');
+    return request<T>(method, input);
+  };
+  h.codex.calls.length = 0;
+  const report = await h.native.run(grant.permit);
+  await drain(h);
+  assert.ok(h.codex.calls.some(call => call.method === 'thread/resume'));
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(report.outcome.turn, null);
+  assert.deepEqual(h.admission.store.unsettled(), []);
+  assert.ok(h.sent.some(text => text.includes('交付证据已变化或无法核实，续接未启动')));
+});
+
+test('a permit lost during thread resume prevents verified turn submission', async t => {
+  const h = handoff(t), { grant } = await queuedVerifiedDelivery(h);
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T,>(method: string, input: unknown) => {
+    if (method === 'thread/resume') h.admission.store.ownerUnconfirmed(grant.permit.execution);
+    if (method === 'turn/start') throw Error('No model turn should be submitted without an active permit');
+    return request<T>(method, input);
+  };
+  const report = await h.native.run(grant.permit);
+  await drain(h);
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(report.outcome.turn, null);
+  assert.deepEqual(h.admission.store.unsettled(), []);
+  assert.ok(h.sent.some(text => text.includes('续接的启动权限已失效')));
+});
+
+test('app-server exit before submission seals an interruption without an unknown guard', async t => {
+  const h = handoff(t), { grant } = await queuedVerifiedDelivery(h);
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T,>(method: string, input: unknown) => {
+    if (method === 'thread/resume') setImmediate(() => h.codex.exit());
+    if (method === 'turn/start') throw Error('No model turn should be submitted');
+    return request<T>(method, input);
+  };
+  const report = await h.native.run(grant.permit);
+  await drain(h);
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(report.outcome.turn, null);
+  assert.deepEqual(h.admission.store.unsettled(), []);
+  assert.ok(h.sent.some(text => text.includes('没有提交本轮模型任务')));
+});
+
+function addIgnoredSubmodule(h: ReturnType<typeof handoff>, parent = h.project, name = 'dependency') {
+  const dependency = join(h.root, name + '-source');
+  const commit = (directory: string, subject: string) => h.git(directory,
+    ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', subject]);
+  mkdirSync(dependency);
+  writeFileSync(join(dependency, 'content.txt'), 'reviewed');
+  h.git(dependency, ['init', '-q']); h.git(dependency, ['add', '.']); commit(dependency, 'dependency');
+  h.git(parent, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', dependency, name]);
+  h.git(parent, ['config', '-f', '.gitmodules', 'submodule.' + name + '.ignore', 'all']);
+  h.git(parent, ['add', '.gitmodules']); commit(parent, 'pinned dependency');
+  return join(parent, name, 'content.txt');
+}
+
+test('delivery detects changes in a Git submodule before registration', async t => {
+  const h = handoff(t), content = addIgnoredSubmodule(h);
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  writeFileSync(content, 'changed');
+  assert.equal(h.git(h.project, ['status', '--porcelain']), '');
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  h.interactions.receive(wait); await drain(h);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
+  assert.ok(h.sent.some(text => text.includes('未提交变更')));
+});
+
+test('a submodule restored after verification cannot make the earlier report eligible', async t => {
+  const h = handoff(t), content = addIgnoredSubmodule(h);
+  writeFileSync(content, 'changed');
+  assert.equal(h.git(h.project, ['status', '--porcelain']), '');
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  const observation = h.admission.store.verification(execution)!.observation!;
+  assert.equal(observation.status, 'pass');
+  assert.deepEqual(observation.integration?.source, { commitSha: observation.gitHead, dirtyTree: false });
+  writeFileSync(content, 'reviewed');
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  h.interactions.receive(wait); await drain(h);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
+  assert.ok(h.sent.some(text => text.includes('交付证据不可用')));
+});
+
+test('a missing submodule checkout is ineligible even when Git status is clean', async t => {
+  const h = handoff(t), content = addIgnoredSubmodule(h);
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  h.git(h.project, ['submodule', 'deinit', '-f', '--', 'dependency']);
+  assert.equal(existsSync(content), false);
+  assert.equal(h.git(h.project, ['status', '--porcelain', '--ignore-submodules=none']), '');
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  h.interactions.receive(wait); await drain(h);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
+  assert.ok(h.sent.some(text => text.includes('未提交变更')));
+});
+
+test('a nested submodule with hidden edits cannot be registered as delivery evidence', async t => {
+  const h = handoff(t), dependency = dirname(addIgnoredSubmodule(h));
+  const nested = addIgnoredSubmodule(h, dependency, 'nested');
+  h.git(h.project, ['add', '--force', '--', 'dependency']);
+  h.git(h.project, ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', 'pin updated dependency']);
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  writeFileSync(nested, 'changed');
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  h.interactions.receive(wait); await drain(h);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
+  assert.ok(h.sent.some(text => text.includes('未提交变更')));
+});
+
+test('a source scan rejects a clean replacement checkout selected during submodule inspection', async t => {
+  const f = fixture(t), bin = join(f.root, 'git-probe-bin');
+  const initial = f.git(f.project, ['rev-parse', 'HEAD']);
+  f.git(f.project, ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '--allow-empty', '-qm', 'replacement']);
+  const replacement = f.git(f.project, ['rev-parse', 'HEAD']);
+  f.git(f.project, ['checkout', '--quiet', '--detach', initial]);
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'git'), `#!/bin/sh
+if [ "$4" = submodule ] && [ "$5" = status ]; then
+  "$SNAPSHOT_PROBE_REAL_GIT" "$@" || exit "$?"
+  exec "$SNAPSHOT_PROBE_REAL_GIT" -C "$3" checkout --quiet --detach "$SNAPSHOT_PROBE_NEXT_COMMIT"
+fi
+exec "$SNAPSHOT_PROBE_REAL_GIT" "$@"
+`, { mode: 0o700 });
+  const environment = {
+    PATH: bin + ':' + process.env.PATH,
+    SNAPSHOT_PROBE_REAL_GIT: execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
+    SNAPSHOT_PROBE_NEXT_COMMIT: replacement,
+  };
+  const previous = Object.fromEntries(Object.keys(environment).map(name => [name, process.env[name]]));
+  try {
+    Object.assign(process.env, environment);
+    assert.deepEqual(await verificationSourceState(f.project), { commit: replacement, clean: false });
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
+});
+
+test('failed, dirty-source and internally mismatched observations are ineligible for delivery waits', async t => {
+  for (const mode of ['fail', 'pass', 'inline-source-mismatch']) {
+    const h = handoff(t, mode);
+    const dirty = join(h.project, 'uncommitted.txt');
+    if (mode === 'pass') writeFileSync(dirty, 'not part of the Git commit');
+    const task = await h.launch(); await task.running;
+    if (mode === 'pass') rmSync(dirty);
+    assert.equal(h.admission.store.verification(task.admitted.request.execution)!.observation!.status, mode === 'fail' ? 'fail' : 'pass');
+    const wait = message('/delivery-wait ' + task.admitted.request.execution, { chatType: 'p2p' });
+    h.interactions.receive(wait);
+    await drain(h);
+    assert.equal(h.admission.store.deliveryCheckpoint(wait, task.admitted.request.project, task.admitted.request.execution), undefined);
+    assert.ok(h.sent.some(text => text.includes('交付证据不可用')));
+  }
+});
+
+test('a delivery-view outbox failure leaves its receipt retryable without blocking synchronization', async t => {
+  const h = handoff(t), task = await h.launch(); await task.running; await drain(h);
+  const { execution } = task.admitted.request;
+  h.interactions.receive(message('/delivery-wait ' + execution, { chatType: 'p2p' })); await drain(h);
+  const state = h.interactions.transport.state, send = state.send.bind(state);
+  const query = message('/delivery ' + execution, { chatType: 'p2p' });
+  const prior = h.sent.length;
+  state.send = () => { throw Error('Synthetic persistent outbox storage failure'); };
+  try {
+    h.interactions.receive(query);
+    await assert.doesNotReject(h.interactions.flush());
+    assert.equal(state.hasSeen(query), false);
+  } finally { state.send = send; }
+  h.interactions.receive(query); h.interactions.receive(query); await drain(h);
+  assert.equal(h.sent.slice(prior).filter(text => text.includes('等待确认这份证据')).length, 1);
+  assert.equal(h.admission.store.requests().length, 1);
+});
+
+test('a transient outbox failure after registration preserves the successful response on redelivery', async t => {
+  const h = handoff(t), task = await h.launch(); await task.running; await drain(h);
+  const { execution, project } = task.admitted.request;
+  const state = h.interactions.transport.state, send = state.send.bind(state);
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  let drop = true;
+  state.send = (...args) => {
+    if (drop) { drop = false; throw Error('Synthetic transient outbox write failure'); }
+    return send(...args);
+  };
+  try {
+    h.interactions.receive(wait);
+    await drain(h);
+    assert.equal(state.hasSeen(wait), false);
+    assert.ok(h.admission.store.deliveryCheckpoint(wait, project, execution));
+    h.interactions.receive(wait);
+    await drain(h);
+    assert.equal(h.sent.filter(text => text.includes('等待确认这份证据')).length, 1);
+    assert.equal(h.admission.store.requests().length, 1);
+  } finally { state.send = send; }
+});
 
 test('findings reads sealed failure once across duplicate deliveries/restart without executing or altering evidence', async t => {
   const h = handoff(t, 'fail'), task = await h.launch(); await task.running; await drain(h);

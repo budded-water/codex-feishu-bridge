@@ -83,6 +83,19 @@ export async function gitRead(root: string, args: string[]): Promise<string> {
   return (await exec('git', ['--no-optional-locks', '-C', root, ...args], { timeout: 5000, maxBuffer: 1024 * 1024, env: verificationEnvironment() })).stdout.trim();
 }
 
+export async function verificationSourceState(root: string): Promise<{ commit: string; clean: boolean }> {
+  const initialCommit = await gitRead(root, ['rev-parse', 'HEAD']);
+  const submodules = await gitRead(root, ['submodule', 'status', '--recursive']);
+  const nested = submodules && await gitRead(root, ['submodule', 'foreach', '--quiet', '--recursive',
+    'git --no-optional-locks status --porcelain=v2 --untracked-files=all --ignore-submodules=none']);
+  // Take the root snapshot after the potentially slower recursive scan.
+  const status = (await gitRead(root, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '--ignore-submodules=none'])).split('\n');
+  const commit = status.find(line => line.startsWith('# branch.oid '))?.slice('# branch.oid '.length);
+  if (!commit || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit)) throw new Error('Verification source commit unavailable');
+  return { commit, clean: commit === initialCommit && !nested &&
+    !/^[-+U][a-f0-9]+ /m.test(submodules) && status.every(line => line.startsWith('# ')) };
+}
+
 export async function verifyEngine(p: VerificationProfile): Promise<void> {
   if (await gitRead(p.engineRoot, ['rev-parse', '--show-toplevel']) !== p.engineRoot ||
     await gitRead(p.engineRoot, ['rev-parse', 'HEAD']) !== p.engineRevision ||

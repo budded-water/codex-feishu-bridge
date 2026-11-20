@@ -119,10 +119,17 @@ export class HandoffTransport {
         ]) : undefined;
         const ordinaryAnswer = ownerAnswer && projection.outcome.status === 'completed' &&
           !this.gateway.store.hasDedicatedContinuation(request.execution);
+        let admissionNotice: string | undefined;
+        if (projection.sealed && !projection.task) {
+          const delivery = this.gateway.store.deliveryForContinuation(request.id);
+          const verified = delivery && this.gateway.store.verification(delivery.execution);
+          admissionNotice = verified
+            ? '续接在启动前已结束。请检查证据的当前适用性和执行状态。\n' + copyBlock('/delivery ' + delivery.execution)
+            : '任务在开始执行前已取消，没有启动模型任务。';
+        }
         this.state.projectNativeMessages(request, projection, repair ? repairText(repair) : verification ? verificationText(verification) : undefined,
-          browserNotice, ordinaryAnswer);
+          browserNotice, ordinaryAnswer, admissionNotice);
         if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.gateway.store.retireReferences(request.execution);
-        if (projection.sealed && !projection.task) this.state.projectAdmissionNotice(request, '任务在开始执行前已取消，没有启动模型任务。');
       } catch {
         if (this.gateway.store.execution(request.execution)?.status === 'unknown') this.state.projectAdmissionNotice(request, '本机执行器当前无法核实，任务结果尚未确认。请先检查实际结果；不会自动重跑。');
         // Missing ownership cannot authorize prompt delivery or fabricate a final answer.
