@@ -25,3 +25,9 @@ for quotation.
 - **WHEN** Feishu reports that the original message was recalled or deleted
 - **THEN** the receipt retains an unavailable reply-target result
 - **AND** the gateway does not publish a standalone image post
+
+#### Scenario: Slow image upload overlaps an ordinary reply
+
+- **WHEN** a receipt is waiting for an image upload
+- **THEN** ordinary replies and native prompts can continue independently
+- **AND** an acknowledged upload is reused when the receipt is retried

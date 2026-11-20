@@ -19,6 +19,7 @@ export class Outbox {
   private sender: Sender;
   private timer?: NodeJS.Timeout;
   private work?: Promise<void>;
+  private visualWork?: Promise<void>;
   private secrets: string[];
 
   constructor(state: State, sender: Sender, secrets: string[] = [], private ready?: (delivery: Delivery) => Promise<boolean>) {
@@ -38,8 +39,12 @@ export class Outbox {
     return this.work;
   }
 
-  private async deliver(): Promise<void> {
-    for (const delivery of this.state.pending()) {
+  flushVisual(): Promise<void> {
+    return this.visualWork ??= this.deliver(true).finally(() => { this.visualWork = undefined; });
+  }
+
+  private async deliver(visual = false): Promise<void> {
+    for (const delivery of this.state.pending(Date.now(), visual)) {
       if (!this.state.deliveryReady(delivery.id)) continue;
       if (this.ready && !await this.ready(delivery)) continue;
       if (!this.state.deliveryReady(delivery.id)) continue;
@@ -90,7 +95,7 @@ export class Outbox {
 
   async close(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
-    await this.work;
+    await Promise.all([this.work, this.visualWork]);
   }
 
   private async uploadVisualImages(attachments: NonNullable<Delivery['visualImages']>, id: string): Promise<DeliveryOptions['visualImages']> {

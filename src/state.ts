@@ -259,11 +259,17 @@ export class State {
     return Boolean(this.db.prepare('SELECT 1 FROM projected_tasks WHERE execution=? AND checkpoint IS NOT NULL').get(execution));
   }
 
-  projectVisualReceipt(request: RequestRecord, receipt: { evidence: string; body: string; images: VisualImage[] }): { delivery: string; status: 'registered' | 'target-unavailable' } {
+  visualReceipt(execution: string, evidence: string): { delivery: string; status: 'registered' | 'target-unavailable' } | undefined {
+    const origin = 'visual-receipt/' + execution + '/' + evidence;
+    const prior = this.db.prepare('SELECT id,status FROM projected_control_notices WHERE origin=?').get(origin);
+    if (prior) return { delivery: String(prior.id), status: prior.status === 'target-unavailable' ? 'target-unavailable' : 'registered' };
+  }
+
+  projectVisualReceipt(request: RequestRecord, receipt: { evidence: string; body: string; images: VisualImage[] }): NonNullable<ReturnType<State['visualReceipt']>> {
     return this.transaction(() => {
       const origin = 'visual-receipt/' + request.execution + '/' + receipt.evidence;
-      const prior = this.db.prepare('SELECT id,status FROM projected_control_notices WHERE origin=?').get(origin);
-      if (prior) return { delivery: String(prior.id), status: prior.status === 'target-unavailable' ? 'target-unavailable' : 'registered' };
+      const prior = this.visualReceipt(request.execution, receipt.evidence);
+      if (prior) return prior;
       const id = randomUUID();
       const images = receipt.images.map(image => ({ ...image, caption: this.redact(image.caption) }));
       this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(origin, 'observed', id);
@@ -275,6 +281,7 @@ export class State {
   }
 
   saveVisualImages(delivery: string, images: VisualImage[]): void {
+    this.db.exec('PRAGMA secure_delete=ON');
     this.db.prepare('UPDATE outbox SET visual_images=? WHERE id=?').run(JSON.stringify(images), delivery);
   }
 
@@ -680,19 +687,20 @@ export class State {
     });
   }
 
-  pending(now = Date.now()): Delivery[] {
+  pending(now = Date.now(), visual = false): Delivery[] {
     this.queueCardUpdates(Date.now());
     // A delayed status must never appear after its task has finished.
     this.db.prepare(`DELETE FROM outbox WHERE task IS NOT NULL AND task IN
       (SELECT id FROM tasks WHERE status NOT IN ('queued','running'))`).run();
     this.db.prepare(`DELETE FROM outbox WHERE prompt_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM approvals WHERE approvals.id=outbox.prompt_id AND status='pending' AND (expires IS NULL OR expires>?))`).run(Date.now());
-    // A supplemental visual receipt in backoff must not hold ordinary replies.
+    // Ordinary delivery ignores supplemental images. Images wait for earlier
+    // ordinary messages and never delay native prompts while uploading.
     const rows = this.db.prepare(`SELECT id, chat, body, attempts, next, reply_to AS replyTo, mentions, response_task AS taskId, final, approval,
       update_message AS updateMessage,approval_view AS approvalView,task_view AS taskView, review_card AS reviewCard, matter_card AS matterCard,
-      visual_images AS visualImages FROM outbox AS current WHERE next<=?
+      visual_images AS visualImages FROM outbox AS current WHERE next<=? AND (current.visual_images IS NOT NULL)=?
       AND NOT EXISTS (SELECT 1 FROM outbox AS previous WHERE previous.chat=current.chat AND previous.sequence<current.sequence
-        AND (previous.visual_images IS NULL OR previous.next<=?))
-      ORDER BY sequence LIMIT 20`).all(now, now) as unknown as (Omit<Delivery, 'approval' | 'taskView' | 'visualImages'> & { approval: string | null; taskView: string | null; visualImages: string | null })[];
+        AND (previous.visual_images IS NULL OR (? AND previous.next<=?)))
+      ORDER BY sequence LIMIT 20`).all(now, Number(visual), Number(visual), now) as unknown as (Omit<Delivery, 'approval' | 'taskView' | 'visualImages'> & { approval: string | null; taskView: string | null; visualImages: string | null })[];
     return rows.map(row => ({ ...row, approval: row.approval ? parseApproval(JSON.parse(row.approval)) : undefined,
       reviewCard: row.reviewCard ? parseReviewPresentation(JSON.parse(row.reviewCard as unknown as string)) : undefined, taskView: row.taskView ? parseTaskPresentation(JSON.parse(row.taskView)) : undefined,
       matterCard: row.matterCard ? parseMatterPresentation(JSON.parse(row.matterCard as unknown as string)) : undefined,

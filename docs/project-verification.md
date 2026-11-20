@@ -100,8 +100,10 @@ same clean captured source and runtime across scenes, and a matching origin and
 HEAD before and after the read. Passed or failed scenarios with settled capture
 can provide evidence. Inconclusive reports stay in UI-eval. The outbox holds temporary private image bytes until upload returns
 an `image_key`. It reuses the confirmed keys and message UUID for message
-retry. Supplemental receipts in retry backoff let ordinary replies go
-through. Duplicate requests for the same task/report set reuse the receipt.
+retry. Image upload and delivery run separately from ordinary replies and
+native prompts. SQLite overwrites the staged bytes during key replacement.
+Duplicate requests look up the same receipt before inspecting the worktree,
+so retained delivery can be checked after the original files move.
 Apply the same privacy controls to the transport database and its snapshots
 as to the source screenshots. Uploading sends the selected image bytes to
 Feishu. The original validation and its scope remain in UI-eval.

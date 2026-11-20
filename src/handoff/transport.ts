@@ -137,7 +137,10 @@ export class HandoffTransport {
     }
   }
 
-  async flush(): Promise<void> { await Promise.all([this.outbox.flush(), this.feedback.flush()]); }
+  async flush(): Promise<void> {
+    void this.outbox.flushVisual().catch(() => console.error('Visual receipt transport unavailable'));
+    await Promise.all([this.outbox.flush(), this.feedback.flush()]);
+  }
   async close(): Promise<void> {
     try { this.syncTaskReplies(); }
     finally {

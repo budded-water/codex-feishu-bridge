@@ -158,6 +158,8 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   t.after(() => sdk.close());
   const uploads: Buffer[] = [];
   const ordinary: string[] = [];
+  let releaseUpload!: () => void;
+  const uploadGate = new Promise<void>(resolve => { releaseUpload = resolve; });
   let recalled = false;
   let standalone = false;
   const replies: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
@@ -168,6 +170,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
       const chunks = [];
       for await (const chunk of data.image) chunks.push(Buffer.from(chunk));
       uploads.push(Buffer.concat(chunks));
+      if (uploads.length === 1) await uploadGate;
       return { image_key: 'img_fixture_' + uploads.length };
     } },
     message: { create: async () => { standalone = true; return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
@@ -182,15 +185,22 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
     } },
   } } } });
   const quote = h.actor('继续检查图标。', { parentId: 'visual-receipt' });
-  await new Outbox(state, sdk).flush();
-  assert.equal(state.confirmedAnswer(quote), undefined);
+  const databasePath = join(h.config.stateDirectory, 'transport/bridge.db');
+  assert.equal(readFileSync(databasePath).includes(png.toString('base64')), true);
+  const outbox = new Outbox(state, sdk);
+  const upload = outbox.flushVisual();
+  await until(() => uploads.length === 1);
   state.send(quote.chat, '常规回复', { replyTo: 'ordinary-trigger' });
-  await new Outbox(state, sdk).flush();
-  assert.deepEqual(ordinary, ['ordinary-trigger']);
-  const db = new DatabaseSync(join(h.config.stateDirectory, 'transport/bridge.db'));
+  try {
+    await outbox.flush();
+    assert.deepEqual(ordinary, ['ordinary-trigger']);
+  } finally { releaseUpload(); await upload; }
+  assert.equal(state.confirmedAnswer(quote), undefined);
+  assert.equal(readFileSync(databasePath).includes(png.toString('base64')), false);
+  const db = new DatabaseSync(databasePath);
   try { db.prepare('UPDATE outbox SET next=0 WHERE id=?').run(receipt.delivery); }
   finally { db.close(); }
-  await new Outbox(state, sdk).flush();
+  await new Outbox(state, sdk).flushVisual();
   assert.deepEqual(uploads, [png, png]);
   assert.deepEqual(replies[0], replies[1]);
   assert.equal(replies[1]?.path.message_id, active.message.id);
@@ -206,15 +216,17 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   ]);
   assert.equal(state.confirmedAnswer(quote), execution);
   assert.equal(state.confirmedAnswer({ ...quote, user: 'someone-else' }), undefined);
+  unlinkSync(home.imagePath);
   assert.deepEqual(await queue(), receipt);
-  assert.equal(state.pending().length, 0);
+  writeFileSync(home.imagePath, png);
+  assert.equal(state.pending(Date.now(), true).length, 0);
   planFor([home.entry]);
   const orphaned = await queue();
   recalled = true;
-  await new Outbox(state, sdk).flush();
+  await new Outbox(state, sdk).flushVisual();
   assert.equal(standalone, false);
   assert.deepEqual(await queue(), { ...orphaned, status: 'target-unavailable' });
-  assert.equal(state.pending().length, 0);
+  assert.equal(state.pending(Date.now(), true).length, 0);
 });
 
 test('managed visual submission can acknowledge validation slower than native controls', async t => {

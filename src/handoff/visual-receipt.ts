@@ -23,7 +23,7 @@ async function repositoryIdentity(root: string): Promise<string> {
   return url.toString();
 }
 
-export async function readVisualReceipt(path: string) {
+export function readVisualReceiptPlan(path: string) {
   if (!isAbsolute(path)) throw Error('Visual receipt plan requires an absolute path');
   const file = lstatSync(path);
   if (!file.isFile() || file.uid !== process.getuid?.() || (file.mode & 0o077) !== 0 || file.size > 16 * 1024) {
@@ -31,27 +31,37 @@ export async function readVisualReceipt(path: string) {
   }
   const plan = privateRecord(path);
   const { projectRoot, projectId, commit, reviewFocus, scenes } = plan;
-  if (typeof projectRoot !== 'string' || !isAbsolute(projectRoot) || realpathSync(projectRoot) !== projectRoot ||
+  if (typeof projectRoot !== 'string' || !isAbsolute(projectRoot) ||
     typeof projectId !== 'string' || !segment.test(projectId) ||
     typeof commit !== 'string' || !/^[a-f0-9]{40}$/.test(commit) ||
     typeof reviewFocus !== 'string' || !reviewFocus.trim() || reviewFocus.length > 300 ||
     !Array.isArray(scenes) || !scenes.length || scenes.length > 3) throw Error('Invalid visual receipt plan');
-  if (await gitRead(projectRoot, ['rev-parse', '--show-toplevel']) !== projectRoot) throw Error('Visual receipt requires the candidate worktree root');
+  const entries = scenes.map(value => {
+    const { run, reportSha256, checkpoint, label } = record(value);
+    if (typeof run !== 'string' || !uuid.test(run) || typeof reportSha256 !== 'string' || !digest.test(reportSha256) ||
+      typeof checkpoint !== 'string' || !segment.test(checkpoint) ||
+      typeof label !== 'string' || !label.trim() || label.length > 90) throw Error('Invalid visual receipt scene');
+    return { run, reportSha256, checkpoint, label };
+  });
+  const references = entries.map(({ run, reportSha256, checkpoint }) => run + '/' + reportSha256 + '/' + checkpoint);
+  return { projectRoot, projectId, commit, reviewFocus, entries, evidence: fingerprint(JSON.stringify(references.sort())) };
+}
+
+export async function readVisualReceipt(plan: ReturnType<typeof readVisualReceiptPlan>) {
+  const { projectRoot, projectId, commit, reviewFocus, entries, evidence } = plan;
+  if (realpathSync(projectRoot) !== projectRoot || await gitRead(projectRoot, ['rev-parse', '--show-toplevel']) !== projectRoot) {
+    throw Error('Visual receipt requires the candidate worktree root');
+  }
   const source = await verificationSourceState(projectRoot);
   if (!source.clean || source.commit !== commit) throw Error('Visual receipt candidate changed');
   const repository = await repositoryIdentity(projectRoot);
   // UI-eval hashes the clean source record with these keys in canonical order.
   const sourceDigest = 'sha256:' + fingerprint(JSON.stringify({ commitSha: commit, dirtyTree: false, repository }));
   const images: VisualImage[] = [];
-  const references: string[] = [];
   const scenarios = new Set<string>();
   let runtimeDigest: string | undefined;
   let passed = 0;
-  for (const value of scenes) {
-    const { run, reportSha256, checkpoint, label } = record(value);
-    if (typeof run !== 'string' || !uuid.test(run) || typeof reportSha256 !== 'string' || !digest.test(reportSha256) ||
-      typeof checkpoint !== 'string' || !segment.test(checkpoint) ||
-      typeof label !== 'string' || !label.trim() || label.length > 90) throw Error('Invalid visual receipt scene');
+  for (const { run, reportSha256, checkpoint, label } of entries) {
     const directory = join(projectRoot, '.ui-eval', 'wechat-runs', run);
     const bytes = boundedFile(projectRoot, join(directory, 'report.json'), 256 * 1024);
     if (fingerprint(bytes) !== reportSha256) throw Error('Visual receipt report changed');
@@ -78,19 +88,17 @@ export async function readVisualReceipt(path: string) {
       png.readUInt32BE(20) !== shot.heightPx || 'sha256:' + fingerprint(png) !== shot.digest) throw Error('Visual receipt screenshot differs from its report');
     const total = Number(assertions.passed) + Number(assertions.failed);
     images.push({ caption: label.trim() + ' · ' + verdict + ' · 已执行断言 ' + assertions.passed + '/' + total, png: png.toString('base64') });
-    references.push(run + '/' + reportSha256 + '/' + checkpoint);
     if (report.status === 'passed') passed++;
   }
   const finalSource = await verificationSourceState(projectRoot);
   if (!finalSource.clean || finalSource.commit !== commit || await repositoryIdentity(projectRoot) !== repository) throw Error('Visual receipt candidate changed');
-  return { images, evidence: fingerprint(JSON.stringify(references.sort())),
+  return { images, evidence,
     body: '微信 UI 验证 · ' + passed + '/' + images.length + ' 个场景通过\n微信开发者工具 · 候选 ' + commit.slice(0, 12) +
       '\n\n待人工看图 · ' + reviewFocus.trim() };
 }
 
 export async function queueVisualReceipt(admission: PilotAdmission, transport: State, executionId: unknown, path: unknown, assertOwned: () => void) {
   if (typeof executionId !== 'string' || !uuid.test(executionId) || typeof path !== 'string') throw Error('Visual receipt requires an execution and private plan');
-  if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
   const execution = admission.store.execution(executionId);
   const request = execution && admission.store.request(execution.request);
   const scope = admission.scope;
@@ -100,7 +108,11 @@ export async function queueVisualReceipt(admission: PilotAdmission, transport: S
     admission.store.hasDedicatedContinuation(executionId) || !transport.projectedFinal(executionId)) {
     throw Error('Visual receipt requires a completed owner-private ordinary task');
   }
-  const receipt = await readVisualReceipt(path);
+  const plan = readVisualReceiptPlan(path);
+  const existing = transport.visualReceipt(executionId, plan.evidence);
+  if (existing) return { execution: executionId, ...existing };
+  if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
+  const receipt = await readVisualReceipt(plan);
   assertOwned();
   if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
   return { execution: executionId, ...transport.projectVisualReceipt(request, receipt) };
