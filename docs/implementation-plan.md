@@ -14,8 +14,8 @@ real-owner acceptance are tracked separately.
 The [verified-delivery change](../openspec/changes/bind-delivery-to-ui-eval/proposal.md)
 extends the existing checkpoint to passing Web `/verify` reports. It shares the
 applicability checks for Git, profiles and retained report bytes, and revalidates
-them before starting the resumed turn. The verification and deployment evidence
-are tracked in its [tasks](../openspec/changes/bind-delivery-to-ui-eval/tasks.md).
+them before starting the resumed turn. The managed M6 rollout and Feishu
+acceptance are recorded in [live acceptance](live-acceptance.md#2026-11-20-m6-web-verification-delivery-checkpoints).
 
 ## Owner native permissions — Auto-review/save/reuse accepted, remaining effects pending
 

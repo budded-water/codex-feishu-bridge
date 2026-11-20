@@ -1,5 +1,13 @@
 # Live acceptance evidence
 
+## 2026-11-20 M6 Web verification delivery checkpoints
+
+The managed gateway and Worker assignment runner adopted [PR #60](https://github.com/budded-water/codex-feishu-bridge/pull/60). The merged source matched the tested tree with 471 passing tests, OpenSpec validation, green CI and independent review corrections. The cutover verified a closed backup of six databases and retained existing task state, sealed journals and native command rules.
+
+An enrolled Feishu private chat submitted the existing browser login suite against local test fixtures in an isolated project checkout. The pinned verifier produced passing desktop and mobile JSON and HTML evidence. The checkout was observed clean at the recorded commit and the verification receipt reached Feishu.
+
+`/delivery-wait` registered the report and `/delivery` retrieved the same waiting checkpoint after a gateway restart. An incorrect reference and repeat confirmation admitted zero requests. The exact confirmation produced one new Hub assignment and one distinct Codex turn in the original thread. Its final answer reached Feishu and verification did not rerun. The queue and execution protection were empty at closeout. Detailed evidence remains in the private deployment inventory. Acceptance covers this login suite and continuation path with local fixtures.
+
 ## 2026-11-19 M6 SLS refund subscription
 
 An isolated cloud queue received a scoped fixture firing through SLS and EventBridge. The fixture checked the notification fields and scoped receive and acknowledgment behavior. The authorized M6 cutover retained the original alert email action, verified unattended SLS read access and checked the captured state before reopening admission. The gateway consumed and acknowledged real notifications from the dedicated queue. Multiple firings were recorded against one incident.
