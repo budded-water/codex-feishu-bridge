@@ -175,7 +175,17 @@ export class Feishu implements ContextPort, ReactionPort {
 
   async send(chat: string, text: string, idempotencyKey: string, options: DeliveryOptions = {}): Promise<string | void> {
     const styled = markdownPost(safeMentionText(text)).zh_cn.content[0]![0]!.text;
-    const content = JSON.stringify(options.matterCard ? matterCard(options.matterCard) : options.reviewCard ? reviewCard(options.reviewCard) : options.taskView ? taskCard(options.taskView) : options.approval ? approvalCard(options.approval) : notificationPost(styled,options.mentions ?? []));
+    const [title, ...summary] = safeMentionText(text).split('\n');
+    const visualPost = options.visualImages && {
+      zh_cn: { title, content: [
+        ...summary.filter(Boolean).map(line => [{ tag: 'text', text: line }]),
+        ...options.visualImages.flatMap(image => [
+          [{ tag: 'text', text: safeMentionText(image.caption), style: ['bold'] }],
+          [{ tag: 'img', image_key: image.key }],
+        ]),
+      ] },
+    };
+    const content = JSON.stringify(options.matterCard ? matterCard(options.matterCard) : options.reviewCard ? reviewCard(options.reviewCard) : options.taskView ? taskCard(options.taskView) : options.approval ? approvalCard(options.approval) : visualPost ?? notificationPost(styled,options.mentions ?? []));
     const msg_type = options.approval || options.taskView || options.reviewCard || options.matterCard ? 'interactive' : 'post';
     if (options.replyTo) {
       const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
@@ -190,6 +200,13 @@ export class Feishu implements ContextPort, ReactionPort {
     const response = await this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: { receive_id: chat, msg_type, content, uuid: idempotencyKey } });
     if (response.code !== 0) throw new Error('Feishu rejected message delivery');
     return response.data?.message_id;
+  }
+
+  async uploadImage(png: Buffer): Promise<string> {
+    const response = await this.client.im.v1.image.create({ data: { image_type: 'message', image: png } });
+    const key = response?.image_key;
+    if (!key || !/^[a-zA-Z0-9_-]{1,200}$/.test(key)) throw Error('Feishu rejected visual receipt upload');
+    return key;
   }
 
   async updateApproval(message: string, approval: ApprovalPresentation, view: ApprovalView): Promise<void> {

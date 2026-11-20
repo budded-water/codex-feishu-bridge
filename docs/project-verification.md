@@ -74,6 +74,37 @@ Initial verification uncertainty requires local CLI/descendant/effect inspection
 
 A passing Web observation can be registered through [delivery waiting](usage.md#交付等待p1-网关) when strict Git observations before and after the run match its clean commit. Historical reports without these observations remain available through `/verification`. The reference includes the commit and a SHA-256 over the two retained report hashes. Exact owner confirmation admits one ordinary same-thread request. The gateway and Worker reuse the recorded profile, source and report checks before admission and launch. Validation still owns the underlying run and observations.
 
+## WeChat visual receipts
+
+The local operator can queue a separate screenshot receipt for a completed
+owner-private ordinary task. The operator reviews the destination execution,
+candidate worktree and selected screenshots before invoking the managed command.
+The gateway checks the task's sealed projection and private chat, then reads
+the selected reports and screenshot bytes under the named candidate root.
+This imports evidence from a finished run. Automated WeChat execution,
+recording a human pass and publication use separate workflows.
+
+The operator prepares an owner-only (`0600`) local JSON file with:
+
+| Field | Meaning |
+| --- | --- |
+| `projectRoot` | Canonical absolute path to the clean candidate Git worktree. |
+| `projectId`, `commit` | Exact project ID and full candidate commit recorded in each planned report. |
+| `reviewFocus` | Brief text describing what the reviewer should inspect in the pictures. |
+| `scenes` | One to three entries, each with the WeChat run UUID in `run`, exact `report.json` SHA-256 (hex, no prefix) in `reportSha256`, and a declared `checkpoint` and readable `label`. |
+
+Invoke `npm run handoff -- visual-receipt <consumer-state-root> <execution-id> <absolute-private-plan>` against the running pilot. The state root identifies the managed consumer; the receipt replies to the original request rather than an arbitrary Feishu address. The command returns the queued delivery ID. The Feishu app needs image upload and existing message permissions. A confirmed reply becomes another quotation anchor for the same task.
+
+The gateway reads only the selected checkpoint PNGs with verified digests, the
+same source/runtime across scenes, and a matching HEAD before and after the
+read. The outbox holds temporary private image bytes until upload returns
+an `image_key`. It reuses the confirmed keys and message UUID for message
+retry. Supplemental receipts in retry backoff let ordinary replies go
+through. Duplicate requests for the same task/report set reuse the receipt.
+Apply the same privacy controls to the transport database and its snapshots
+as to the source screenshots. Uploading sends the selected image bytes to
+Feishu. The original validation and its scope remain in UI-eval.
+
 Older pinned Web engines can emit an integration source digest without the source object. The runner uses the pinned engine's digest function to match a canonical adapter report and its embedded source to the digests in the integration summary before retaining its commit.
 
 ## Upgrade and isolated probe

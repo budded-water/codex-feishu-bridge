@@ -7,6 +7,7 @@ import { escapeTaskMarkdown, redactTaskPresentation, type TaskPresentation } fro
 
 export interface Sender {
   send(chat: string, text: string, idempotencyKey: string, options?: DeliveryOptions): Promise<void | string>;
+  uploadImage?(png: Buffer): Promise<string>;
   updateApproval?(message: string, approval: ApprovalPresentation, view: ApprovalView): Promise<void>;
   updateReview?(message: string, presentation: ReviewPresentation): Promise<void>;
   updateTask?(message: string, presentation: TaskPresentation): Promise<void>;
@@ -66,7 +67,8 @@ export class Outbox {
           this.state.delivered(delivery.id);
           continue;
         }
-        const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined,
+        const visualImages = delivery.visualImages ? await this.uploadVisualImages(delivery.visualImages, delivery.id) : undefined;
+        const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined, visualImages,
           mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval, taskView, reviewCard: delivery.reviewCard,
           matterCard: delivery.matterCard && redactMatterPresentation(delivery.matterCard, value => {
             for (const secret of this.secrets) if (secret) value = value.split(secret).join('[redacted]');
@@ -83,5 +85,21 @@ export class Outbox {
   async close(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     await this.work;
+  }
+
+  private async uploadVisualImages(attachments: NonNullable<Delivery['visualImages']>, id: string): Promise<DeliveryOptions['visualImages']> {
+    const images = [];
+    for (const image of attachments) {
+      if (!image.key) {
+        if (!this.sender.uploadImage) throw Error('Visual receipt upload transport unavailable');
+        image.key = await this.sender.uploadImage(Buffer.from(image.png, 'base64'));
+        image.png = '';
+        this.state.saveVisualImages(id, attachments);
+      }
+      let caption = image.caption;
+      for (const secret of this.secrets) caption = caption.split(secret).join('[redacted]');
+      images.push({ caption, key: image.key });
+    }
+    return images;
   }
 }
