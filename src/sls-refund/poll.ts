@@ -22,8 +22,8 @@ async function readBacklogSupplement(evidence: Evidence, sample: DueSample, now:
   const channel = known.channel === 'wechat_pay' ? 'alipay' : 'wechat_pay';
   const target = { through, channel } as const;
   try {
-    const extra = readEvidence(await read(config, 'evidence', from, through), evidence.backlogRun);
-    if (extra.unavailable || extra.backlog.some(row => !freshBacklog(row, now, from, through))) return { ...target, status: 'unavailable' };
+    const extra = readEvidence(await read(config, 'evidence', from, through), { run: evidence.backlogRun, from, through });
+    if (extra.unavailable) return { ...target, status: 'unavailable' };
     const row = extra.backlog.find(row => row.channel === channel);
     return row ? { ...target, status: 'matched', row } : { ...target, status: 'not-found' };
   } catch { return { ...target, status: 'unavailable' }; }

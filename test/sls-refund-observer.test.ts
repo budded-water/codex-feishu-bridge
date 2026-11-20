@@ -607,6 +607,7 @@ test('the final query supplements only the missing channel of the same batch wit
     event: 'merchant_refund_recovery', run_id: 'healthy-final', outcome: 'completed', query_errors: 0, deferred: 0,
   })]);
   const same = backlog('wechat_pay', 1007, 'cutoff-batch');
+  const inconsistent = entry(1006, { ...JSON.parse(same.content), queryable: 1 });
   const other = backlog('wechat_pay', 1009, 'another-batch');
   const unboundFailure = entry(1008, { event: 'merchant_refund_backlog', outcome: 'failed' });
   const conflictingRecovery = entry(1001, {
@@ -619,6 +620,7 @@ test('the final query supplements only the missing channel of the same batch wit
       primary: response([...original.data, conflictingRecovery]) },
     { name: 'unrelated batch alone', status: 'not-found', extra: response([other]) },
     { name: 'incomplete source', status: 'unavailable', extra: response([same], 'Incomplete') },
+    { name: 'a newer row cannot conceal inconsistent counters', status: 'unavailable', extra: response([inconsistent, same]) },
     { name: 'unidentifiable backlog failure', status: 'unavailable', extra: response([same, unboundFailure]) },
     { name: 'out-of-window record', status: 'unavailable', extra: response([backlog('wechat_pay', 1019, 'cutoff-batch')]) },
     { name: 'maintenance', status: undefined, extra: response([same]) },
