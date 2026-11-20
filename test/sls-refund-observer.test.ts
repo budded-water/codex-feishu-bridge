@@ -595,3 +595,62 @@ test('a scheduled poll after disabling the subscription reads from the saved SLS
   assert.deepEqual(observer.report().incident?.observations.map(row => row.slot), [0]);
   assert.deepEqual(observer.report().incident?.followups, [2300, 2900]);
 });
+
+test('the final query supplements only the missing channel of the same batch without using it for recovery', async t => {
+  const scope = 'managed:local_product_order:native_case_refunds';
+  const entry = (at: number, content: Record<string, unknown>) => ({ __time__: String(at), content: JSON.stringify({ scope, ...content }) });
+  const backlog = (channel: string, at: number, run: string) => entry(at, {
+    event: 'merchant_refund_backlog', channel, run_id: run, outcome: 'completed',
+    pending: 0, queryable: 0, missing_channel_identity: 0, oldest_age_seconds: 0,
+  });
+  const original = response([backlog('alipay', 1000, 'cutoff-batch'), entry(1001, {
+    event: 'merchant_refund_recovery', run_id: 'healthy-final', outcome: 'completed', query_errors: 0, deferred: 0,
+  })]);
+  const same = backlog('wechat_pay', 1007, 'cutoff-batch');
+  const other = backlog('wechat_pay', 1009, 'another-batch');
+
+  for (const scenario of [
+    { name: 'matched despite a later unrelated batch', status: 'matched', extra: response([same, other]) },
+    { name: 'unrelated batch alone', status: 'not-found', extra: response([other]) },
+    { name: 'incomplete source', status: 'unavailable', extra: response([same], 'Incomplete') },
+    { name: 'out-of-window record', status: 'unavailable', extra: response([backlog('wechat_pay', 1019, 'cutoff-batch')]) },
+    { name: 'maintenance', status: undefined, extra: response([same]) },
+  ]) await t.test(scenario.name, async t => {
+    const { open } = setup(t);
+    const observer = open();
+    try {
+      observer.acceptWindow(100, 121, [{ id: 'fire', at: 110, status: 'firing' }], 121);
+      observer.observe(observer.nextSample(421)!, 421, samples(419));
+      observer.acceptWindow(121, 1005, [{ id: 'quiet', at: 1003, status: 'inactive' }], 1065);
+      const queries: [number, number][] = [];
+      let allowed = true;
+      await pollRefundObserver(observer, { binding }, { now: 1065, subscription: true, canContinue: () => allowed,
+        read: async (_cfg, kind, from, to) => {
+          assert.equal(kind, 'evidence');
+          queries.push([from, to]);
+          if (to === 1004) {
+            if (scenario.name === 'maintenance') allowed = false;
+            return JSON.stringify(original);
+          }
+          return JSON.stringify(scenario.extra);
+        },
+      });
+      assert.deepEqual(queries, scenario.status ? [[765, 1004], [1004, 1019]] : [[765, 1004]]);
+    } finally { observer.close(); }
+
+    const reopened = open();
+    try {
+      const incident = reopened.report().incident!;
+      const final = incident.observations.at(-1)!;
+      assert.equal(incident.state, 'needs-attention');
+      assert.equal(final.evidenceThrough, 1004);
+      assert.equal(final.state, 'unavailable');
+      assert.deepEqual(final.evidence.backlog.map(row => row.channel), ['alipay']);
+      assert.equal(final.backlogSupplement?.status, scenario.status);
+      assert.deepEqual(final.backlogSupplement?.status === 'matched' ? final.backlogSupplement.row : undefined,
+        scenario.status === 'matched' ? { ...samples(1007).backlog[0], channel: 'wechat_pay' } : undefined);
+      assert.equal(reopened.nextClosureCheck(6000), undefined);
+      assert.doesNotMatch(JSON.stringify(final), /cutoff-batch|another-batch|healthy-final/);
+    } finally { reopened.close(); }
+  });
+});

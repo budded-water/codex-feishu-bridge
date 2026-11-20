@@ -33,6 +33,8 @@ The delivered [matter follow-up refinement](changes/archive/2026-11-19-clarify-o
 
 The subscription, read-only observation, owner-private card delivery and quoted Codex continuation were verified on the managed M6 pilot. See the [dated acceptance record](../docs/live-acceptance.md#2026-11-19-m6-sls-refund-subscription) for the scope and observed incident disposition.
 
+The active [refund diagnosis supplement](changes/add-refund-diagnostic-companion/proposal.md) adds a bounded same-batch read and presents it beside the original incident assessment. The existing recovery boundary remains authoritative and deployment evidence is tracked separately.
+
 ## Active P3 change
 
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) stays active. Its optional runtime is merged/deployed, and real owner-private fixture `/verify` plus historical `/verification` are accepted. Native execution, project validation, review and publication remain separate.

@@ -1926,6 +1926,40 @@ test('refund milestones retain one private matter across failed projection ackno
   await resumed;
 });
 
+test('the owner-private refund card displays a persisted diagnosis beside the original handoff status', async t => {
+  const h = setup(t);
+  const config = parseObserverConfig({ region: 'fixture', project: 'fixture', rule: 'refund', start: 100 }, 'replay');
+  const directory = join(h.config.stateDirectory, 'sls-refund');
+  const initial = new RefundObserver(directory, config.binding);
+  try {
+    initial.acceptWindow(100, 1006, [{ id: 'fire', at: 110, status: 'firing' }], 1006);
+    initial.acceptWindow(1006, 1900, [{ id: 'quiet', at: 1899, status: 'inactive' }], 2000);
+    const sample = initial.nextSample(2000)!;
+    const row = { at: 1898, channel: 'alipay' as const, pending: 0, queryable: 0, missing: 0, oldestSeconds: 0 };
+    assert.ok(initial.observe(sample, 2000, { backlog: [row], backlogRun: 'private-batch-reference',
+      backlogSupplement: { status: 'matched', channel: 'wechat_pay', through: 1915,
+        row: { ...row, at: 1904, channel: 'wechat_pay', pending: 1, queryable: 1, oldestSeconds: 1800 } } }));
+  } finally { initial.close(); }
+
+  const reopened = new RefundObserver(directory, config.binding);
+  t.after(() => reopened.close());
+  h.admission.confirmOwnerPrivateChat(h.actor('/status'));
+  projectRefundNotices(reopened, h.admission, h.interactions.transport.state);
+  await drain(h);
+  const delivered = h.sent.filter(message => message.options?.matterCard?.source === 'sls-refund');
+  assert.equal(delivered.length, 1);
+  const [notice] = delivered;
+  assert.equal(notice!.chat, h.admission.scope.chat);
+  assert.match(notice!.options!.matterCard!.title, /需人工核对/);
+  assert.match(notice!.text, /诊断补读 · 微信支付/);
+  assert.match(notice!.text, /支付宝 · 待处理 0/);
+  assert.match(notice!.text, /微信支付 · 待处理 1/);
+  assert.match(notice!.text, /恢复判定仍使用原截止点内的证据/);
+  assert.doesNotMatch(notice!.text, /private-batch-reference/);
+  assert.equal(h.admission.store.requests().length, 0);
+  assert.equal(h.codex.calls.length, 0);
+});
+
 test('managed refund observation retries a failed read and defers notifications through maintenance and shutdown', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const h = setup(t);

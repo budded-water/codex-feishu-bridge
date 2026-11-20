@@ -68,7 +68,7 @@ export function readEvaluations(value: unknown, binding: Binding): Evaluation[] 
   });
 }
 
-export function readEvidence(value: unknown): Evidence {
+export function readEvidence(value: unknown, expectedBacklogRun?: string): Evidence {
   const backlog: ({ run: string } & BacklogSample)[] = [];
   let failedBacklogAt = -1;
   const terminal: ({ run: string } & RecoverySample)[] = [];
@@ -81,7 +81,9 @@ export function readEvidence(value: unknown): Evidence {
     if (entry.scope !== refundScope) throw new Error('Unexpected refund observation scope');
     const at = second(row.__time__);
     if (entry.event === 'merchant_refund_backlog') {
+      if (expectedBacklogRun !== undefined && (!name(entry.run_id) || fingerprint(entry.run_id) !== expectedBacklogRun)) continue;
       if (entry.outcome === 'failed') {
+        if (expectedBacklogRun !== undefined) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
         failedBacklogAt = Math.max(at, failedBacklogAt);
         continue;
       }
@@ -91,7 +93,7 @@ export function readEvidence(value: unknown): Evidence {
       backlog.push({ run: entry.run_id, channel: entry.channel, at, pending: second(entry.pending),
         queryable: second(entry.queryable), missing: second(entry.missing_channel_identity), oldestSeconds: second(entry.oldest_age_seconds) });
     } else if (entry.event === 'merchant_refund_recovery') {
-      if (entry.outcome === 'started') continue;
+      if (expectedBacklogRun !== undefined || entry.outcome === 'started') continue;
       if (!oneOf(entry.outcome, recoveryOutcomes) || !name(entry.run_id)) throw new Error('Unexpected refund recovery outcome');
       terminal.push({ run: entry.run_id, at, outcome: entry.outcome, queryErrors: second(entry.query_errors), deferred: second(entry.deferred) });
     } else throw new Error('Unexpected refund observation event');
@@ -119,10 +121,10 @@ export function readEvidence(value: unknown): Evidence {
   const terminalSample = recentTerminal[0];
   const unambiguous = terminalSample && recentTerminal.every(sample => JSON.stringify(sample) === JSON.stringify(terminalSample));
   if (conflicts.size || (terminalSample && !unambiguous)) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
-  if (!unambiguous) return { backlog: [...accepted.values()] };
+  const batch = { backlog: [...accepted.values()], ...(recent && accepted.size > 0 && { backlogRun: fingerprint(recent.run) }) };
+  if (!unambiguous) return batch;
   const { run, ...recovery } = terminalSample;
-  return { backlog: [...accepted.values()], ...(recent && { backlogRun: fingerprint(recent.run) }),
-    recovery, recoveryRun: fingerprint(run) };
+  return { ...batch, recovery, recoveryRun: fingerprint(run) };
 }
 
 export async function readSls(config: ObserverConfig, kind: 'evaluations' | 'evidence', from: number, to: number): Promise<string> {

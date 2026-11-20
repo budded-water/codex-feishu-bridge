@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { State } from '../state.js';
 import { ownerKey } from '../types.js';
-import { RefundObserver } from '../sls-refund/observer.js';
+import { RefundObserver, type BacklogSample } from '../sls-refund/observer.js';
 import { logDelaySeconds, pollRefundObserver } from '../sls-refund/poll.js';
 import type { RefundQueue } from '../sls-refund/smq.js';
 import type { ObserverConfig } from '../sls-refund/sls-source.js';
@@ -12,6 +12,9 @@ const retryMs = 15_000;
 const milestone = { open: '持续观测中', resolved: '观测确认恢复', 'needs-attention': '需人工核对' };
 const outcomes = { completed: '完成', degraded: '降级', failed: '失败', timeout: '超时', overlap_skipped: '因重叠跳过' };
 const timestamp = (seconds: number) => new Date(seconds * 1000).toISOString().replace('.000Z', 'Z');
+const channels = { alipay: '支付宝', wechat_pay: '微信支付' };
+const backlogLine = (row: BacklogSample) =>
+  `${channels[row.channel]} · 待处理 ${row.pending} · 可查询 ${row.queryable} · 缺渠道身份 ${row.missing} · 最久 ${row.oldestSeconds} 秒`;
 
 export function projectRefundNotices(observer: RefundObserver, admission: PilotAdmission, transport: State): void {
   if (admission.store.maintenance.paused || !admission.ownerPrivateChatConfirmed()) return;
@@ -27,12 +30,21 @@ export function projectRefundNotices(observer: RefundObserver, admission: PilotA
       if (sample.state === 'unavailable') {
         report.push(sample.reason === 'source-query-failed' ? '诊断查询失败。' : '样本缺失、过期或不完整。');
       } else {
-        for (const row of sample.evidence.backlog) {
-          const channel = row.channel === 'wechat_pay' ? '微信支付' : '支付宝';
-          report.push(`${channel} · 待处理 ${row.pending} · 可查询 ${row.queryable} · 缺渠道身份 ${row.missing} · 最久 ${row.oldestSeconds} 秒`);
-        }
+        report.push(...sample.evidence.backlog.map(backlogLine));
         const job = sample.evidence.recovery!;
         report.push(`恢复 Job · ${outcomes[job.outcome]} · 查询错误 ${job.queryErrors} · 推迟 ${job.deferred}`);
+      }
+      const supplement = sample.backlogSupplement;
+      if (supplement && sample.evidenceThrough !== null) {
+        report.push('', `诊断补读 · ${channels[supplement.channel]}`,
+          `原截止点 ${timestamp(sample.evidenceThrough)} · 补读至 ${timestamp(supplement.through)}`);
+        if (supplement.status === 'matched') {
+          for (const row of sample.evidence.backlog) report.push(`原窗口同批次记录 · ${timestamp(row.at)}`, backlogLine(row));
+          report.push(`已找到同批次记录 · ${timestamp(supplement.row.at)}`, backlogLine(supplement.row));
+        } else {
+          report.push(supplement.status === 'not-found' ? '短窗口内未找到同批次记录。' : '短窗口查询失败或数据不完整。');
+        }
+        report.push('恢复判定仍使用原截止点内的证据。');
       }
     }
     if (notice.state === 'needs-attention') report.push('当前证据未能确认恢复。');
