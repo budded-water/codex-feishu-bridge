@@ -12,10 +12,15 @@ The enrolled private-chat owner with the required approval role SHALL be able to
 
 ### Requirement: Delivery confirmation and startup recheck the bound evidence
 
-An exact confirmation with a new task SHALL admit at most one ordinary continuation in the original verified conversation. The gateway SHALL reject stale evidence without consuming the checkpoint. The Worker SHALL recheck the bound source and reports before launching and settle a prelaunch refusal without issuing a native turn. The checkpoint records the already-admitted request if this later check refuses launch. These actions SHALL NOT declare publication eligibility or authority.
+Exact confirmation SHALL admit at most one ordinary continuation in the original
+conversation. The gateway SHALL reject stale evidence without consuming the
+checkpoint. The Worker SHALL recheck source and reports before startup and
+before native turn submission. A launch refusal SHALL produce a durable notice
+without a submitted turn. These actions SHALL NOT confer publication authority.
 
 #### Scenario: A report changes before confirmation or launch
 
 - **WHEN** an original report's hash or its source binding no longer matches
 - **THEN** confirmation is refused before admission, or the admitted continuation stops before native launch
 - **AND** the original verification result remains available as history
+- **AND** when already admitted, the checkpoint retains the attempted continuation

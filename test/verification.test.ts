@@ -220,8 +220,8 @@ test('passing verification registers an exact report and resumes its original th
   assert.equal(readFileSync(join(h.project, '.spawns'), 'utf8'), '1');
 });
 
-test('verification evidence drift after queueing settles before the model starts', async t => {
-  const h = handoff(t), task = await h.launch(); await task.running;
+async function queuedVerifiedDelivery(h: ReturnType<typeof handoff>) {
+  const task = await h.launch(); await task.running;
   const { execution, project } = task.admitted.request;
   const lookup = () => h.admission.store.deliveryCheckpoint(task.trigger, project, execution)!;
   h.interactions.receive(message('/delivery-wait ' + execution, { chatType: 'p2p' }));
@@ -232,17 +232,48 @@ test('verification evidence drift after queueing settles before the model starts
   const grant = h.admission.store.reserve(continuation.id, 2);
   assert.equal(grant.kind, 'start');
   if (grant.kind !== 'start') throw Error('Expected continuation reservation');
-  const original = h.admission.store.verification(execution)!;
+  return { grant, continuation, original: h.admission.store.verification(execution)! };
+}
+
+test('evidence drift before startup settles without a turn and retries a failed refusal projection', async t => {
+  const h = handoff(t), { grant, continuation, original } = await queuedVerifiedDelivery(h);
   rmSync(original.observation!.integration!.summaryPath);
   h.codex.calls.length = 0;
   const report = await h.native.run(grant.permit);
-  await drain(h);
+  const state = h.interactions.transport.state, send = state.send.bind(state);
+  state.send = (...args) => {
+    if (args[1].includes('续接在启动前已结束')) throw Error('Synthetic refusal transport write failure');
+    return send(...args);
+  };
+  try {
+    await drain(h);
+    assert.equal(state.projectedFinal(continuation.execution), false);
+  } finally { state.send = send; }
+  await h.restart(); await drain(h); await drain(h);
   assert.equal(report.outcome.status, 'interrupted');
   assert.equal(report.outcome.turn, null);
   assert.equal(h.codex.calls.length, 0);
   assert.deepEqual(h.admission.store.unsettled(), []);
-  assert.deepEqual(h.admission.store.verification(execution), original);
-  assert.ok(h.sent.some(text => text.includes('续接在启动前已结束')));
+  assert.deepEqual(h.admission.store.verification(original.execution), original);
+  assert.equal(h.sent.filter(text => text.includes('续接在启动前已结束')).length, 1);
+});
+
+test('an evidence change during thread resume prevents turn submission', async t => {
+  const h = handoff(t), { grant, original } = await queuedVerifiedDelivery(h);
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T,>(method: string, input: unknown) => {
+    if (method === 'thread/resume') rmSync(original.observation!.integration!.htmlPath);
+    if (method === 'turn/start') throw Error('No model turn should be submitted with stale evidence');
+    return request<T>(method, input);
+  };
+  h.codex.calls.length = 0;
+  const report = await h.native.run(grant.permit);
+  await drain(h);
+  assert.ok(h.codex.calls.some(call => call.method === 'thread/resume'));
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(report.outcome.turn, null);
+  assert.deepEqual(h.admission.store.unsettled(), []);
+  assert.ok(h.sent.some(text => text.includes('交付证据已变化或无法核实，续接未启动')));
 });
 
 test('failed and dirty-source observations are ineligible for delivery waits', async t => {

@@ -166,7 +166,7 @@ export class State {
   }
 
   projectNativeMessages(request: RequestRecord, projection: JournalProjection & { sealed: boolean; checkpoint: string | null }, verification?: string,
-    browserNotice?: string, ordinaryAnswer = false): void {
+    browserNotice?: string, ordinaryAnswer = false, admissionNotice?: string): void {
     this.transaction(() => {
       for (const prompt of projection.prompts) {
         this.db.prepare(`INSERT INTO approvals(id,task,method,status,created,expires,actor) VALUES (?,?,'native-projection',?,?,?,?)
@@ -199,6 +199,7 @@ export class State {
           .run('browser-access/' + request.execution, 'observed', randomUUID()).changes) {
           this.send(request.message.chat, browserNotice, { taskId: request.execution, replyTo: this.replyTarget(request.execution) });
         }
+        if (admissionNotice) this.projectAdmissionNotice(request, admissionNotice);
         this.db.prepare('UPDATE projected_tasks SET checkpoint=? WHERE execution=?').run(projection.checkpoint, request.execution);
       }
     });
@@ -254,11 +255,12 @@ export class State {
   }
 
   projectAdmissionNotice(request: RequestRecord, body: string): void {
-    this.transaction(() => {
+    const insert = () => {
       if (this.db.prepare('UPDATE projected_tasks SET notified=1 WHERE execution=? AND notified=0').run(request.execution).changes) {
         this.send(request.message.chat, body, { replyTo: request.message.id });
       }
-    });
+    };
+    if (this.db.isTransaction) insert(); else this.transaction(insert);
   }
 
   projectedDelivery(id: string): { execution: string; live: number } | undefined {

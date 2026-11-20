@@ -83,7 +83,8 @@ export class Bridge {
   private routeLocks = new Map<string, Promise<void>>();
   private contextPort?: ContextPort;
 
-  constructor(config: Config, state: State, codex: CodexPort, contextPort?: ContextPort, private permissions?: PermissionSession) {
+  constructor(config: Config, state: State, codex: CodexPort, contextPort?: ContextPort, private permissions?: PermissionSession,
+    private beforeTurn?: () => Promise<string | undefined>) {
     this.contextPort = contextPort;
     this.config = config;
     this.state = state;
@@ -524,6 +525,14 @@ export class Bridge {
         active.executionStarting = true;
         active.executionSubmitted = true;
         await this.permissions?.authorize(this.codex, active.thread);
+        if (this.beforeTurn) {
+          const refusal = await this.beforeTurn();
+          if (active.done || this.closed) break;
+          if (refusal || active.executionCancelled) {
+            this.complete(active, 'interrupted', refusal ?? '任务尚未开始执行，已取消。');
+            continue;
+          }
+        }
         let response: {turn:{id:string;status:string}};
         try { response = await this.codex.request('turn/start', params); } finally { active.executionStarting = false; }
         if (!response.turn?.id) throw new Error('Invalid turn response');

@@ -11,8 +11,9 @@ export async function verificationApplicabilityState(value: VerificationRecord, 
   if (!profile || profileDigest(profile) !== value.digest) return 'profile';
   if (!report) return 'missing';
   try {
-    if (await gitRead(profile.projectRoot, ['rev-parse', 'HEAD']) !== observation.gitHead) return 'changed';
-    if (await gitRead(profile.projectRoot, ['status', '--porcelain', '--untracked-files=all'])) return 'dirty';
+    const status = (await gitRead(profile.projectRoot, ['status', '--porcelain=v2', '--branch', '--untracked-files=all'])).split('\n');
+    if (!observation.gitHead || !status.includes('# branch.oid ' + observation.gitHead)) return 'changed';
+    if (status.some(line => !line.startsWith('# '))) return 'dirty';
     try { verifyPolicy(profile); } catch { return 'policy'; }
     if (fingerprint(boundedFile(profile.projectRoot, report.summaryPath)) !== report.jsonHash ||
       fingerprint(boundedFile(profile.projectRoot, report.htmlPath)) !== report.htmlHash) return 'changed';
