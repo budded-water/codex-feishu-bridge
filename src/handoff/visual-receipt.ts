@@ -41,10 +41,10 @@ export function readVisualReceiptPlan(path: string) {
     if (typeof run !== 'string' || !uuid.test(run) || typeof reportSha256 !== 'string' || !digest.test(reportSha256) ||
       typeof checkpoint !== 'string' || !segment.test(checkpoint) ||
       typeof label !== 'string' || !label.trim() || label.length > 90) throw Error('Invalid visual receipt scene');
-    return { run, reportSha256, checkpoint, label };
+    return { run, reportSha256, checkpoint, label: label.trim() };
   });
-  const references = entries.map(({ run, reportSha256, checkpoint }) => run + '/' + reportSha256 + '/' + checkpoint);
-  return { projectRoot, projectId, commit, reviewFocus, entries, evidence: fingerprint(JSON.stringify(references.sort())) };
+  const normalized = { projectRoot, projectId, commit, reviewFocus: reviewFocus.trim(), entries };
+  return { ...normalized, evidence: fingerprint(JSON.stringify(normalized)) };
 }
 
 export async function readVisualReceipt(plan: ReturnType<typeof readVisualReceiptPlan>) {

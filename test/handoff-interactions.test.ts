@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync, type ReadStream } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -127,8 +127,8 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   const home = make('home', '游客首页');
   const profile = make('profile', '个人中心');
   const plan = join(root, '.ui-eval/receipt.json');
-  const planFor = (scenes: (typeof home.entry)[]) => writeFileSync(plan, JSON.stringify({
-    projectRoot: root, projectId: 'fixture', commit, reviewFocus: '检查选中态', scenes,
+  const planFor = (scenes: (typeof home.entry)[], overrides = {}) => writeFileSync(plan, JSON.stringify({
+    projectRoot: root, projectId: 'fixture', commit, reviewFocus: '检查选中态', scenes, ...overrides,
   }), { mode: 0o600 });
   planFor([home.entry, profile.entry]);
   const queue = () => queueVisualReceipt(h.admission, state, execution, plan, () => {});
@@ -153,6 +153,9 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   writeFileSync(home.imagePath, png);
   const receipt = await queue();
   assert.deepEqual(await queue(), receipt);
+  planFor([home.entry, profile.entry], { commit: 'f'.repeat(40) });
+  await assert.rejects(queue, /candidate changed/);
+  planFor([home.entry, profile.entry]);
 
   const sdk = new Feishu({ appId: 'fixture', appSecret: 'fixture' });
   t.after(() => sdk.close());
@@ -161,12 +164,13 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   let releaseUpload!: () => void;
   const uploadGate = new Promise<void>(resolve => { releaseUpload = resolve; });
   let recalled = false;
+  let contentRejected = false;
   let standalone = false;
   const replies: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
   Object.assign(sdk, { client: { im: { v1: {
-    image: { create: async ({ data }: { data: { image_type: string; image: ReadStream } }) => {
+    image: { create: async ({ data }: { data: { image_type: string; image: ReadStream & { name: string } } }) => {
       assert.equal(data.image_type, 'message');
-      assert.equal(basename(String(data.image.path)), 'screenshot.png');
+      assert.equal(data.image.name, 'screenshot.png');
       const chunks = [];
       for await (const chunk of data.image) chunks.push(Buffer.from(chunk));
       uploads.push(Buffer.concat(chunks));
@@ -175,6 +179,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
     } },
     message: { create: async () => { standalone = true; return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
       if (recalled) return { code: 230011 };
+      if (contentRejected) return { code: 230028 };
       if (value.data.uuid !== receipt.delivery) {
         ordinary.push(value.path.message_id);
         return { code: 0, data: { message_id: 'ordinary-reply' } };
@@ -226,6 +231,23 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   await new Outbox(state, sdk).flushVisual();
   assert.equal(standalone, false);
   assert.deepEqual(await queue(), { ...orphaned, status: 'target-unavailable' });
+  recalled = false;
+  contentRejected = true;
+  planFor([profile.entry]);
+  const rejected = await queue();
+  await new Outbox(state, sdk).flushVisual();
+  assert.deepEqual(await queue(), { ...rejected, status: 'content-rejected' });
+  contentRejected = false;
+  planFor([profile.entry], { reviewFocus: '再核对颜色' });
+  const expired = await queue();
+  const expiryDb = new DatabaseSync(databasePath);
+  try { expiryDb.prepare('UPDATE outbox SET visual_expires=0 WHERE id=?').run(expired.delivery); }
+  finally { expiryDb.close(); }
+  const uploadsBeforeExpiry = uploads.length;
+  await new Outbox(state, sdk).flushVisual();
+  assert.equal(uploads.length, uploadsBeforeExpiry);
+  assert.deepEqual(await queue(), { ...expired, status: 'delivery-unconfirmed' });
+  assert.equal(readFileSync(databasePath).includes(png.toString('base64')), false);
   assert.equal(state.pending(Date.now(), true).length, 0);
 });
 

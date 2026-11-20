@@ -31,3 +31,9 @@ for quotation.
 - **WHEN** a receipt is waiting for an image upload
 - **THEN** ordinary replies and native prompts can continue independently
 - **AND** an acknowledged upload is reused when the receipt is retried
+
+#### Scenario: A receipt reaches its bounded delivery window without acknowledgement
+
+- **WHEN** a receipt is still pending at its delivery deadline
+- **THEN** the gateway retains an unconfirmed result and stops automatic sends
+- **AND** submitting the exact same plan can inspect that result without requeueing it

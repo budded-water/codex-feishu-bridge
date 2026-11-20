@@ -1,6 +1,5 @@
 import { matterCard, normalizeMatterClick, type MatterClick } from './matter-card.js';
-import { createReadStream } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reviewCard, normalizeReviewClick, type ReviewPresentation, type ReviewHandler } from './review-card.js';
@@ -8,7 +7,7 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import { attachImages, contextText, mentionText, postRows } from './chat-images.js';
 import { MAX_CONTEXT_MESSAGES, CONTEXT_WINDOW_MS } from './context-limits.js';
 import { RECEIVED_EMOJI, type ReactionPort } from './feedback.js';
-import { markdownPost, notificationPost, ReplyTargetUnavailable, safeMentionText } from './reply.js';
+import { markdownPost, notificationPost, ReplyTargetUnavailable, safeMentionText, VisualReplyRejected } from './reply.js';
 import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext, type DeliveryOptions } from './types.js';
 import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
@@ -195,10 +194,11 @@ export class Feishu implements ContextPort, ReactionPort {
     if (options.replyTo) {
       const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
         const code = Number(record(record(record(error).response).data).code ?? record(error).code);
-        if ([230011,230110].includes(code)) return {code,data:undefined};
+        if ([230011,230110].includes(code) || (options.visualImages && code === 230028)) return {code,data:undefined};
         throw error;
       });
       if (response.code === 0) return response.data?.message_id;
+      if (options.visualImages && response.code === 230028) throw new VisualReplyRejected('Feishu explicitly denied visual receipt content');
       // Only explicit recalled/deleted responses permit changing endpoints; uncertain errors retry the original UUID.
       if (![230011,230110].includes(response.code ?? -1)) throw new Error('Feishu rejected message delivery');
       if (options.visualImages) throw new ReplyTargetUnavailable('Original visual receipt message is unavailable');
@@ -211,19 +211,22 @@ export class Feishu implements ContextPort, ReactionPort {
   async uploadImage(png: Buffer): Promise<string> {
     const directory = await mkdtemp(join(tmpdir(), 'feishu-receipt-'));
     const path = join(directory, 'screenshot.png');
-    let image: ReturnType<typeof createReadStream> | undefined;
     try {
-      // The SDK's Buffer multipart field has no filename. A file stream supplies it.
-      await writeFile(path, png, { mode: 0o600, flag: 'wx' });
-      image = createReadStream(path);
-      const response = await this.client.im.v1.image.create({ data: { image_type: 'message', image } });
-      const key = response?.image_key;
-      if (!key || !/^[a-zA-Z0-9_-]{1,200}$/.test(key)) throw Error('Feishu rejected visual receipt upload');
-      return key;
-    } finally {
-      image?.destroy();
-      await rm(directory, { recursive: true, force: true });
-    }
+      const file = await open(path, 'wx+', 0o600);
+      try {
+        // Unlink before writing so a crash cannot leave a named screenshot.
+        // The multipart encoder gets the filename and length from the stream.
+        await unlink(path);
+        await file.writeFile(png);
+        const image = Object.assign(file.createReadStream({ start: 0, end: png.length - 1, autoClose: false }), { name: 'screenshot.png' });
+        try {
+          const response = await this.client.im.v1.image.create({ data: { image_type: 'message', image } });
+          const key = response?.image_key;
+          if (!key || !/^[a-zA-Z0-9_-]{1,200}$/.test(key)) throw Error('Feishu rejected visual receipt upload');
+          return key;
+        } finally { image.destroy(); }
+      } finally { await file.close(); }
+    } finally { await rm(directory, { recursive: true, force: true }); }
   }
 
   async updateApproval(message: string, approval: ApprovalPresentation, view: ApprovalView): Promise<void> {

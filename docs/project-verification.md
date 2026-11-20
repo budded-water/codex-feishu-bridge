@@ -102,8 +102,11 @@ can provide evidence. Inconclusive reports stay in UI-eval. The outbox holds tem
 an `image_key`. It reuses the confirmed keys and message UUID for message
 retry. Image upload and delivery run separately from ordinary replies and
 native prompts. SQLite overwrites the staged bytes during key replacement.
-Duplicate requests look up the same receipt before inspecting the worktree,
+Exact duplicate plans look up the same receipt before inspecting the worktree,
 so retained delivery can be checked after the original files move.
+Explicit content denial returns `content-rejected`. At the 55-minute receipt
+deadline, an outstanding delivery becomes `delivery-unconfirmed`. That bound
+keeps automatic sends inside Feishu's one-hour UUID deduplication window.
 Apply the same privacy controls to the transport database and its snapshots
 as to the source screenshots. Uploading sends the selected image bytes to
 Feishu. The original validation and its scope remain in UI-eval.

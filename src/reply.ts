@@ -89,6 +89,7 @@ export function notificationPost(text: string, mentions: Mention[]) {
 }
 
 export class ReplyTargetUnavailable extends Error {}
+export class VisualReplyRejected extends Error {}
 
 export function safeMentionText(text: string): string {
   let fence: Fence | undefined;
