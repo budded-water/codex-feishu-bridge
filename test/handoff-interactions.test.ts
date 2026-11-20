@@ -1,10 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync, unlinkSync, type ReadStream } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import type { Config } from '../src/config.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
@@ -13,6 +14,11 @@ import { ownerKey, type DeliveryOptions, type ContextPort } from '../src/types.j
 import { SteerTargetEnded } from '../src/codex/client.js';
 import { FakeCodex, until } from './helpers.js';
 import { readJournal } from '../src/handoff/journal.js';
+import { Feishu } from '../src/feishu.js';
+import { Outbox } from '../src/outbox.js';
+import { queueVisualReceipt } from '../src/handoff/visual-receipt.js';
+import { fingerprint } from '../src/handoff/verification-profile.js';
+import { acquireRoot, fenceFile, manageRuntime, openRuntimeControl, writePrivate } from '../src/handoff/ownership.js';
 import { matterCard, normalizeMatterClick } from '../src/matter-card.js';
 import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
 
@@ -87,6 +93,194 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
 }
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
+
+test('owner visual evidence is paired by scenario, sent once after retry and binds the quote to its task', async t => {
+  const h = setup(t);
+  const active = await h.launch();
+  const execution = active.request.execution;
+  const state = h.interactions.transport.state;
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'visual-candidate-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+  writeFileSync(join(root, '.gitignore'), '.ui-eval/\n');
+  git('add', '.gitignore');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
+  const commit = git('rev-parse', 'HEAD');
+  const repository = 'https://example.test/ui.git';
+  git('remote', 'add', 'origin', repository);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB9sAAAAASUVORK5CYII=', 'base64');
+  const make = (checkpoint: string, label: string, dirtyTree = false, status = 'passed') => {
+    const run = randomUUID();
+    const dir = join(root, '.ui-eval/wechat-runs', run);
+    mkdirSync(dir, { recursive: true });
+    const imagePath = join(dir, checkpoint + '.png');
+    writeFileSync(imagePath, png);
+    const json = JSON.stringify({ apiVersion: 'uieval.io/wechat-pilot-v1', kind: 'WechatPilotResult',
+      executionId: run, projectId: 'fixture', sourceCommit: commit, scenarioId: checkpoint, status, cleanup: 'completed',
+      sourceDigest: 'sha256:' + fingerprint(JSON.stringify({ commitSha: commit, dirtyTree, repository })),
+      runtimeDigest: 'sha256:' + 'b'.repeat(64), assertions: { passed: 4, failed: 0 },
+      screenshots: [{ checkpointId: checkpoint, path: checkpoint + '.png', digest: 'sha256:' + fingerprint(png), widthPx: 1, heightPx: 1 }] });
+    writeFileSync(join(dir, 'report.json'), json);
+    return { imagePath, entry: { run, checkpoint, label, reportSha256: fingerprint(json) } };
+  };
+  const home = make('home', '游客首页');
+  const profile = make('profile', '个人中心');
+  const plan = join(root, '.ui-eval/receipt.json');
+  const planFor = (scenes: (typeof home.entry)[], overrides = {}) => writeFileSync(plan, JSON.stringify({
+    projectRoot: root, projectId: 'fixture', commit, reviewFocus: '检查选中态', scenes, ...overrides,
+  }), { mode: 0o600 });
+  planFor([home.entry, profile.entry]);
+  const queue = () => queueVisualReceipt(h.admission, state, execution, plan, () => {});
+  await assert.rejects(queue, /completed owner-private/);
+  h.codex.complete(active.thread, active.turn);
+  await active.running;
+  await drain(h);
+  await assert.rejects(queueVisualReceipt(h.admission, state, execution, plan, () => {
+    h.admission.store.maintenance.quiesce();
+  }), /paused/);
+  h.admission.store.maintenance.resume();
+  planFor([make('dirty', '临时改动', true).entry]);
+  await assert.rejects(queue, /Invalid or foreign visual receipt report/);
+  planFor([make('changed', '候选曾变化', false, 'inconclusive').entry]);
+  await assert.rejects(queue, /Invalid or foreign visual receipt report/);
+  planFor([home.entry, profile.entry]);
+  git('remote', 'set-url', 'origin', 'https://example.test/foreign.git');
+  await assert.rejects(queue, /Invalid or foreign visual receipt report/);
+  git('remote', 'set-url', 'origin', repository);
+  writeFileSync(home.imagePath, Buffer.concat([png, Buffer.from('changed')]));
+  await assert.rejects(queue, /differs from its report/);
+  writeFileSync(home.imagePath, png);
+  const receipt = await queue();
+  assert.deepEqual(await queue(), receipt);
+  planFor([home.entry, profile.entry], { commit: 'f'.repeat(40) });
+  await assert.rejects(queue, /candidate changed/);
+  planFor([home.entry, profile.entry]);
+
+  const sdk = new Feishu({ appId: 'fixture', appSecret: 'fixture' });
+  t.after(() => sdk.close());
+  const uploads: Buffer[] = [];
+  const ordinary: string[] = [];
+  let releaseUpload!: () => void;
+  const uploadGate = new Promise<void>(resolve => { releaseUpload = resolve; });
+  let recalled = false;
+  let contentRejected = false;
+  let afterUpload = () => {};
+  let standalone = false;
+  const replies: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
+  Object.assign(sdk, { client: { im: { v1: {
+    image: { create: async ({ data }: { data: { image_type: string; image: ReadStream & { name: string } } }) => {
+      assert.equal(data.image_type, 'message');
+      assert.equal(data.image.name, 'screenshot.png');
+      const chunks = [];
+      for await (const chunk of data.image) chunks.push(Buffer.from(chunk));
+      uploads.push(Buffer.concat(chunks));
+      if (uploads.length === 1) await uploadGate;
+      afterUpload();
+      return { image_key: 'img_fixture_' + uploads.length };
+    } },
+    message: { create: async () => { standalone = true; return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
+      if (recalled) return { code: 230011 };
+      if (contentRejected) return { code: 230028 };
+      if (value.data.uuid !== receipt.delivery) {
+        ordinary.push(value.path.message_id);
+        return { code: 0, data: { message_id: 'ordinary-reply' } };
+      }
+      replies.push(value);
+      if (replies.length === 1) throw Error('fixture send outcome unavailable');
+      return { code: 0, data: { message_id: 'visual-receipt' } };
+    } },
+  } } } });
+  const quote = h.actor('继续检查图标。', { parentId: 'visual-receipt' });
+  const databasePath = join(h.config.stateDirectory, 'transport/bridge.db');
+  assert.equal(readFileSync(databasePath).includes(png.toString('base64')), true);
+  const outbox = new Outbox(state, sdk);
+  const upload = outbox.flushVisual();
+  await until(() => uploads.length === 1);
+  state.send(quote.chat, '常规回复', { replyTo: 'ordinary-trigger' });
+  try {
+    await outbox.flush();
+    assert.deepEqual(ordinary, ['ordinary-trigger']);
+  } finally { releaseUpload(); await upload; }
+  assert.equal(state.confirmedAnswer(quote), undefined);
+  assert.equal(readFileSync(databasePath).includes(png.toString('base64')), false);
+  const db = new DatabaseSync(databasePath);
+  try { db.prepare('UPDATE outbox SET next=0 WHERE id=?').run(receipt.delivery); }
+  finally { db.close(); }
+  await new Outbox(state, sdk).flushVisual();
+  assert.deepEqual(uploads, [png, png]);
+  assert.deepEqual(replies[0], replies[1]);
+  assert.equal(replies[1]?.path.message_id, active.message.id);
+  assert.equal(replies[1]?.data.uuid, receipt.delivery);
+  assert.equal(replies[1]?.data.msg_type, 'post');
+  const rendered = JSON.parse(replies[1]!.data.content).zh_cn;
+  assert.match(rendered.title, /2\/2 个场景通过/);
+  assert.deepEqual(rendered.content.slice(-4), [
+    [{ tag: 'text', text: '游客首页 · 通过 · 已执行断言 4/4', style: ['bold'] }],
+    [{ tag: 'img', image_key: 'img_fixture_1' }],
+    [{ tag: 'text', text: '个人中心 · 通过 · 已执行断言 4/4', style: ['bold'] }],
+    [{ tag: 'img', image_key: 'img_fixture_2' }],
+  ]);
+  assert.equal(state.confirmedAnswer(quote), execution);
+  assert.equal(state.confirmedAnswer({ ...quote, user: 'someone-else' }), undefined);
+  unlinkSync(home.imagePath);
+  assert.deepEqual(await queue(), receipt);
+  writeFileSync(home.imagePath, png);
+  assert.equal(state.pending(Date.now(), true).length, 0);
+  planFor([home.entry]);
+  const orphaned = await queue();
+  recalled = true;
+  await new Outbox(state, sdk).flushVisual();
+  assert.equal(standalone, false);
+  assert.deepEqual(await queue(), { ...orphaned, status: 'target-unavailable' });
+  recalled = false;
+  contentRejected = true;
+  planFor([profile.entry]);
+  const rejected = await queue();
+  await new Outbox(state, sdk).flushVisual();
+  assert.deepEqual(await queue(), { ...rejected, status: 'content-rejected' });
+  contentRejected = false;
+  state.send(quote.chat, 'Earlier blocked reply', { replyTo: 'ordinary-trigger' });
+  planFor([profile.entry], { reviewFocus: '再核对颜色' });
+  const expired = await queue();
+  const expiryDb = new DatabaseSync(databasePath);
+  expiryDb.prepare('UPDATE outbox SET next=? WHERE visual_images IS NULL').run(Date.now() + 60_000);
+  expiryDb.prepare('UPDATE outbox SET visual_expires=0 WHERE id=?').run(expired.delivery);
+  const uploadsBeforeExpiry = uploads.length;
+  try { await new Outbox(state, sdk).flushVisual(); }
+  finally {
+    expiryDb.prepare('DELETE FROM outbox WHERE visual_images IS NULL').run();
+    expiryDb.close();
+  }
+  assert.equal(uploads.length, uploadsBeforeExpiry);
+  assert.deepEqual(await queue(), { ...expired, status: 'delivery-unconfirmed' });
+  assert.equal(readFileSync(databasePath).includes(png.toString('base64')), false);
+  assert.equal(state.pending(Date.now(), true).length, 0);
+
+  planFor([home.entry, profile.entry], { reviewFocus: '核对短屏图标' });
+  const interrupted = await queue();
+  let now = Date.now();
+  const clock = t.mock.method(Date, 'now', () => now);
+  afterUpload = () => { now += 56 * 60_000; };
+  try { await new Outbox(state, sdk).flushVisual(); }
+  finally { afterUpload = () => {}; clock.mock.restore(); }
+  assert.equal(uploads.length, uploadsBeforeExpiry + 1);
+  assert.deepEqual(await queue(), { ...interrupted, status: 'delivery-unconfirmed' });
+});
+
+test('managed visual submission can acknowledge validation slower than native controls', async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'visual-control-')));
+  writePrivate(join(root, fenceFile), { version: 1, role: 'pilot', root, data: root, operation: 'fixture' });
+  const lease = await acquireRoot(root, 'pilot', root);
+  const controller = await openRuntimeControl(lease, async request => {
+    if (request.reference !== 'approved-plan') throw Error('Fixture rejection');
+    await new Promise(resolve => setTimeout(resolve, 1600));
+    return { delivery: 'fixture-receipt' };
+  });
+  t.after(async () => { await controller.close(true); await lease.release(); rmSync(root, { recursive: true, force: true }); });
+  await assert.rejects(manageRuntime(root, 'visual-receipt', 'task', 'wrong-plan'), /rejected by the gateway/);
+  assert.deepEqual(await manageRuntime(root, 'visual-receipt', 'task', 'approved-plan'), { delivery: 'fixture-receipt' });
+});
 
 for (const [name, reference] of [
   ['iOS candidate', 'ios:release-41@sha256:' + 'a'.repeat(64)],

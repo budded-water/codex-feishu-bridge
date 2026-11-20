@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { record } from '../types.js';
 
-export async function openOwnerChannel(token: string, execution: string, handle: (request: Record<string, unknown>) => unknown) {
+const defaultTimeoutMs = 1500;
+export class OwnerRequestRejected extends Error {}
+
+export async function openOwnerChannel(token: string, execution: string, handle: (request: Record<string, unknown>) => unknown,
+  requestTimeout?: (request: Record<string, unknown>) => number | undefined) {
   const directory = mkdtempSync('/tmp/cno-');
   const path = join(directory, 'owner.sock');
   const clients = new Set<Socket>();
@@ -15,7 +19,7 @@ export async function openOwnerChannel(token: string, execution: string, handle:
     clients.add(socket);
     socket.once('close', () => clients.delete(socket));
     socket.on('error', () => {});
-    socket.setTimeout(1500, () => socket.destroy());
+    socket.setTimeout(defaultTimeoutMs, () => socket.destroy());
     let input = '';
     let handled = false;
     socket.on('data', chunk => {
@@ -28,6 +32,7 @@ export async function openOwnerChannel(token: string, execution: string, handle:
         try {
           const request = record(JSON.parse(input.split('\n')[0]!));
           if (request.token !== token || request.execution !== execution || typeof request.nonce !== 'string') throw new Error('Invalid owner challenge');
+          if (requestTimeout) socket.setTimeout(requestTimeout(request) ?? defaultTimeoutMs);
           const snapshot = await handle(request);
           if (!socket.destroyed) socket.end(JSON.stringify({ execution, nonce: request.nonce, snapshot }) + '\n');
         } catch { if (!socket.destroyed) socket.end('{"error":"Owner challenge rejected"}\n'); }
@@ -51,14 +56,15 @@ export async function probeOwner(path: string, token: string, execution: string,
   return requestOwner(path, token, execution, message !== undefined ? { message } : {});
 }
 
-export async function requestOwner(path: string, token: string, execution: string, request: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+export async function requestOwner(path: string, token: string, execution: string, request: Record<string, unknown> = {},
+  timeoutMs = defaultTimeoutMs): Promise<Record<string, unknown>> {
   const nonce = randomUUID();
   return new Promise((resolve, reject) => {
     const socket = connect(path);
     socket.setEncoding('utf8');
     let input = '';
     socket.once('error', reject);
-    socket.setTimeout(1500, () => socket.destroy(new Error('Owner challenge timed out')));
+    socket.setTimeout(timeoutMs, () => socket.destroy(new Error('Owner challenge timed out')));
     socket.once('connect', () => socket.end(JSON.stringify({ ...request, token, execution, nonce }) + '\n'));
     socket.on('data', chunk => {
       input += chunk.toString();
@@ -67,6 +73,7 @@ export async function requestOwner(path: string, token: string, execution: strin
     socket.once('end', () => {
       try {
         const value = record(JSON.parse(input));
+        if (value.error === 'Owner challenge rejected') throw new OwnerRequestRejected('Invalid owner reply');
         if (value.execution !== execution || value.nonce !== nonce || !value.snapshot) throw new Error('Invalid owner reply');
         resolve(record(value.snapshot));
       } catch (error) { reject(error); }

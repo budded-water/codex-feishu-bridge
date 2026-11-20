@@ -5,7 +5,10 @@ import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
 import { record } from '../types.js';
 import { CODEX_VERSION } from '../codex/generated/version.js';
-import { openOwnerChannel, requestOwner } from './owner-channel.js';
+import { openOwnerChannel, OwnerRequestRejected, requestOwner } from './owner-channel.js';
+
+export const visualReceiptValidationMs = 30_000;
+const visualReceiptControlMs = visualReceiptValidationMs + 5000;
 
 export type RuntimeRole = 'legacy' | 'pilot';
 export interface Fence { version: 1; role: RuntimeRole; root: string; data: string; operation: string }
@@ -69,7 +72,8 @@ export type RootLease = Awaited<ReturnType<typeof acquireRoot>>;
 
 export async function openRuntimeControl(lease: RootLease, handle: (request: Record<string, unknown>) => unknown) {
   const epoch = randomUUID(), token = randomUUID();
-  const channel = await openOwnerChannel(token, epoch, handle);
+  const channel = await openOwnerChannel(token, epoch, handle,
+    request => request.command === 'visual-receipt' && lease.role === 'pilot' ? visualReceiptControlMs : undefined);
   const descriptor = { version: 1, protocol: CODEX_VERSION, epoch, token, socket: channel.path,
     root: lease.root, role: lease.role, data: lease.data, pid: process.pid, phase: 'active' };
   try { writePrivate(join(lease.root, controllerFile), descriptor); }
@@ -97,5 +101,11 @@ export async function manageRuntime(root: string, command: string, task?: string
   const value = privateRecord(join(root, controllerFile));
   if (value.version !== 1 || value.protocol !== CODEX_VERSION || value.root !== root || value.phase !== 'active' || typeof value.socket !== 'string' ||
     typeof value.token !== 'string' || typeof value.epoch !== 'string') throw new Error('No active managed runtime');
-  return requestOwner(value.socket, value.token, value.epoch, { command, task, reference });
+  if (command !== 'visual-receipt') return requestOwner(value.socket, value.token, value.epoch, { command, task, reference });
+  if (value.role !== 'pilot') throw Error('Visual receipt requires the managed pilot');
+  try { return await requestOwner(value.socket, value.token, value.epoch, { command, task, reference }, visualReceiptControlMs); }
+  catch (error) {
+    if (error instanceof OwnerRequestRejected) throw Error('Visual receipt was rejected by the gateway');
+    throw Error('Visual receipt submission unconfirmed. Retry the exact execution and plan to reuse any queued delivery.');
+  }
 }

@@ -7,6 +7,7 @@ import { Maintenance } from './maintenance.js';
 import { openPrivateDatabase } from './private-database.js';
 import { OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED, type RequestRecord, type ControlRecord } from './handoff/store.js';
 import type { JournalProjection } from './handoff/journal.js';
+import type { VisualImage } from './handoff/visual-receipt.js';
 import { splitReply } from './reply.js';
 import { approvalCard, approvalText, parseApproval, cardMessage, approvalReplyTarget, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
 import { parseTaskPresentation, redactTaskPresentation, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
@@ -28,7 +29,11 @@ export interface Delivery {
   taskView?: TaskPresentation;
   reviewCard?: ReviewPresentation;
   matterCard?: MatterPresentation;
+  visualImages?: VisualImage[];
+  visualExpires?: number;
 }
+
+type VisualReceiptFailure = 'target-unavailable' | 'content-rejected' | 'delivery-unconfirmed';
 
 export interface FeedbackRecord {
   task: string; message: string; chat: string; status: string;
@@ -96,7 +101,7 @@ export class State {
       if (!taskColumns.some(column => column.name === 'routing_origin')) this.db.exec('ALTER TABLE tasks ADD COLUMN routing_origin TEXT');
       const outboxColumns = this.db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[];
       if (!outboxColumns.some(column => column.name === 'task')) this.db.exec('ALTER TABLE outbox ADD COLUMN task TEXT');
-      for (const [name, definition] of Object.entries({ reply_to: 'TEXT', mentions: 'TEXT', response_task: 'TEXT', final: 'INTEGER DEFAULT 0', prompt_id: 'TEXT', approval: 'TEXT', update_message: 'TEXT', approval_view: 'TEXT', task_view: 'TEXT', review_card: 'TEXT', matter_card: 'TEXT', ordinary_answer: 'INTEGER NOT NULL DEFAULT 0' })) {
+      for (const [name, definition] of Object.entries({ reply_to: 'TEXT', mentions: 'TEXT', response_task: 'TEXT', final: 'INTEGER DEFAULT 0', prompt_id: 'TEXT', approval: 'TEXT', update_message: 'TEXT', approval_view: 'TEXT', task_view: 'TEXT', review_card: 'TEXT', matter_card: 'TEXT', visual_images: 'TEXT', visual_expires: 'INTEGER', ordinary_answer: 'INTEGER NOT NULL DEFAULT 0' })) {
         if (!outboxColumns.some(column => column.name === name)) this.db.exec(`ALTER TABLE outbox ADD COLUMN ${name} ${definition}`);
       }
       this.db.exec('CREATE TABLE IF NOT EXISTS task_messages (message TEXT PRIMARY KEY, task TEXT REFERENCES tasks(id), chat TEXT)');
@@ -255,6 +260,53 @@ export class State {
 
   projectedFinal(execution: string): boolean {
     return Boolean(this.db.prepare('SELECT 1 FROM projected_tasks WHERE execution=? AND checkpoint IS NOT NULL').get(execution));
+  }
+
+  visualReceipt(execution: string, evidence: string): { delivery: string; status: 'registered' | VisualReceiptFailure } | undefined {
+    const origin = 'visual-receipt/' + execution + '/' + evidence;
+    const prior = this.db.prepare('SELECT id,status FROM projected_control_notices WHERE origin=?').get(origin);
+    if (prior) return { delivery: String(prior.id), status: prior.status === 'observed' ? 'registered' : prior.status as VisualReceiptFailure };
+  }
+
+  projectVisualReceipt(request: RequestRecord, receipt: { evidence: string; body: string; images: VisualImage[] }): NonNullable<ReturnType<State['visualReceipt']>> {
+    return this.transaction(() => {
+      const origin = 'visual-receipt/' + request.execution + '/' + receipt.evidence;
+      const prior = this.visualReceipt(request.execution, receipt.evidence);
+      if (prior) return prior;
+      const id = randomUUID();
+      const images = receipt.images.map(image => ({ ...image, caption: this.redact(image.caption) }));
+      this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(origin, 'observed', id);
+      this.db.prepare('INSERT INTO projected_deliveries VALUES (?,?,0)').run(id, request.execution);
+      // Feishu only deduplicates message UUIDs for one hour. Cut off all
+      // retries within that window, even if a gateway has restarted.
+      const deadline = Date.now() + 55 * 60_000;
+      this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to,response_task,ordinary_answer,visual_images,visual_expires) VALUES (?,?,?,?,?,1,?,?)')
+        .run(id, request.message.chat, this.redact(receipt.body), request.message.id, request.execution, JSON.stringify(images), deadline);
+      return { delivery: id, status: 'registered' };
+    });
+  }
+
+  saveVisualImages(delivery: string, images: VisualImage[]): void {
+    this.db.exec('PRAGMA secure_delete=ON');
+    this.db.prepare('UPDATE outbox SET visual_images=? WHERE id=?').run(JSON.stringify(images), delivery);
+  }
+
+  visualReceiptFailed(delivery: string, status: VisualReceiptFailure): void {
+    this.db.exec('PRAGMA secure_delete=ON');
+    this.transaction(() => {
+      this.db.prepare("UPDATE projected_control_notices SET status=? WHERE id=? AND status='observed'").run(status, delivery);
+      this.db.prepare('DELETE FROM outbox WHERE id=?').run(delivery);
+    });
+  }
+
+  private expireVisualReceipts(now: number): void {
+    const expired = 'SELECT id FROM outbox WHERE visual_images IS NOT NULL AND COALESCE(visual_expires,0)<=?';
+    if (!this.db.prepare(expired + ' LIMIT 1').get(now)) return;
+    this.db.exec('PRAGMA secure_delete=ON');
+    this.transaction(() => {
+      this.db.prepare("UPDATE projected_control_notices SET status='delivery-unconfirmed' WHERE id IN (" + expired + ')').run(now);
+      this.db.prepare('DELETE FROM outbox WHERE id IN (' + expired + ')').run(now);
+    });
   }
 
   projectAdmissionNotice(request: RequestRecord, body: string): void {
@@ -652,20 +704,25 @@ export class State {
     });
   }
 
-  pending(now = Date.now()): Delivery[] {
+  pending(now = Date.now(), visual = false): Delivery[] {
+    if (visual) this.expireVisualReceipts(now);
     this.queueCardUpdates(Date.now());
     // A delayed status must never appear after its task has finished.
     this.db.prepare(`DELETE FROM outbox WHERE task IS NOT NULL AND task IN
       (SELECT id FROM tasks WHERE status NOT IN ('queued','running'))`).run();
     this.db.prepare(`DELETE FROM outbox WHERE prompt_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM approvals WHERE approvals.id=outbox.prompt_id AND status='pending' AND (expires IS NULL OR expires>?))`).run(Date.now());
-    // Preserve message ordering within each chat, even if its first message is backing off.
+    // Ordinary delivery ignores supplemental images. Images wait for earlier
+    // ordinary messages and never delay native prompts while uploading.
     const rows = this.db.prepare(`SELECT id, chat, body, attempts, next, reply_to AS replyTo, mentions, response_task AS taskId, final, approval,
-      update_message AS updateMessage,approval_view AS approvalView,task_view AS taskView, review_card AS reviewCard, matter_card AS matterCard FROM outbox AS current WHERE next<=?
-      AND NOT EXISTS (SELECT 1 FROM outbox AS previous WHERE previous.chat=current.chat AND previous.sequence<current.sequence)
-      ORDER BY sequence LIMIT 20`).all(now) as unknown as (Omit<Delivery, 'approval' | 'taskView'> & { approval: string | null; taskView: string | null })[];
+      update_message AS updateMessage,approval_view AS approvalView,task_view AS taskView, review_card AS reviewCard, matter_card AS matterCard,
+      visual_images AS visualImages, visual_expires AS visualExpires FROM outbox AS current WHERE next<=? AND (current.visual_images IS NOT NULL)=?
+      AND NOT EXISTS (SELECT 1 FROM outbox AS previous WHERE previous.chat=current.chat AND previous.sequence<current.sequence
+        AND (previous.visual_images IS NULL OR (? AND previous.next<=?)))
+      ORDER BY sequence LIMIT 20`).all(now, Number(visual), Number(visual), now) as unknown as (Omit<Delivery, 'approval' | 'taskView' | 'visualImages'> & { approval: string | null; taskView: string | null; visualImages: string | null })[];
     return rows.map(row => ({ ...row, approval: row.approval ? parseApproval(JSON.parse(row.approval)) : undefined,
       reviewCard: row.reviewCard ? parseReviewPresentation(JSON.parse(row.reviewCard as unknown as string)) : undefined, taskView: row.taskView ? parseTaskPresentation(JSON.parse(row.taskView)) : undefined,
-      matterCard: row.matterCard ? parseMatterPresentation(JSON.parse(row.matterCard as unknown as string)) : undefined }));
+      matterCard: row.matterCard ? parseMatterPresentation(JSON.parse(row.matterCard as unknown as string)) : undefined,
+      visualImages: row.visualImages ? JSON.parse(row.visualImages) as VisualImage[] : undefined }));
   }
 
   deliveryReady(id: string): boolean {

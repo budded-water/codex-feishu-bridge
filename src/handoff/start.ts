@@ -4,12 +4,13 @@ import { isAbsolute } from 'node:path';
 import type { Config } from '../config.js';
 import { Feishu } from '../feishu.js';
 import { record } from '../types.js';
-import { acquireRoot, openRuntimeControl, readFence, verifyImportedState } from './ownership.js';
+import { acquireRoot, openRuntimeControl, readFence, verifyImportedState, visualReceiptValidationMs } from './ownership.js';
 import { PilotAdmission, type PilotScope } from './gateway.js';
 import { NativeExecutions } from './native.js';
 import { AutoloopSource, SourceOutbox } from './source.js';
 import { PilotInteractions } from './interactions.js';
 import { pilotMaintenance } from './maintenance.js';
+import { queueVisualReceipt } from './visual-receipt.js';
 import { verificationProfiles } from './verification-profile.js';
 import { managedRefundObserver, type ManagedRefundObserver } from './refund-monitor.js';
 import { parseObserverConfig } from '../sls-refund/sls-source.js';
@@ -58,6 +59,14 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
     opening = (async () => {
       control = await openRuntimeControl(lease, request => {
         if (!admission || !interactions || !native) throw new Error('Pilot is opening');
+        if (request.command === 'visual-receipt') {
+          const deadline = performance.now() + visualReceiptValidationMs;
+          if (stopping) throw Error('Pilot is closing');
+          return queueVisualReceipt(admission, interactions.transport.state, request.task, request.reference, () => {
+            if (stopping || performance.now() >= deadline) throw Error('Visual receipt validation window closed');
+            lease.assertHeld();
+          });
+        }
         return pilotMaintenance(admission, native, interactions.transport.state, request);
       });
       if (stopping) return;
