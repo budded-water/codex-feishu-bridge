@@ -1,6 +1,6 @@
 import { record } from '../types.js';
 import type { VerificationRecord } from './store.js';
-import { boundedFile, fingerprint, gitRead, profileDigest, verifyPolicy, type VerificationProfiles } from './verification-profile.js';
+import { boundedFile, fingerprint, profileDigest, verificationSourceState, verifyPolicy, type VerificationProfiles } from './verification-profile.js';
 
 export type Applicability = 'unchanged' | 'profile' | 'missing' | 'policy' | 'changed' | 'dirty' | 'unavailable';
 
@@ -11,12 +11,12 @@ export async function verificationApplicabilityState(value: VerificationRecord, 
   if (!profile || profileDigest(profile) !== value.digest) return 'profile';
   if (!report) return 'missing';
   try {
-    const status = (await gitRead(profile.projectRoot, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '--ignore-submodules=none'])).split('\n');
-    if (!observation.gitHead || !status.includes('# branch.oid ' + observation.gitHead)) return 'changed';
+    const status = await verificationSourceState(profile.projectRoot);
+    if (status.commit !== observation.gitHead) return 'changed';
     try { verifyPolicy(profile); } catch { return 'policy'; }
     if (fingerprint(boundedFile(profile.projectRoot, report.summaryPath)) !== report.jsonHash ||
       fingerprint(boundedFile(profile.projectRoot, report.htmlPath)) !== report.htmlHash) return 'changed';
-    if (status.some(line => !line.startsWith('# '))) return 'dirty';
+    if (!status.clean) return 'dirty';
     return 'unchanged';
   } catch { return 'unavailable'; }
 }
@@ -25,7 +25,6 @@ export function verificationDeliveryReference(value: VerificationRecord): string
   const observation = value.observation;
   const report = observation?.integration;
   if (value.phase !== 'observed' || observation?.status !== 'pass' || !observation.cleanupSettled || !report ||
-    !observation.gitHead || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(observation.gitHead) ||
-    record(report.source).dirtyTree !== false || !report.sourceDigest) return;
+    !observation.cleanSource || !observation.gitHead || record(report.source).dirtyTree !== false || !report.sourceDigest) return;
   return 'ui-eval:' + observation.gitHead + '@sha256:' + fingerprint(JSON.stringify([report.jsonHash, report.htmlHash]));
 }

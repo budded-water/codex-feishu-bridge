@@ -2,7 +2,12 @@
 
 ### Requirement: Delivery waits can bind a retained Web verification report
 
-The enrolled private-chat owner with the required approval role SHALL be able to register a passing, sealed Web verification with a matching clean source commit and unchanged reports using `/delivery-wait <execution>`. The gateway SHALL derive the evidence reference from the recorded Git commit and report hashes. Queries SHALL display the evidence and its current applicability without launching a verifier or model.
+The enrolled private-chat owner with the required approval role SHALL be able to
+register a passing, sealed Web verification with unchanged reports and a
+matching source commit observed clean before and after the run, including Git
+submodules. The gateway SHALL derive the reference from the source commit and
+report hashes. Queries SHALL display evidence and applicability without
+launching a verifier or model.
 
 #### Scenario: Register and inspect the original report
 

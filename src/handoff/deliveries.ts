@@ -42,10 +42,8 @@ export class OwnerDeliveries {
     if (verification && ((command === 'delivery' && !reference && !hasInput) ||
         (command === 'delivery-wait' && !reference && !hasInput) ||
         (command === 'delivery-confirm' && reference && hasInput))) {
-      this.work = this.work.then(() => this.verified(message, verification, command, reference, input)).catch(() => {
-        try { this.respond(message, '交付证据无法核实。请查看原验证任务。'); }
-        catch { console.error('Delivery answer could not be retained; transport receipt rolled back'); }
-      });
+      this.work = this.work.then(() => this.verified(message, verification, command, reference, input))
+        .catch(() => console.error('Delivery command could not complete; retry using its retained state'));
       return { status: 'delivery-view' as const };
     }
     let response = usage;

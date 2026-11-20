@@ -72,7 +72,7 @@ Initial verification uncertainty requires local CLI/descendant/effect inspection
 
 `/verification` reads history. Profile drift, changed registered policy bytes (including Git-ignored files), changed Git HEAD or modified report hashes are stale; dirty source has unverified applicability. Unchanged source/reports do not revalidate environment, fixtures or release eligibility. Release Kit retains separately authorized publication and its own revalidation.
 
-A passing Web observation from a clean commit can be registered through [delivery waiting](usage.md#交付等待p1-网关). The reference includes the commit and a SHA-256 over the two retained report hashes. Exact owner confirmation admits one ordinary same-thread request. The gateway and Worker reuse the recorded profile, source and report checks before admission and launch. Validation still owns the underlying run and observations.
+A passing Web observation can be registered through [delivery waiting](usage.md#交付等待p1-网关) when strict Git observations before and after the run match its clean commit. Historical reports without these observations remain available through `/verification`. The reference includes the commit and a SHA-256 over the two retained report hashes. Exact owner confirmation admits one ordinary same-thread request. The gateway and Worker reuse the recorded profile, source and report checks before admission and launch. Validation still owns the underlying run and observations.
 
 Older pinned Web engines can emit an integration source digest without the source object. The runner uses the pinned engine's digest function to match a canonical adapter report and its embedded source to the digests in the integration summary before retaining its commit.
 

@@ -307,8 +307,8 @@ test('a permit lost during thread resume prevents verified turn submission', asy
   assert.ok(h.sent.some(text => text.includes('续接的启动权限已失效')));
 });
 
-test('delivery applicability detects changes in a Git submodule that the project normally ignores', async t => {
-  const h = handoff(t), dependency = join(h.root, 'dependency');
+function addIgnoredSubmodule(h: ReturnType<typeof handoff>) {
+  const dependency = join(h.root, 'dependency');
   const commit = (directory: string, subject: string) => h.git(directory,
     ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', subject]);
   mkdirSync(dependency);
@@ -317,14 +317,35 @@ test('delivery applicability detects changes in a Git submodule that the project
   h.git(h.project, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', dependency, 'dependency']);
   h.git(h.project, ['config', '-f', '.gitmodules', 'submodule.dependency.ignore', 'all']);
   h.git(h.project, ['add', '.gitmodules']); commit(h.project, 'pinned dependency');
+  return join(h.project, 'dependency/content.txt');
+}
+
+test('delivery detects changes in a Git submodule before registration', async t => {
+  const h = handoff(t), content = addIgnoredSubmodule(h);
   const task = await h.launch(); await task.running;
   const { execution, project } = task.admitted.request;
-  writeFileSync(join(h.project, 'dependency/content.txt'), 'changed');
+  writeFileSync(content, 'changed');
   assert.equal(h.git(h.project, ['status', '--porcelain']), '');
   const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
   h.interactions.receive(wait); await drain(h);
   assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
   assert.ok(h.sent.some(text => text.includes('未提交变更')));
+});
+
+test('a submodule restored after verification cannot make the earlier report eligible', async t => {
+  const h = handoff(t), content = addIgnoredSubmodule(h);
+  writeFileSync(content, 'changed');
+  assert.equal(h.git(h.project, ['status', '--porcelain']), '');
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  const observation = h.admission.store.verification(execution)!.observation!;
+  assert.equal(observation.status, 'pass');
+  assert.deepEqual(observation.integration?.source, { commitSha: observation.gitHead, dirtyTree: false });
+  writeFileSync(content, 'reviewed');
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  h.interactions.receive(wait); await drain(h);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
+  assert.ok(h.sent.some(text => text.includes('交付证据不可用')));
 });
 
 test('failed and dirty-source observations are ineligible for delivery waits', async t => {
@@ -359,6 +380,28 @@ test('a delivery-view outbox failure leaves its receipt retryable without blocki
   h.interactions.receive(query); h.interactions.receive(query); await drain(h);
   assert.equal(h.sent.slice(prior).filter(text => text.includes('等待确认这份证据')).length, 1);
   assert.equal(h.admission.store.requests().length, 1);
+});
+
+test('a transient outbox failure after registration preserves the successful response on redelivery', async t => {
+  const h = handoff(t), task = await h.launch(); await task.running; await drain(h);
+  const { execution, project } = task.admitted.request;
+  const state = h.interactions.transport.state, send = state.send.bind(state);
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  let drop = true;
+  state.send = (...args) => {
+    if (drop) { drop = false; throw Error('Synthetic transient outbox write failure'); }
+    return send(...args);
+  };
+  try {
+    h.interactions.receive(wait);
+    await drain(h);
+    assert.equal(state.hasSeen(wait), false);
+    assert.ok(h.admission.store.deliveryCheckpoint(wait, project, execution));
+    h.interactions.receive(wait);
+    await drain(h);
+    assert.equal(h.sent.filter(text => text.includes('等待确认这份证据')).length, 1);
+    assert.equal(h.admission.store.requests().length, 1);
+  } finally { state.send = send; }
 });
 
 test('findings reads sealed failure once across duplicate deliveries/restart without executing or altering evidence', async t => {

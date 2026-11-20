@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { record } from '../types.js';
-import { boundedFile, fingerprint, verifyEngine, verifyPolicy, verificationEnvironment, type VerificationProfile } from './verification-profile.js';
+import { boundedFile, fingerprint, verifyEngine, verifyPolicy, verificationEnvironment, verificationSourceState, type VerificationProfile } from './verification-profile.js';
 import { repairSourceSeal } from './repair-evidence.js';
 
 export interface VerificationObservation {
@@ -12,7 +12,7 @@ export interface VerificationObservation {
   cleanupSettled: boolean; code: number | null; signal: string | null; reason: string;
   integration?: { id: string; source: unknown; sourceDigest: string | null; suiteDigest: string;
     summaryPath: string; htmlPath: string; jsonHash: string; htmlHash: string; conclusions: unknown };
-  gitHead?: string; observedAt: number;
+  gitHead?: string; cleanSource?: true; observedAt: number;
   repairSeal?: string;
 }
 
@@ -73,6 +73,7 @@ export async function runVerification(profile: VerificationProfile, signal: Abor
     if (typeof engine.assertIntegrationResult !== 'function') throw new Error('Unsupported pinned engine');
     let repairSeal: string | undefined;
     if (profile.repair) { try { repairSeal = await repairSourceSeal(profile); } catch { /* Verification can run without qualifying for repair. */ } }
+    const before = await verificationSourceState(profile.projectRoot).catch(() => undefined);
     signal.throwIfAborted();
     invoked = true;
     exit = await child(profile, signal, graceMs);
@@ -97,6 +98,8 @@ export async function runVerification(profile: VerificationProfile, signal: Abor
     verifyPolicy(profile);
     const stages = result.stages as { cleanupSettled?: boolean }[];
     const cleanupSettled = !stages.some(stage => stage.cleanupSettled === false);
+    const after = result.status === 'pass' ? await verificationSourceState(profile.projectRoot).catch(() => undefined) : undefined;
+    const cleanSource = before?.clean && after?.clean && before.commit === source.commitSha && after.commit === source.commitSha;
     if (repairSeal) { try { if (await repairSourceSeal(profile) !== repairSeal) repairSeal = undefined; } catch { repairSeal = undefined; } }
     return { status: result.status as VerificationObservation['status'], code: exit.code, signal: exit.signal, cleanupSettled,
       reason: cleanupSettled ? 'Observed pinned CLI handoff' : 'Engine reported incomplete cleanup',
@@ -104,7 +107,8 @@ export async function runVerification(profile: VerificationProfile, signal: Abor
         sourceDigest: typeof result.sourceDigest === 'string' ? result.sourceDigest : null,
         suiteDigest: String(result.suiteDigest), summaryPath: String(result.summaryPath), htmlPath: String(result.summaryHtmlPath),
         jsonHash: fingerprint(json), htmlHash: fingerprint(html), conclusions: result.verification ? record(record(result.verification).assessment).conclusions : null },
-      gitHead: typeof source.commitSha === 'string' ? source.commitSha : undefined, observedAt: Date.now(), ...(repairSeal ? { repairSeal } : {}) };
+      gitHead: typeof source.commitSha === 'string' ? source.commitSha : undefined, ...(cleanSource ? { cleanSource: true } : {}),
+      observedAt: Date.now(), ...(repairSeal ? { repairSeal } : {}) };
   } catch {
     return { status: 'unverified', code: exit?.code ?? null, signal: exit?.signal ?? null, cleanupSettled: !invoked,
       reason: invoked ? 'Invocation or evidence could not be confirmed; inspect processes and effects before recovery' : 'Verification did not launch: profile, policy, engine or cancellation precondition failed', observedAt: Date.now() };
