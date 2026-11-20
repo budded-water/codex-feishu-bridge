@@ -95,6 +95,11 @@ The operator prepares an owner-only (`0600`) local JSON file with:
 
 Invoke `npm run handoff -- visual-receipt <consumer-state-root> <execution-id> <absolute-private-plan>` against the running pilot. The state root identifies the managed consumer. The command returns the delivery ID and registration status. The Feishu app needs image upload and existing message permissions. A confirmed reply becomes another quotation anchor for the same task. A recalled or deleted original message produces terminal `target-unavailable`, visible when the same plan is submitted again.
 
+The Feishu reply separates the automated result, candidate and pending human
+review. The first two screenshots appear side by side with their scene names
+and assertion counts. A single screenshot or a third screenshot has its own
+row. Tap a screenshot to open the original.
+
 The gateway reads only the selected checkpoint PNGs with verified digests, the
 same clean captured source and runtime across scenes, and a matching origin and
 HEAD before and after the read. Passed or failed scenarios with settled capture
@@ -113,10 +118,10 @@ Feishu. The original validation and its scope remain in UI-eval.
 
 For an unconfirmed local command, retry the same execution and plan. A
 confirmed queue ID means the receipt was recorded for delivery. Before a
-code-only downgrade, quiesce the current gateway to stop new visual receipt
-admission and drain its outbox with that version. Older gateways cannot
-transport pending images. Keep the current gateway running if its outbox
-cannot drain.
+gateway upgrade or downgrade, quiesce the current gateway to stop new visual
+receipt admission and drain its outbox with that version. This keeps any
+outstanding retry on its original message format and UUID. Keep the current
+gateway running if its outbox cannot drain.
 
 Older pinned Web engines can emit an integration source digest without the source object. The runner uses the pinned engine's digest function to match a canonical adapter report and its embedded source to the digests in the integration summary before retaining its commit.
 

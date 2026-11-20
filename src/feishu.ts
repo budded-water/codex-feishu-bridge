@@ -11,6 +11,7 @@ import { markdownPost, notificationPost, ReplyTargetUnavailable, safeMentionText
 import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext, type DeliveryOptions } from './types.js';
 import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
+import { visualReceiptCard } from './visual-receipt-card.js';
 
 function queryPost(body: Record<string, unknown>): string | undefined {
   const { title, rows } = postRows(body);
@@ -179,18 +180,13 @@ export class Feishu implements ContextPort, ReactionPort {
   async send(chat: string, text: string, idempotencyKey: string, options: DeliveryOptions = {}): Promise<string | void> {
     if (options.visualImages && !options.replyTo) throw new ReplyTargetUnavailable('Visual receipt requires the original message');
     const styled = markdownPost(safeMentionText(text)).zh_cn.content[0]![0]!.text;
-    const [title, ...summary] = safeMentionText(text).split('\n');
-    const visualPost = options.visualImages && {
-      zh_cn: { title, content: [
-        ...summary.filter(Boolean).map(line => [{ tag: 'text', text: line }]),
-        ...options.visualImages.flatMap(image => [
-          [{ tag: 'text', text: safeMentionText(image.caption), style: ['bold'] }],
-          [{ tag: 'img', image_key: image.key }],
-        ]),
-      ] },
-    };
-    const content = JSON.stringify(options.matterCard ? matterCard(options.matterCard) : options.reviewCard ? reviewCard(options.reviewCard) : options.taskView ? taskCard(options.taskView) : options.approval ? approvalCard(options.approval) : visualPost ?? notificationPost(styled,options.mentions ?? []));
-    const msg_type = options.approval || options.taskView || options.reviewCard || options.matterCard ? 'interactive' : 'post';
+    const card = options.matterCard ? matterCard(options.matterCard)
+      : options.reviewCard ? reviewCard(options.reviewCard)
+      : options.taskView ? taskCard(options.taskView)
+      : options.approval ? approvalCard(options.approval)
+      : options.visualImages ? visualReceiptCard(text, options.visualImages) : undefined;
+    const content = JSON.stringify(card ?? notificationPost(styled, options.mentions ?? []));
+    const msg_type = card ? 'interactive' : 'post';
     if (options.replyTo) {
       const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
         const code = Number(record(record(record(error).response).data).code ?? record(error).code);
