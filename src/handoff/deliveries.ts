@@ -85,17 +85,18 @@ export class OwnerDeliveries {
     }
     let applicability = await verificationApplicabilityState(verification, this.profiles);
     const seal = fingerprint(JSON.stringify(verification));
-    const evidence = () => seal === store.verificationBinding(execution) ? this.sealedEvidence(execution) : undefined;
-    if (command === 'delivery' && applicability === 'unchanged' && !evidence()) applicability = 'unavailable';
+    const nativeEvidence = applicability === 'unchanged' && seal === store.verificationBinding(execution)
+      ? this.sealedEvidence(execution) : undefined;
+    if (applicability === 'unchanged' && (!nativeEvidence || store.execution(execution)?.evidence !== nativeEvidence)) applicability = 'unavailable';
     if (command === 'delivery' || applicability !== 'unchanged') {
       this.respond(message, checkpoint && command === 'delivery' ? this.detail(checkpoint, verification, applicability)
         : '交付未处理。' + verificationApplicabilityText(applicability));
       return;
     }
     if (command === 'delivery-wait') {
-      const saved = store.registerDelivery(message, project, execution, expected, evidence);
+      const saved = store.registerDelivery(message, project, execution, expected, () => nativeEvidence);
       this.respond(message, saved ? this.detail(saved, verification, applicability) : '交付等待未登记。请核对原验证任务和会话。');
-    } else if (store.resumeDelivery(message, project, execution, expected, input, evidence) !== 'task-reply') {
+    } else if (store.resumeDelivery(message, project, execution, expected, input, () => nativeEvidence) !== 'task-reply') {
       this.respond(message, '交付未续接。请用 /delivery 核对登记的证据和确认状态。');
     }
   }

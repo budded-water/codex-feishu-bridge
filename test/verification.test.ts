@@ -180,6 +180,21 @@ test('passing verification registers an exact report and resumes its original th
   h.interactions.receive(actor('/delivery ' + execution));
   await drain(h);
   assert.ok(h.sent.some(text => text.includes(reference) && text.includes('等待确认')));
+  const journal = join(h.config.stateDirectory, 'executions', execution, 'bridge.db');
+  const originalJournal = readFileSync(journal);
+  rmSync(journal);
+  h.interactions.receive(actor(register));
+  await drain(h);
+  assert.ok(h.sent.some(text => text.includes('证据无法核实')));
+  assert.equal(lookup()?.reference, reference);
+  writeFileSync(journal, originalJournal);
+
+  const policy = join(h.project, 'ui-eval/project.json');
+  const originalPolicy = readFileSync(policy);
+  writeFileSync(policy, '{"projectId":"changed"}');
+  assert.match(await verificationApplicability(h.admission.store.verification(execution)!, h.profiles), /stale.*验证规则/);
+  writeFileSync(policy, originalPolicy);
+
   const confirm = '/delivery-confirm ' + execution + ' ';
   h.interactions.receive(actor(confirm + reference + '0\nCheck the result'));
   const html = readFileSync(htmlPath);
@@ -274,6 +289,42 @@ test('an evidence change during thread resume prevents turn submission', async t
   assert.equal(report.outcome.turn, null);
   assert.deepEqual(h.admission.store.unsettled(), []);
   assert.ok(h.sent.some(text => text.includes('交付证据已变化或无法核实，续接未启动')));
+});
+
+test('a permit lost during thread resume prevents verified turn submission', async t => {
+  const h = handoff(t), { grant } = await queuedVerifiedDelivery(h);
+  const request = h.codex.request.bind(h.codex);
+  h.codex.request = async <T,>(method: string, input: unknown) => {
+    if (method === 'thread/resume') h.admission.store.ownerUnconfirmed(grant.permit.execution);
+    if (method === 'turn/start') throw Error('No model turn should be submitted without an active permit');
+    return request<T>(method, input);
+  };
+  const report = await h.native.run(grant.permit);
+  await drain(h);
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(report.outcome.turn, null);
+  assert.deepEqual(h.admission.store.unsettled(), []);
+  assert.ok(h.sent.some(text => text.includes('续接的启动权限已失效')));
+});
+
+test('delivery applicability detects changes in a Git submodule that the project normally ignores', async t => {
+  const h = handoff(t), dependency = join(h.root, 'dependency');
+  const commit = (directory: string, subject: string) => h.git(directory,
+    ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', subject]);
+  mkdirSync(dependency);
+  writeFileSync(join(dependency, 'content.txt'), 'reviewed');
+  h.git(dependency, ['init', '-q']); h.git(dependency, ['add', '.']); commit(dependency, 'dependency');
+  h.git(h.project, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', dependency, 'dependency']);
+  h.git(h.project, ['config', '-f', '.gitmodules', 'submodule.dependency.ignore', 'all']);
+  h.git(h.project, ['add', '.gitmodules']); commit(h.project, 'pinned dependency');
+  const task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  writeFileSync(join(h.project, 'dependency/content.txt'), 'changed');
+  assert.equal(h.git(h.project, ['status', '--porcelain']), '');
+  const wait = message('/delivery-wait ' + execution, { chatType: 'p2p' });
+  h.interactions.receive(wait); await drain(h);
+  assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
+  assert.ok(h.sent.some(text => text.includes('未提交变更')));
 });
 
 test('failed and dirty-source observations are ineligible for delivery waits', async t => {

@@ -215,6 +215,8 @@ export class NativeExecutions {
             !this.deliverySourceMatches(delivery.execution, verification, request)) {
             return '交付证据已变化或无法核实，续接未启动。\n/delivery ' + delivery.execution;
           }
+          try { this.gateway.store.startableRequest(permit); }
+          catch { return '续接的启动权限已失效，没有启动本轮模型任务。'; }
         } : undefined;
         this.active = this.gateway.store.repairs.get(request.execution)
           ? new RepairOwner(this.gateway, this.config, request, permit, folder, binding(this.gateway, request), factory, this.profiles, this.options.outerDeadline, permissions)

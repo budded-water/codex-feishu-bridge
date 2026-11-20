@@ -11,12 +11,12 @@ export async function verificationApplicabilityState(value: VerificationRecord, 
   if (!profile || profileDigest(profile) !== value.digest) return 'profile';
   if (!report) return 'missing';
   try {
-    const status = (await gitRead(profile.projectRoot, ['status', '--porcelain=v2', '--branch', '--untracked-files=all'])).split('\n');
+    const status = (await gitRead(profile.projectRoot, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '--ignore-submodules=none'])).split('\n');
     if (!observation.gitHead || !status.includes('# branch.oid ' + observation.gitHead)) return 'changed';
-    if (status.some(line => !line.startsWith('# '))) return 'dirty';
     try { verifyPolicy(profile); } catch { return 'policy'; }
     if (fingerprint(boundedFile(profile.projectRoot, report.summaryPath)) !== report.jsonHash ||
       fingerprint(boundedFile(profile.projectRoot, report.htmlPath)) !== report.htmlHash) return 'changed';
+    if (status.some(line => !line.startsWith('# '))) return 'dirty';
     return 'unchanged';
   } catch { return 'unavailable'; }
 }
