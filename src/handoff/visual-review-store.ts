@@ -91,13 +91,14 @@ export class VisualReviewStore {
       revision=revision+1,next=0 WHERE phase IN ('merging','uploading')`);
   }
 
-  take(): VisualOperation | undefined {
+  take(): VisualOperation & { owner: Pick<IncomingMessage, 'chat' | 'tenant' | 'user'> } | undefined {
     const row = this.db.prepare("SELECT * FROM visual_review_cards WHERE phase IN ('merge-queued','upload-queued') ORDER BY rowid LIMIT 1")
       .get() as unknown as ReviewRow | undefined;
     if (!row) return;
     const action = row.phase === 'merge-queued' ? 'merge' : 'upload';
     this.transition(row.id, action === 'merge' ? 'merging' : 'uploading');
-    return { id: row.id, action, binding: JSON.parse(row.binding) as VisualReviewBinding, mergeCommit: row.mergeCommit ?? undefined };
+    return { id: row.id, action, binding: JSON.parse(row.binding) as VisualReviewBinding, mergeCommit: row.mergeCommit ?? undefined,
+      owner: { chat: row.chat, tenant: row.tenant, user: row.actor } };
   }
 
   finish(operation: VisualOperation, result?: VisualOperationResult) {

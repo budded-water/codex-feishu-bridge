@@ -23,6 +23,8 @@ test('a bound visual review runs each explicit write once and presents provider 
     'const input = JSON.parse(process.argv[2]);',
     'const head = fs.readFileSync(' + JSON.stringify(provider) + ', "utf8");',
     'if (head === "foreign-target") { console.log(JSON.stringify({...input,target:"other",status:"blocked",reason:"checks"})); process.exit(0); }',
+    'if (head === "foreign-merge") { console.log(JSON.stringify({...input,mergeCommit:"' + 'c'.repeat(40) + '",status:"blocked",reason:"checks"})); process.exit(0); }',
+    'if (head === "malformed-blocked") { console.log(JSON.stringify({...input,status:"blocked",reason:["checks"]})); process.exit(0); }',
     'if (input.commit !== head) { console.log(JSON.stringify({...input,status:"blocked",reason:"stale-source"})); process.exit(0); }',
     'fs.appendFileSync(' + JSON.stringify(effects) + ', JSON.stringify(input) + "\\n");',
     'console.log(JSON.stringify(input.action === "merge" ? {...input,status:"merged",mergeCommit:"' + mergeCommit + '"}',
@@ -118,8 +120,24 @@ test('a bound visual review runs each explicit write once and presents provider 
   writeFileSync(provider, 'foreign-target');
   const upload = state.visualReviews.take()!;
   await assert.rejects(executeVisualOperation(upload, workflows), /receipt identity differs/);
+  writeFileSync(provider, 'foreign-merge');
+  await assert.rejects(executeVisualOperation(upload, workflows), /receipt identity differs/);
   state.visualReviews.finish(upload);
   assert.equal(state.visualReviews.view(secondTarget)?.phase, 'upload-unknown');
+
+  const malformed = randomUUID();
+  state.visualReviews.register(malformed, owner, body, { ...binding, pullRequest: 45 });
+  state.visualReviews.delivered(malformed, 'om_malformed', images);
+  assert.equal(decide('merge', malformed, 'om_malformed'), 'accepted');
+  writeFileSync(provider, 'malformed-blocked');
+  const invalid = state.visualReviews.take()!;
+  await assert.rejects(executeVisualOperation(invalid, workflows), /did not confirm/);
+  state.visualReviews.finish(invalid);
+  assert.equal(state.visualReviews.view(malformed)?.phase, 'merge-unknown');
+  const other = randomUUID();
+  state.visualReviews.register(other, owner, body, { ...binding, pullRequest: 45 });
+  state.visualReviews.delivered(other, 'om_other', images);
+  assert.equal(decide('merge', other, 'om_other'), 'rejected');
 });
 
 test('visual workflow timeout terminates an adapter that ignores SIGTERM', { timeout: 3000 }, async t => {

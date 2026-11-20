@@ -140,6 +140,8 @@ The enrolled runtime owner owns the executable, which must be a regular file
 at its canonical absolute path and writable only by its owner. The gateway
 checks the registered digest and configuration at launch. `uploadTarget`
 is optional and identifies the developer app approved for that workflow.
+The gateway also rechecks the recorded approver against the current owner
+scope and approval configuration before launch, including after restart.
 The program receives a single JSON argument with `id`, `action` (`merge` or
 `upload`), `repository`, `commit` (full reviewed commit), `pullRequest` and
 `base`. Upload includes the recorded `mergeCommit` and `target`. The program

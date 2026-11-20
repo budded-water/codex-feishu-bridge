@@ -403,14 +403,18 @@ export class PilotInteractions {
 
   private launchVisualReview(): void {
     if (this.visualWork || this.closing || !this.persistVisualResult()) return;
+    if (this.admission.store.unsettled().some(execution => execution.status === 'unknown')) return;
     this.assertVisualOwner();
     const state = this.transport.state;
     const operation = state.transaction(() => state.visualReviews.take());
     if (!operation) return;
     this.visualWork = (async () => {
       let result: VisualOperationResult | undefined;
-      try { result = await executeVisualOperation(operation, this.workflows); }
-      catch { console.error('Visual review workflow result requires inspection'); }
+      try {
+        result = isMaintenanceOwner(this.admission.scope, this.config, { ...operation.owner, chatType: 'p2p', id: operation.id, text: '' })
+          ? await executeVisualOperation(operation, this.workflows)
+          : { status: 'blocked', reason: 'authorization' };
+      } catch { console.error('Visual review workflow result requires inspection'); }
       this.visualResult = { operation, result };
       this.persistVisualResult();
     })().finally(() => { this.visualWork = undefined; });

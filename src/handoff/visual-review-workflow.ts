@@ -84,9 +84,10 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
       (action === 'upload' && (result.mergeCommit !== mergeCommit || result.target !== workflow.uploadTarget))) {
     throw Error('Visual workflow receipt identity differs');
   }
+  const reason = result.reason;
   if (result.status === 'blocked' &&
-    ['stale-source','checks','authorization','target-unavailable'].includes(String(result.reason))) {
-    return { status: 'blocked', reason: result.reason as Extract<VisualOperationResult, { status: 'blocked' }>['reason'] };
+    (reason === 'stale-source' || reason === 'checks' || reason === 'authorization' || reason === 'target-unavailable')) {
+    return { status: 'blocked', reason };
   }
   if (action === 'merge' && result.status === 'merged' && typeof result.mergeCommit === 'string' && fullCommit.test(result.mergeCommit)) {
     return { status: 'merged', mergeCommit: result.mergeCommit };

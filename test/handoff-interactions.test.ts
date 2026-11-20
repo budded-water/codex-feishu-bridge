@@ -352,6 +352,17 @@ test('visual action reconciliation retries a failed result write without repeati
   assert.equal(state.visualReviews.view(id)?.phase, 'merged');
   assert.equal(readFileSync(writes, 'utf8'), 'merge\n');
   assert.equal(h.interactions.visualReviewAction(click), 'duplicate');
+
+  const revoked = randomUUID();
+  state.visualReviews.register(revoked, owner, 'fixture', { repository, commit: 'a'.repeat(40), pullRequest: 20, workflow });
+  state.visualReviews.delivered(revoked, 'om_revoked', [{ caption: '首页', key: 'img_fixture' }]);
+  assert.equal(state.transaction(() => state.visualReviews.decide({ ...click, id: revoked, message: 'om_revoked' })), 'accepted');
+  h.config.approvalUsers = ['ou_admin'];
+  await h.restart(true);
+  await drain(h);
+  assert.equal(h.interactions.transport.state.visualReviews.view(revoked)?.phase, 'merge-blocked');
+  assert.deepEqual(h.interactions.transport.state.visualReviews.view(revoked)?.result, { status: 'blocked', reason: 'authorization' });
+  assert.equal(readFileSync(writes, 'utf8'), 'merge\n');
 });
 
 for (const [name, reference] of [
