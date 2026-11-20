@@ -7,7 +7,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { verificationProfiles, fingerprint, profileDigest, type VerificationProfile } from '../src/handoff/verification-profile.js';
+import { verificationProfiles, fingerprint, profileDigest, verificationSourceState, type VerificationProfile } from '../src/handoff/verification-profile.js';
 import { runVerification } from '../src/handoff/verification-runner.js';
 import { verificationApplicability } from '../src/handoff/verification-view.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
@@ -391,6 +391,36 @@ test('a nested submodule with hidden edits cannot be registered as delivery evid
   h.interactions.receive(wait); await drain(h);
   assert.equal(h.admission.store.deliveryCheckpoint(wait, project, execution), undefined);
   assert.ok(h.sent.some(text => text.includes('未提交变更')));
+});
+
+test('a source scan rejects a clean replacement checkout selected during submodule inspection', async t => {
+  const f = fixture(t), bin = join(f.root, 'git-probe-bin');
+  const initial = f.git(f.project, ['rev-parse', 'HEAD']);
+  f.git(f.project, ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '--allow-empty', '-qm', 'replacement']);
+  const replacement = f.git(f.project, ['rev-parse', 'HEAD']);
+  f.git(f.project, ['checkout', '--quiet', '--detach', initial]);
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'git'), `#!/bin/sh
+if [ "$4" = submodule ] && [ "$5" = status ]; then
+  "$SNAPSHOT_PROBE_REAL_GIT" "$@" || exit "$?"
+  exec "$SNAPSHOT_PROBE_REAL_GIT" -C "$3" checkout --quiet --detach "$SNAPSHOT_PROBE_NEXT_COMMIT"
+fi
+exec "$SNAPSHOT_PROBE_REAL_GIT" "$@"
+`, { mode: 0o700 });
+  const environment = {
+    PATH: bin + ':' + process.env.PATH,
+    SNAPSHOT_PROBE_REAL_GIT: execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
+    SNAPSHOT_PROBE_NEXT_COMMIT: replacement,
+  };
+  const previous = Object.fromEntries(Object.keys(environment).map(name => [name, process.env[name]]));
+  try {
+    Object.assign(process.env, environment);
+    assert.deepEqual(await verificationSourceState(f.project), { commit: replacement, clean: false });
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
 });
 
 test('failed, dirty-source and internally mismatched observations are ineligible for delivery waits', async t => {
