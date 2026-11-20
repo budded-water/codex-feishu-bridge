@@ -7,6 +7,7 @@ import { openPrivateDatabase } from '../private-database.js';
 import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition, type ChatContext } from '../types.js';
 import { fingerprint, profileDigest, type VerificationProfile } from './verification-profile.js';
 import type { VerificationObservation } from './verification-runner.js';
+import { verificationDeliveryReference } from './verification-evidence.js';
 import { RepairStore } from './repair-store.js';
 import { DEFAULT_MATTER, MatterStore } from './matter-store.js';
 
@@ -325,13 +326,22 @@ export class AdmissionStore {
     return this.settledConversation(source) === 'completed' && this.execution(source.execution)?.evidence === verify();
   }
 
+  private allowedDeliveryReference(execution: string, reference: string): boolean {
+    const verification = this.verification(execution);
+    return verification ? verificationDeliveryReference(verification) === reference : !this.hasDedicatedContinuation(execution);
+  }
+
+  deliveryForContinuation(request: string): DeliveryCheckpoint | undefined {
+    return this.db.prepare('SELECT execution,reference,resumed FROM delivery_checkpoints WHERE resumed=?').get(request) as DeliveryCheckpoint | undefined;
+  }
+
   registerDelivery(message: IncomingMessage, project: string, execution: string, reference: string,
     verify: () => string | undefined): DeliveryCheckpoint | undefined {
     return this.transaction(() => {
       const existing = this.deliveryCheckpoint(message, project, execution);
       if (existing) return existing.reference === reference ? existing : undefined;
       const source = this.ownedTask(execution, ownerKey(message), project);
-      if (this.maintenance.paused || source?.message.chatType !== 'p2p' || this.hasDedicatedContinuation(execution) ||
+      if (this.maintenance.paused || source?.message.chatType !== 'p2p' || !this.allowedDeliveryReference(execution, reference) ||
         !this.verifiedDeliverySource(source, verify)) return;
       this.db.prepare('INSERT INTO delivery_checkpoints VALUES (?,?,NULL)').run(execution, reference);
       return { execution, reference, resumed: null };
@@ -345,7 +355,7 @@ export class AdmissionStore {
       if (!checkpoint || checkpoint.resumed || checkpoint.reference !== reference ||
         this.maintenance.paused || this.uncertainProject(project)) return 'rejected';
       const source = this.ownedTask(execution, ownerKey(message), project)!;
-      if (!this.verifiedDeliverySource(source, verify)) return 'rejected';
+      if (!this.allowedDeliveryReference(execution, reference) || !this.verifiedDeliverySource(source, verify)) return 'rejected';
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.retained(message) || this.requestForMessage(message) || this.control(message)) return 'rejected';
       this.saveTaskReply(origin, source, message, 'live', null);

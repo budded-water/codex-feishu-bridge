@@ -11,6 +11,11 @@ adds durable owner-private evidence registration, lookup and same-thread continu
 Mobile and Web reference fixtures exercise the shared contract. Deployment and
 real-owner acceptance are tracked separately.
 
+The [verified-delivery change](../openspec/changes/bind-delivery-to-ui-eval/proposal.md)
+extends the existing checkpoint to passing Web `/verify` reports. It shares the
+applicability checks for Git, profiles and retained report bytes, and revalidates
+them before starting the resumed turn. The verification and deployment evidence
+are tracked in its [tasks](../openspec/changes/bind-delivery-to-ui-eval/tasks.md).
 
 ## Owner native permissions — Auto-review/save/reuse accepted, remaining effects pending
 

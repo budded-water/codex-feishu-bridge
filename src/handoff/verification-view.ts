@@ -1,7 +1,8 @@
 import { relative, dirname, basename } from 'node:path';
 import { message, section, copyBlock } from '../presentation.js';
 import type { VerificationRecord } from './store.js';
-import { boundedFile, fingerprint, gitRead, profileDigest, verifyPolicy, type VerificationProfiles } from './verification-profile.js';
+import type { VerificationProfiles } from './verification-profile.js';
+import { verificationApplicabilityState, type Applicability } from './verification-evidence.js';
 
 const statusLabels: Record<string, string> = {
   pass: '通过', fail: '未通过', 'needs-review': '待人工复核', inconclusive: '无法得出结论', interrupted: '已中断',
@@ -39,16 +40,20 @@ export function verificationText(value: VerificationRecord, context: { execution
     section('任务与报告 · 本机详情', [copyBlock(details.join('\n'))]));
 }
 
+const applicabilityText: Record<Applicability, string> = {
+  profile: 'stale（受信任 profile 已变化或不可用）。',
+  missing: 'unverified（没有完整验证观测）。',
+  policy: 'stale（受信任验证规则已变化或不可用）。',
+  changed: 'stale（源码或报告已变化）。',
+  dirty: 'unverified（当前源码有未提交变更）。',
+  unavailable: 'unverified（源码或证据无法核实）。',
+  unchanged: '历史观测，Git 版本与报告未见变化；未重新验证运行环境或发布条件。',
+};
+
+export function verificationApplicabilityText(state: Applicability): string {
+  return '当前适用性：' + applicabilityText[state];
+}
+
 export async function verificationApplicability(value: VerificationRecord, profiles: VerificationProfiles): Promise<string> {
-  const p = Object.hasOwn(profiles, value.profile) ? profiles[value.profile] : undefined, o = value.observation;
-  if (!p || profileDigest(p) !== value.digest) return '当前适用性：stale（受信任 profile 已变化或不可用）。';
-  if (!o?.integration) return '当前适用性：unverified（没有完整验证观测）。';
-  try {
-    try { verifyPolicy(p); } catch { return '当前适用性：stale（受信任验证规则已变化或不可用）。'; }
-    if (fingerprint(boundedFile(p.projectRoot, o.integration.summaryPath)) !== o.integration.jsonHash ||
-      fingerprint(boundedFile(p.projectRoot, o.integration.htmlPath)) !== o.integration.htmlHash ||
-      await gitRead(p.projectRoot, ['rev-parse', 'HEAD']) !== o.gitHead) return '当前适用性：stale（源码或报告已变化）。';
-    if (await gitRead(p.projectRoot, ['status', '--porcelain', '--untracked-files=all'])) return '当前适用性：unverified（当前源码有未提交变更）。';
-    return '当前适用性：历史观测，Git 版本与报告未见变化；未重新验证运行环境或发布条件。';
-  } catch { return '当前适用性：unverified（源码或证据无法核实）。'; }
+  return verificationApplicabilityText(await verificationApplicabilityState(value, profiles));
 }

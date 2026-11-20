@@ -24,7 +24,9 @@ function fixture(t: TestContext, mode = 'pass', cleanup = true) {
   writeFileSync(join(engine, 'package.json'), '{"type":"module"}');
   writeFileSync(join(engine, '.gitignore'), 'revision\n');
   copyFileSync(new URL('./fixtures/verification-cli.mjs', import.meta.url), join(engine, 'dist/cli.js'));
-  writeFileSync(join(engine, 'dist/index.js'), `export function assertIntegrationResult(v) {
+  writeFileSync(join(engine, 'dist/index.js'), `import { createHash } from 'node:crypto';
+  export const canonicalDigest = value => 'sha256:' + createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  export function assertIntegrationResult(v) {
     if(v.kind!=='IntegrationResult'||!['pass','fail','needs-review','inconclusive','interrupted'].includes(v.status)||!Array.isArray(v.stages)) throw Error('invalid fixture result');
   }`);
   writeFileSync(join(project, 'mode.json'), JSON.stringify({ mode }));
@@ -56,6 +58,20 @@ test('real pinned child outcomes retain separate status and paired report bytes'
     assert.equal(result.integration!.htmlHash, fingerprint(readFileSync(result.integration!.htmlPath)));
     assert.equal(readFileSync(join(f.project, '.spawns'), 'utf8'), '1');
   }
+});
+
+test('a digest-only Web summary binds the commit from its verified adapter report', async t => {
+  const f = fixture(t, 'legacy-web');
+  const result = await runVerification(f.profile, new AbortController().signal);
+  assert.equal(result.status, 'pass');
+  assert.equal(result.gitHead, f.git(f.project, ['rev-parse', 'HEAD']));
+  assert.deepEqual(result.integration?.source, { commitSha: result.gitHead, dirtyTree: false });
+  assert.equal(JSON.parse(readFileSync(result.integration!.summaryPath, 'utf8')).source, undefined);
+
+  const mismatch = fixture(t, 'legacy-web-mismatch');
+  const rejected = await runVerification(mismatch.profile, new AbortController().signal);
+  assert.equal(rejected.status, 'unverified');
+  assert.equal(rejected.integration, undefined);
 });
 
 test('unconfirmed child evidence never becomes pass or settled cleanup', async t => {
@@ -140,6 +156,110 @@ function handoff(t: TestContext, mode = 'pass') {
 }
 
 async function drain(h: ReturnType<typeof handoff>) { for (let i = 0; i < 10; i++) await h.interactions.flush(); }
+
+test('passing verification registers an exact report and resumes its original thread once', async t => {
+  const h = handoff(t), task = await h.launch();
+  const initial = await task.running;
+  const { execution, project, conversation } = task.admitted.request;
+  const actor = (text: string) => message(text, { chatType: 'p2p' });
+  const lookup = () => h.admission.store.deliveryCheckpoint(task.trigger, project, execution);
+  const observation = h.admission.store.verification(execution)!.observation!;
+  const { summaryPath, htmlPath } = observation.integration!;
+  const digest = fingerprint(JSON.stringify([fingerprint(readFileSync(summaryPath)), fingerprint(readFileSync(htmlPath))]));
+  const reference = 'ui-eval:' + h.git(h.project, ['rev-parse', 'HEAD']) + '@sha256:' + digest;
+  const register = '/delivery-wait ' + execution;
+  h.interactions.receive(actor(register + ' unverified-reference'));
+  assert.equal(h.interactions.receive(message(register, { chatType: 'group' })).status, 'ignored');
+  await drain(h);
+  assert.equal(lookup(), undefined);
+  h.interactions.receive(actor(register));
+  await drain(h);
+  assert.equal(lookup()?.reference, reference);
+  assert.equal(h.admission.store.requests().length, 1);
+  await h.restart();
+  h.interactions.receive(actor('/delivery ' + execution));
+  await drain(h);
+  assert.ok(h.sent.some(text => text.includes(reference) && text.includes('等待确认')));
+  const confirm = '/delivery-confirm ' + execution + ' ';
+  h.interactions.receive(actor(confirm + reference + '0\nCheck the result'));
+  const html = readFileSync(htmlPath);
+  writeFileSync(htmlPath, '<html>different report</html>');
+  h.interactions.receive(actor(confirm + reference + '\nCheck the result'));
+  await drain(h);
+  assert.equal(lookup()?.resumed, null);
+  assert.match(h.sent.at(-1)!, /stale.*报告已变化/);
+  writeFileSync(htmlPath, html);
+
+  const head = h.git(h.project, ['rev-parse', 'HEAD']);
+  h.git(h.project, ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '--allow-empty', '-qm', 'new candidate']);
+  h.interactions.receive(actor(confirm + reference + '\nCheck the result'));
+  await drain(h);
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.match(h.sent.at(-1)!, /stale.*源码/);
+  h.git(h.project, ['checkout', '--detach', head]);
+
+  const confirmation = actor(confirm + reference + '\nCheck the result');
+  h.interactions.receive(confirmation);
+  h.interactions.receive(confirmation);
+  h.interactions.receive(actor(confirmation.text));
+  await drain(h);
+  const resumed = h.admission.store.request(lookup()!.resumed!)!;
+  assert.equal(h.admission.store.requests().length, 2);
+  assert.equal(resumed.conversation, conversation);
+  assert.match(resumed.input, /Check the result/);
+  assert.ok(resumed.input.includes(reference));
+  const grant = h.admission.store.reserve(resumed.id, 2);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected continuation reservation');
+  h.codex.calls.length = 0;
+  const running = h.native.run(grant.permit);
+  await until(() => h.codex.calls.some(call => call.method === 'turn/start'));
+  assert.equal(h.codex.calls.find(call => call.method === 'thread/resume')?.params.threadId, initial.outcome.thread);
+  h.codex.complete(initial.outcome.thread!, 'turn-3');
+  assert.equal((await running).outcome.status, 'completed');
+  assert.equal(readFileSync(join(h.project, '.spawns'), 'utf8'), '1');
+});
+
+test('verification evidence drift after queueing settles before the model starts', async t => {
+  const h = handoff(t), task = await h.launch(); await task.running;
+  const { execution, project } = task.admitted.request;
+  const lookup = () => h.admission.store.deliveryCheckpoint(task.trigger, project, execution)!;
+  h.interactions.receive(message('/delivery-wait ' + execution, { chatType: 'p2p' }));
+  await drain(h);
+  h.interactions.receive(message('/delivery-confirm ' + execution + ' ' + lookup().reference + '\nCheck the result', { chatType: 'p2p' }));
+  await drain(h);
+  const continuation = h.admission.store.request(lookup().resumed!)!;
+  const grant = h.admission.store.reserve(continuation.id, 2);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('Expected continuation reservation');
+  const original = h.admission.store.verification(execution)!;
+  rmSync(original.observation!.integration!.summaryPath);
+  h.codex.calls.length = 0;
+  const report = await h.native.run(grant.permit);
+  await drain(h);
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(report.outcome.turn, null);
+  assert.equal(h.codex.calls.length, 0);
+  assert.deepEqual(h.admission.store.unsettled(), []);
+  assert.deepEqual(h.admission.store.verification(execution), original);
+  assert.ok(h.sent.some(text => text.includes('续接在启动前已结束')));
+});
+
+test('failed and dirty-source observations are ineligible for delivery waits', async t => {
+  for (const mode of ['fail', 'pass']) {
+    const h = handoff(t, mode);
+    const dirty = join(h.project, 'uncommitted.txt');
+    if (mode === 'pass') writeFileSync(dirty, 'not part of the Git commit');
+    const task = await h.launch(); await task.running;
+    if (mode === 'pass') rmSync(dirty);
+    assert.equal(h.admission.store.verification(task.admitted.request.execution)!.observation!.status, mode);
+    const wait = message('/delivery-wait ' + task.admitted.request.execution, { chatType: 'p2p' });
+    h.interactions.receive(wait);
+    await drain(h);
+    assert.equal(h.admission.store.deliveryCheckpoint(wait, task.admitted.request.project, task.admitted.request.execution), undefined);
+    assert.ok(h.sent.some(text => text.includes('交付证据不可用')));
+  }
+});
 
 test('findings reads sealed failure once across duplicate deliveries/restart without executing or altering evidence', async t => {
   const h = handoff(t, 'fail'), task = await h.launch(); await task.running; await drain(h);

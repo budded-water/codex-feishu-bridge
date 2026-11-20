@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { record } from '../types.js';
@@ -14,6 +14,19 @@ export interface VerificationObservation {
     summaryPath: string; htmlPath: string; jsonHash: string; htmlHash: string; conclusions: unknown };
   gitHead?: string; observedAt: number;
   repairSeal?: string;
+}
+
+function retainedWebSource(root: string, result: Record<string, unknown>, canonicalDigest: (value: unknown) => string) {
+  // Older Web integrations retain source identity in their canonical adapter reports.
+  const adapter = (result.stages as { reports?: unknown[] }[]).find(stage => stage.reports?.length)?.reports?.[0];
+  const { reportPath, reportDigest } = record(adapter);
+  if (typeof reportPath !== 'string' || typeof reportDigest !== 'string') throw new Error('Missing Web adapter source evidence');
+  const report = record(JSON.parse(boundedFile(root, resolve(root, reportPath)).toString('utf8')));
+  const source = record(record(record(report.spec).inputs).sourceRevision);
+  if (canonicalDigest(report) !== reportDigest || canonicalDigest(source) !== result.sourceDigest) {
+    throw new Error('Web adapter and integration source evidence differ');
+  }
+  return source;
 }
 
 async function child(profile: VerificationProfile, signal: AbortSignal, graceMs: number) {
@@ -68,17 +81,18 @@ export async function runVerification(profile: VerificationProfile, signal: Abor
     const value: unknown = envelope.partialIntegration ?? envelope;
     engine.assertIntegrationResult(value);
     const result = record(value);
-    const source = record(result.source);
     if (envelope.partialIntegration !== undefined && (result.status !== 'interrupted' ||
       ![130, 143].includes(Number(exit.code)) || record(envelope.error).signal !== (exit.code === 130 ? 'SIGINT' : 'SIGTERM'))) throw new Error('Invalid interrupted envelope');
     const id = String(result.executionId);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || prior.has(id) || result.projectId !== profile.projectId || result.suiteId !== profile.suite ||
       record(result.engine).revision !== profile.engineRevision || result.exitCode !== exit.code ||
       result.summaryPath !== join(base, id, 'summary.json') || result.summaryHtmlPath !== join(base, id, 'summary.html')) throw new Error('Foreign or unconfirmed integration');
-    if (result.status === 'pass' && (typeof result.sourceDigest !== 'string' || typeof source.commitSha !== 'string')) throw new Error('Missing source identity');
     const json = boundedFile(profile.projectRoot, String(result.summaryPath));
     const html = boundedFile(profile.projectRoot, String(result.summaryHtmlPath));
     if (!html.length || !isDeepStrictEqual(JSON.parse(json.toString('utf8')), result)) throw new Error('Incomplete integration projections');
+    const source = result.source === undefined && result.status === 'pass' && result.adapter === 'web' && typeof engine.canonicalDigest === 'function'
+      ? retainedWebSource(profile.projectRoot, result, engine.canonicalDigest) : record(result.source);
+    if (result.status === 'pass' && (typeof result.sourceDigest !== 'string' || typeof source.commitSha !== 'string')) throw new Error('Missing source identity');
     await verifyEngine(profile);
     verifyPolicy(profile);
     const stages = result.stages as { cleanupSettled?: boolean }[];
@@ -86,7 +100,8 @@ export async function runVerification(profile: VerificationProfile, signal: Abor
     if (repairSeal) { try { if (await repairSourceSeal(profile) !== repairSeal) repairSeal = undefined; } catch { repairSeal = undefined; } }
     return { status: result.status as VerificationObservation['status'], code: exit.code, signal: exit.signal, cleanupSettled,
       reason: cleanupSettled ? 'Observed pinned CLI handoff' : 'Engine reported incomplete cleanup',
-      integration: { id, source: result.source ?? null, sourceDigest: typeof result.sourceDigest === 'string' ? result.sourceDigest : null,
+      integration: { id, source: typeof source.commitSha === 'string' ? source : result.source ?? null,
+        sourceDigest: typeof result.sourceDigest === 'string' ? result.sourceDigest : null,
         suiteDigest: String(result.suiteDigest), summaryPath: String(result.summaryPath), htmlPath: String(result.summaryHtmlPath),
         jsonHash: fingerprint(json), htmlHash: fingerprint(html), conclusions: result.verification ? record(record(result.verification).assessment).conclusions : null },
       gitHead: typeof source.commitSha === 'string' ? source.commitSha : undefined, observedAt: Date.now(), ...(repairSeal ? { repairSeal } : {}) };
