@@ -81,7 +81,10 @@ export function readEvidence(value: unknown, expectedBacklogRun?: string): Evide
     if (entry.scope !== refundScope) throw new Error('Unexpected refund observation scope');
     const at = second(row.__time__);
     if (entry.event === 'merchant_refund_backlog') {
-      if (expectedBacklogRun !== undefined && (!name(entry.run_id) || fingerprint(entry.run_id) !== expectedBacklogRun)) continue;
+      if (expectedBacklogRun !== undefined) {
+        if (!name(entry.run_id)) throw new Error('Unidentified backlog batch in supplemental window');
+        if (fingerprint(entry.run_id) !== expectedBacklogRun) continue;
+      }
       if (entry.outcome === 'failed') {
         if (expectedBacklogRun !== undefined) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
         failedBacklogAt = Math.max(at, failedBacklogAt);
@@ -120,8 +123,9 @@ export function readEvidence(value: unknown, expectedBacklogRun?: string): Evide
   const recentTerminal = terminal.filter(sample => sample.at === latestTerminalAt);
   const terminalSample = recentTerminal[0];
   const unambiguous = terminalSample && recentTerminal.every(sample => JSON.stringify(sample) === JSON.stringify(terminalSample));
-  if (conflicts.size || (terminalSample && !unambiguous)) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
+  if (conflicts.size) return { backlog: [], unavailable: 'invalid-or-incomplete-source' };
   const batch = { backlog: [...accepted.values()], ...(recent && accepted.size > 0 && { backlogRun: fingerprint(recent.run) }) };
+  if (terminalSample && !unambiguous) return { ...batch, unavailable: 'invalid-or-incomplete-source' };
   if (!unambiguous) return batch;
   const { run, ...recovery } = terminalSample;
   return { ...batch, recovery, recoveryRun: fingerprint(run) };

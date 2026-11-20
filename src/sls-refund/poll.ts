@@ -17,7 +17,7 @@ async function readBacklogSupplement(evidence: Evidence, sample: DueSample, now:
   const [known] = evidence.backlog;
   const from = sample.evidenceThrough;
   const through = Math.min(now, from + diagnosticSeconds);
-  if (sample.slot !== 2 || evidence.unavailable || !evidence.backlogRun || evidence.backlog.length !== 1 || !known ||
+  if (sample.slot !== 2 || !evidence.backlogRun || evidence.backlog.length !== 1 || !known ||
     !freshBacklog(known, now, sample.firing + 1, from) || from >= through || !canContinue()) return;
   const channel = known.channel === 'wechat_pay' ? 'alipay' : 'wechat_pay';
   const target = { through, channel } as const;

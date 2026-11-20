@@ -608,11 +608,18 @@ test('the final query supplements only the missing channel of the same batch wit
   })]);
   const same = backlog('wechat_pay', 1007, 'cutoff-batch');
   const other = backlog('wechat_pay', 1009, 'another-batch');
+  const unboundFailure = entry(1008, { event: 'merchant_refund_backlog', outcome: 'failed' });
+  const conflictingRecovery = entry(1001, {
+    event: 'merchant_refund_recovery', run_id: 'healthy-final', outcome: 'degraded', query_errors: 1, deferred: 0,
+  });
 
   for (const scenario of [
     { name: 'matched despite a later unrelated batch', status: 'matched', extra: response([same, other]) },
+    { name: 'matched beside contradictory recovery reports', status: 'matched', extra: response([same]),
+      primary: response([...original.data, conflictingRecovery]) },
     { name: 'unrelated batch alone', status: 'not-found', extra: response([other]) },
     { name: 'incomplete source', status: 'unavailable', extra: response([same], 'Incomplete') },
+    { name: 'unidentifiable backlog failure', status: 'unavailable', extra: response([same, unboundFailure]) },
     { name: 'out-of-window record', status: 'unavailable', extra: response([backlog('wechat_pay', 1019, 'cutoff-batch')]) },
     { name: 'maintenance', status: undefined, extra: response([same]) },
   ]) await t.test(scenario.name, async t => {
@@ -630,7 +637,7 @@ test('the final query supplements only the missing channel of the same batch wit
           queries.push([from, to]);
           if (to === 1004) {
             if (scenario.name === 'maintenance') allowed = false;
-            return JSON.stringify(original);
+            return JSON.stringify(scenario.primary ?? original);
           }
           return JSON.stringify(scenario.extra);
         },
