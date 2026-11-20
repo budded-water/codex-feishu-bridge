@@ -42,8 +42,10 @@ export class OwnerDeliveries {
     if (verification && ((command === 'delivery' && !reference && !hasInput) ||
         (command === 'delivery-wait' && !reference && !hasInput) ||
         (command === 'delivery-confirm' && reference && hasInput))) {
-      this.work = this.work.then(() => this.verified(message, verification, command, reference, input))
-        .catch(() => this.respond(message, '交付证据无法核实。请查看原验证任务。'));
+      this.work = this.work.then(() => this.verified(message, verification, command, reference, input)).catch(() => {
+        try { this.respond(message, '交付证据无法核实。请查看原验证任务。'); }
+        catch { console.error('Delivery answer could not be retained; transport receipt rolled back'); }
+      });
       return { status: 'delivery-view' as const };
     }
     let response = usage;
@@ -81,9 +83,10 @@ export class OwnerDeliveries {
       this.respond(message, '交付未续接。请用 /delivery 核对登记的证据和确认状态。');
       return;
     }
-    const applicability = await verificationApplicabilityState(verification, this.profiles);
+    let applicability = await verificationApplicabilityState(verification, this.profiles);
     const seal = fingerprint(JSON.stringify(verification));
     const evidence = () => seal === store.verificationBinding(execution) ? this.sealedEvidence(execution) : undefined;
+    if (command === 'delivery' && applicability === 'unchanged' && !evidence()) applicability = 'unavailable';
     if (command === 'delivery' || applicability !== 'unchanged') {
       this.respond(message, checkpoint && command === 'delivery' ? this.detail(checkpoint, verification, applicability)
         : '交付未处理。' + verificationApplicabilityText(applicability));

@@ -261,6 +261,24 @@ test('failed and dirty-source observations are ineligible for delivery waits', a
   }
 });
 
+test('a delivery-view outbox failure leaves its receipt retryable without blocking synchronization', async t => {
+  const h = handoff(t), task = await h.launch(); await task.running; await drain(h);
+  const { execution } = task.admitted.request;
+  h.interactions.receive(message('/delivery-wait ' + execution, { chatType: 'p2p' })); await drain(h);
+  const state = h.interactions.transport.state, send = state.send.bind(state);
+  const query = message('/delivery ' + execution, { chatType: 'p2p' });
+  const prior = h.sent.length;
+  state.send = () => { throw Error('Synthetic persistent outbox storage failure'); };
+  try {
+    h.interactions.receive(query);
+    await assert.doesNotReject(h.interactions.flush());
+    assert.equal(state.hasSeen(query), false);
+  } finally { state.send = send; }
+  h.interactions.receive(query); h.interactions.receive(query); await drain(h);
+  assert.equal(h.sent.slice(prior).filter(text => text.includes('等待确认这份证据')).length, 1);
+  assert.equal(h.admission.store.requests().length, 1);
+});
+
 test('findings reads sealed failure once across duplicate deliveries/restart without executing or altering evidence', async t => {
   const h = handoff(t, 'fail'), task = await h.launch(); await task.running; await drain(h);
   const execution = task.admitted.request.execution, observation = h.admission.store.verification(execution)!;
