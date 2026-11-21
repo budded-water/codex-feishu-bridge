@@ -2083,9 +2083,16 @@ test('an edit stays in focus when recent work agrees and replacement terms match
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
   const current = h.interactions.receive(h.actor('核对发版日程'));
   assert.ok('request' in current);
-  const edit = h.interactions.receive(h.actor('刚才那个改成周五，时间不变'));
-  assert.ok('request' in edit);
-  assert.equal(edit.request.conversation, current.request.conversation);
+  for (const text of [
+    '刚才那个改成周五，时间不变',
+    '刚才那个改成「周五是否值班」，时间不变',
+    '刚才那个改成周五，参考 https://example.com/docs?version=2',
+    '刚才那个改成“周五为什么值班？”，时间不变',
+  ]) {
+    const edit = h.interactions.receive(h.actor(text));
+    assert.ok('request' in edit);
+    assert.equal(edit.request.conversation, current.request.conversation);
+  }
 });
 
 test('an edit counts overlapping matter names only when they have separate mentions', t => {
@@ -2135,6 +2142,8 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗');
   checkCandidates('刚才那个改成周五是否会影响退款和发版，请确认。');
+  checkCandidates('刚才那个改成周五的改动为什么影响退款和发版');
+  checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');
   assert.ok('request' in h.interactions.receive(h.actor('消息通知：核对一下回执')));
   checkCandidates('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
