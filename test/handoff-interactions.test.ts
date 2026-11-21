@@ -1920,11 +1920,12 @@ test('a question about a previous change can still match two named matters', t =
   const h = setup(t);
   h.interactions.receive(h.actor('/matter-new 退款调查'));
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  h.interactions.receive(h.actor('/matter-new 消息通知'));
   h.interactions.receive(h.actor('/matter-new 文档整理'));
   const current = h.interactions.receive(h.actor('整理当前说明'));
   assert.ok('request' in current);
-  const checkCandidates = () => {
-    const question = h.actor('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
+  const checkCandidates = (text: string) => {
+    const question = h.actor(text);
     assert.equal(h.interactions.receive(question).status, 'matter-choice');
     assert.equal(h.admission.store.requestForMessage(question), undefined);
     const scope = { owner: ownerKey(question), project: h.admission.project };
@@ -1932,9 +1933,10 @@ test('a question about a previous change can still match two named matters', t =
     assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(),
       ['Solura 发版', '退款调查'].sort());
   };
-  checkCandidates();
-  assert.ok('request' in h.interactions.receive(h.actor('退款调查：核对一下回执')));
-  checkCandidates();
+  checkCandidates('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
+  assert.ok('request' in h.interactions.receive(h.actor('消息通知：核对一下回执')));
+  checkCandidates('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
+  checkCandidates('刚才那个改成周五的改动会同时影响退款调查和 Solura 发版吗？');
 });
 
 test('short continuation follows ordinary admission history through empty switches and specialized work', t => {
@@ -1942,6 +1944,7 @@ test('short continuation follows ordinary admission history through empty switch
   const initial = h.interactions.receive(h.actor('先查退款积压'));
   assert.ok('request' in initial);
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  h.interactions.receive(h.actor('/matter-new 消息通知'));
   h.interactions.receive(h.actor('/matter-new 文档整理'));
   const scope = { owner: ownerKey(initial.request.message), project: h.admission.project };
   const selected = h.admission.store.matters.focus(scope)!;

@@ -325,15 +325,19 @@ export class OwnerMatters {
     }
     if (targets.length === 1) return submit(targets[0], address?.input);
 
-    // An edit's replacement text can mention another matter's title without addressing it.
+    const candidates = store.list(scope, -1, 0, false);
+    const normalized = text.toLowerCase().normalize('NFC');
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
     if (focus && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
       const alternate = store.alternateFocusForFollowup(scope);
-      if (alternate) return this.clarify(store.hold(scope, message, [focus, alternate]));
+      if (alternate) {
+        // Full matter names keep their choice; incidental title words do not change this edit's candidates.
+        const named = candidates.filter(m => normalized.includes(m.title.toLowerCase().normalize('NFC')));
+        if (named.length > 1) return this.holdConflict(message, named.map(m => m.id));
+        return this.clarify(store.hold(scope, message, [focus, alternate]));
+      }
     }
 
-    const candidates = store.list(scope, -1, 0, false);
-    const normalized = text.toLowerCase().normalize('NFC');
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
     const followup = text.replace(/[\s。？！.!?…]+$/u, '');
     const additive = !/^(?:这|那|上面|之前|刚才|剩下)/u.test(followup) &&
