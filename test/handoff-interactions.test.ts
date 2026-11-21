@@ -2100,6 +2100,10 @@ test('an edit stays in focus when recent work agrees and replacement terms match
     '刚才那个改成周五，参考 https://example.com/docs?names=QA,CI',
     '刚才那个改成周五，参考 [网页](https://example.com/docs?from=((QA))&to=CI)。',
     '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all,中文,QA,CI)',
+    '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all，中文,QA,CI)',
+    '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all\\)QA,CI)',
+    '刚才那个改成周五，参考 <https://example.com/docs?names=all，中文,QA,CI>',
+    '刚才那个改成周五，参考 [议题](<https://example.com/docs?names=all)QA,CI>)',
     '刚才那个改成“周五为什么值班？”，时间不变',
   ]) {
     const edit = h.interactions.receive(h.actor(text));
@@ -2188,6 +2192,7 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五后，退款和发版为何都要延期');
   checkCandidates('刚才那个改成周五后，退款和发版一起做可行不');
   checkCandidates('刚才那个改成周五后，退款和发版分别需要跟进');
+  checkCandidates('刚才那个改成周五后退款和发版分别需要跟进');
   checkCandidates('刚才那个改成周五的改动对退款和发版分别有什么影响');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details：退款和发版会否受影响');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details,退款和发版会否受影响');

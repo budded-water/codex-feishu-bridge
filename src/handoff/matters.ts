@@ -22,7 +22,11 @@ const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:�
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
 const editQuestion = /[?？谁誰]|是否|难道|難道|莫非|岂|豈|什么|什麼|怎么|怎麼|怎样|怎樣|多(?:[少久]|[长長](?:时间|時間)|大影[响響])|多[长長远遠深高大快宽寬厚重](?=[。！？?!，,\s]|$)|[能可应應会會该該要愿願肯需当當宜]否|有[无無]|(\p{Script=Han})(?:不|没|沒)\1|(?:可行|合适|合適|合规|合規)不(?=[。！？?!，,；;\s]|$)|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
-const editUrl = /https?:\/\/[^\s<>"'\x60，。；：！？、）》】」』”]+/giu;
+const referenceUrlStart = /https?:\/\//giu;
+const bareUrlEnd = /[\s<>"'\x60，。；：！？、）》】」』”]/u;
+const wrappedUrlEnds: Readonly<Record<string, string>> = {
+  '(': ')', '（': '）', '<': '>', '「': '」', '『': '』', '“': '”', '"': '"', "'": "'",
+};
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -105,23 +109,38 @@ function asksAboutEdit(prose: string): boolean {
 }
 
 function withoutReferenceUrls(text: string): string {
-  return text.replace(editUrl, (link: string, offset: number) => {
-    const wrapped = offset > 0 && /[<(]/.test(text[offset - 1]!);
-    // Parentheses may appear inside the URL or close a surrounding prose or Markdown link.
+  const parts: string[] = [];
+  let consumed = 0;
+  for (const { index, 0: scheme } of text.matchAll(referenceUrlStart)) {
+    if (index < consumed) continue;
+    const closer = wrappedUrlEnds[text[index - 1] ?? ''];
+    const countParentheses = !closer || closer === ')';
     let depth = 0;
-    for (let index = 0; index < link.length; index++) {
-      if (!wrapped && !depth && ',;!'.includes(link[index]!) && /^\p{Script=Han}/u.test(link.slice(index + 1))) return ' ' + link.slice(index);
-      if (link[index] === '(') depth++;
-      if (link[index] !== ')') continue;
-      if (!depth) return ' ' + link.slice(index);
-      depth--;
+    let end = index + scheme.length;
+    while (end < text.length) {
+      const char = text[end]!;
+      if (closer === ')' && char === '\\' && /[()\\]/u.test(text[end + 1] ?? '')) {
+        end += 2;
+        continue;
+      }
+      if (/\s/u.test(char) || (char === closer && (!countParentheses || !depth))) break;
+      if (!closer && (bareUrlEnd.test(char) ||
+          (!depth && ',;!'.includes(char) && /^\p{Script=Han}/u.test(text.slice(end + 1))))) break;
+      if (countParentheses && char === '(') depth++;
+      if (countParentheses && char === ')') {
+        if (!depth) break;
+        depth--;
+      }
+      end++;
     }
-    return ' ';
-  });
+    parts.push(text.slice(consumed, index), ' ');
+    consumed = end;
+  }
+  return parts.join('') + text.slice(consumed);
 }
 
 function refersToMatterWorkAfterEdit(candidates: Matter[], prose: string): boolean {
-  const clause = /(?:[后後][，,]|的(?:改[动動]|修改|[调調]整))([\s\S]+)/u.exec(prose)?.[1];
+  const clause = /(?:[后後][，,]?|的(?:改[动動]|修改|[调調]整))([\s\S]+)/u.exec(prose)?.[1];
   if (!clause) return false;
   const tail = clause.toLowerCase().normalize('NFC');
   return candidates.filter(matter => matchingTitleTerms(matter.title, tail)).length > 1;
