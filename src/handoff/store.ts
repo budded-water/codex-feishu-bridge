@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { Maintenance } from '../maintenance.js';
 import { openPrivateDatabase } from '../private-database.js';
-import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition, type ChatContext } from '../types.js';
+import { ownerKey, type IncomingMessage, type NativeControlTarget, type ControlDisposition, type PreparedReference } from '../types.js';
 import { fingerprint, profileDigest, type VerificationProfile } from './verification-profile.js';
 import type { VerificationObservation } from './verification-runner.js';
 import { verificationDeliveryReference } from './verification-evidence.js';
@@ -58,6 +58,7 @@ export class AdmissionStore {
       this.maintenance = new Maintenance(this.db);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS retained_receipts (tenant TEXT, message TEXT, reason TEXT NOT NULL, PRIMARY KEY(tenant,message));
+        CREATE TABLE IF NOT EXISTS inbound_attachments (origin TEXT PRIMARY KEY, owner TEXT NOT NULL, body TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS binding (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS channel_binding (kind TEXT PRIMARY KEY, external_id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS conversations (
@@ -171,6 +172,23 @@ export class AdmissionStore {
     return row && this.request(row.id);
   }
 
+  registerAttachment(message: IncomingMessage): boolean {
+    if (message.chatType !== 'p2p' || message.attachment?.messageId !== message.id) return false;
+    return this.transaction(() => {
+      const origin = JSON.stringify([message.tenant, message.id]);
+      if (this.retained(message)) return Boolean(this.replyAttachment({ ...message, parentId: message.id }));
+      this.db.prepare('INSERT INTO inbound_attachments VALUES (?,?,?)').run(origin, ownerKey(message), JSON.stringify(message));
+      this.db.prepare("INSERT INTO retained_receipts VALUES (?,?,'attachment')").run(message.tenant, message.id);
+      return true;
+    });
+  }
+
+  replyAttachment(message: IncomingMessage): IncomingMessage | undefined {
+    const row = this.db.prepare('SELECT body FROM inbound_attachments WHERE origin=? AND owner=?')
+      .get(JSON.stringify([message.tenant, message.parentId]), ownerKey(message)) as { body: string } | undefined;
+    return row && JSON.parse(row.body) as IncomingMessage;
+  }
+
   accept(message: IncomingMessage, input: string, project: string, verification?: VerificationSelection, conversation?: string):
     { duplicate: boolean; request: RequestRecord } | { paused: true } {
     return this.transaction(() => {
@@ -250,6 +268,8 @@ export class AdmissionStore {
         save('rejected', '当前任务无法接收补充。请查看原任务状态后再发送新消息。');
       } else if (this.hasDedicatedContinuation(request.execution)) {
         save('rejected', '这条任务使用专用验证、修复或续接流程。请使用原任务的操作入口，或发送新的普通任务。');
+      } else if (!fromAnswer && (message.imageKeys?.length || message.attachment) && (!execution || execution.status === 'active')) {
+        save('rejected', '排队或执行中的任务支持文字补充。请等原任务结束后，再发送带截图或文件的追问。');
       } else if (!fromAnswer && !execution) {
         if (combined.length > 30_000) save('rejected', '合并后的任务过长。这条补充未加入，请缩短后再回复。');
         else {
@@ -475,10 +495,11 @@ export class AdmissionStore {
     return (this.db.prepare('SELECT id FROM requests ORDER BY rowid').all() as { id: string }[]).map(row => this.request(row.id)!);
   }
 
-  unpreparedGroupReferences(): RequestRecord[] {
+  unpreparedReferences(): RequestRecord[] {
     // Older gateways could schedule a group request before persisting its reference.
     const rows = this.db.prepare(`SELECT r.id FROM submissions s JOIN requests r ON r.id=s.request
-      WHERE s.status IN ('pending','scheduled') AND r.blocked IS NULL AND json_extract(r.message,'$.chatType')='group'
+      WHERE s.status IN ('pending','scheduled') AND r.blocked IS NULL
+        AND (json_extract(r.message,'$.chatType')='group' OR json_array_length(r.message,'$.imageKeys') > 0 OR json_type(r.message,'$.attachment')='object')
         AND NOT EXISTS(SELECT 1 FROM executions e WHERE e.request=r.id)
         AND NOT EXISTS(SELECT 1 FROM reference_context ref WHERE ref.origin=r.origin AND ref.execution=r.execution)
       ORDER BY r.rowid`).all() as { id: string }[];
@@ -593,7 +614,7 @@ export class AdmissionStore {
     return (this.db.prepare('SELECT message FROM controls ORDER BY rowid').all() as { message: string }[]).map(row => this.control(JSON.parse(row.message))!);
   }
 
-  saveReference(execution: string, message: Pick<IncomingMessage, 'tenant' | 'id'>, context: ChatContext): void {
+  saveReference(execution: string, message: Pick<IncomingMessage, 'tenant' | 'id'>, context: PreparedReference): void {
     const origin = JSON.stringify([message.tenant, message.id]);
     const admitted = this.db.prepare('SELECT execution FROM requests WHERE origin=? UNION SELECT execution FROM controls WHERE origin=?').all(origin, origin) as { execution: string }[];
     if (admitted.length !== 1 || admitted[0]!.execution !== execution) throw new Error('Reference does not belong to admitted input');
@@ -603,10 +624,10 @@ export class AdmissionStore {
     this.db.prepare('INSERT INTO reference_context VALUES (?,?,?)').run(origin, execution, body);
   }
 
-  reference(execution: string, message: Pick<IncomingMessage, 'tenant' | 'id'>): { context: ChatContext | null } | undefined {
+  reference(execution: string, message: Pick<IncomingMessage, 'tenant' | 'id'>): { context: PreparedReference | null } | undefined {
     const row = this.db.prepare('SELECT body FROM reference_context WHERE origin=? AND execution=?')
       .get(JSON.stringify([message.tenant, message.id]), execution) as { body: string | null } | undefined;
-    return row ? { context: row.body === null ? null : JSON.parse(row.body) as ChatContext } : undefined;
+    return row ? { context: row.body === null ? null : JSON.parse(row.body) as PreparedReference } : undefined;
   }
 
   retireReferences(execution: string): void {

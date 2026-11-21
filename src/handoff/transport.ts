@@ -1,3 +1,4 @@
+import { removeMaterializedAttachment } from './attachments.js';
 import { browserAccessText, browserRetryCommand } from '../browser-access.js';
 import { section, copyBlock } from '../presentation.js';
 import { join } from 'node:path';
@@ -12,7 +13,7 @@ import { verificationText } from './verification-view.js';
 import { repairText } from './repair-view.js';
 import { ownerKey, type IncomingMessage } from '../types.js';
 import { DEFAULT_MATTER_TITLE } from './matter-store.js';
-import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
+import { pendingAttachmentRetirements, openHandoffReader, unprojectedAttachmentReceipts, unprojectedTaskReplyNotices } from './read-only.js';
 
 const projectedStatus = `CASE WHEN r.blocked=? THEN 'interrupted'
   WHEN r.blocked IS NOT NULL OR s.status='blocked' THEN 'unknown'
@@ -70,6 +71,19 @@ export class HandoffTransport {
     return this.reader ??= openHandoffReader(join(directory, 'handoff.db'), join(directory, 'transport', 'bridge.db'));
   }
 
+  projectAttachmentReceipt(message: IncomingMessage): void {
+    if (!this.ownerPrivate(message)) return;
+    this.state.transaction(() => {
+      if (this.state.remember(message)) this.state.send(message.chat,
+        '已登记文件。请用飞书「回复」这条文件消息，写清希望我怎么处理。', { replyTo: message.id });
+    });
+  }
+
+  private syncAttachments(reader: DatabaseSync): void {
+    for (const message of unprojectedAttachmentReceipts(reader)) this.projectAttachmentReceipt(message);
+    for (const { id } of pendingAttachmentRetirements(reader)) this.retireReferences(this.gateway.store.request(id)!);
+  }
+
   private syncTaskReplies(): void {
     for (const { id, kind } of unprojectedTaskReplyNotices(this.openReader())) {
       if (kind === 'thread-change') this.admit(this.gateway.store.request(id)!);
@@ -91,6 +105,7 @@ export class HandoffTransport {
     this.syncTaskReplies();
     const reader = this.openReader();
     // The transport checkpoint and reference tombstones survive restarts independently.
+    this.syncAttachments(reader);
     const candidates = reader.prepare(`SELECT r.id FROM requests r
       LEFT JOIN submissions s ON s.request=r.id
       LEFT JOIN executions e ON e.id=r.execution
@@ -99,16 +114,19 @@ export class HandoffTransport {
       WHERE p.execution IS NULL OR t.status IS NOT ${projectedStatus}
         OR (s.status='blocked' AND r.blocked IS NOT ? AND p.notified=0)
         OR (e.id IS NOT NULL AND p.checkpoint IS NULL)
-        OR (e.status IN ('completed','interrupted') AND EXISTS(
+        OR ((e.status IN ('completed','interrupted') OR (e.id IS NULL AND (r.blocked IS NOT NULL OR s.status='blocked'))) AND EXISTS(
           SELECT 1 FROM reference_context ref WHERE ref.execution=r.execution AND ref.body IS NOT NULL))
       ORDER BY r.rowid`).all(OWNER_WITHDRAWN, OWNER_WITHDRAWN) as { id: string }[];
     for (const { id } of candidates) {
       const request = this.gateway.store.request(id)!;
       this.admit(request);
       const execution = this.gateway.store.execution(request.execution);
-      if (!execution) continue;
+      if (!execution) {
+        if (request.blocked || this.gateway.store.submission(request.id)?.status === 'blocked') this.retireReferences(request);
+        continue;
+      }
       if (this.state.projectedFinal(request.execution)) {
-        if (['completed', 'interrupted'].includes(execution.status)) this.gateway.store.retireReferences(request.execution);
+        if (['completed', 'interrupted'].includes(execution.status)) this.retireReferences(request);
         continue;
       }
       try {
@@ -136,7 +154,7 @@ export class HandoffTransport {
         }
         this.state.projectNativeMessages(request, projection, repair ? repairText(repair) : verification ? verificationText(verification) : undefined,
           browserNotice, ordinaryAnswer, admissionNotice);
-        if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.gateway.store.retireReferences(request.execution);
+        if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.retireReferences(request);
       } catch {
         if (this.gateway.store.execution(request.execution)?.status === 'unknown') this.state.projectAdmissionNotice(request, '本机执行器当前无法核实，任务结果尚未确认。请先检查实际结果；不会自动重跑。');
         // Missing ownership cannot authorize prompt delivery or fabricate a final answer.
@@ -144,12 +162,23 @@ export class HandoffTransport {
     }
   }
 
+  private retireReferences(request: RequestRecord): void {
+    if (request.message.attachment) {
+      try { removeMaterializedAttachment(this.gateway.stateDirectory, request.execution); }
+      catch { return; } // Keep the reference in the synchronization query until cleanup succeeds.
+    }
+    this.gateway.store.retireReferences(request.execution);
+  }
+
   async flush(): Promise<void> {
     void this.outbox.flushVisual().catch(() => console.error('Visual receipt transport unavailable'));
     await Promise.all([this.outbox.flush(), this.feedback.flush()]);
   }
   async close(): Promise<void> {
-    try { this.syncTaskReplies(); }
+    try {
+      this.syncAttachments(this.openReader());
+      this.syncTaskReplies();
+    }
     finally {
       await this.outbox.close(); await this.feedback.close();
       this.reader?.close();

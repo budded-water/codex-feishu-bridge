@@ -1,6 +1,7 @@
 import { OwnerMatters } from './matters.js';
 import type { MatterClick } from '../matter-card.js';
 import { OwnerBrowserAccess, browserAllowIntent } from './browser-access.js';
+import { attachmentUnavailable, readAttachment } from './attachments.js';
 import { message as present, section, copyBlock } from '../presentation.js';
 import type { Config } from '../config.js';
 import type { Sender } from '../outbox.js';
@@ -62,11 +63,18 @@ export class PilotInteractions {
 
   receive(message: IncomingMessage) {
     if (this.closing) return { status: 'rejected' as const };
+    const operator = message.tenant === this.admission.scope.tenant && message.user === this.admission.scope.operator && message.chat === this.admission.scope.chat;
+    const ordinaryOwner = operator && message.chatType === 'p2p';
+    if (message.attachment?.messageId === message.id) {
+      if (!ordinaryOwner || !this.admission.store.registerAttachment(message)) return { status: 'ignored' as const };
+      this.transport.projectAttachmentReceipt(message);
+      return { status: 'file-registered' as const };
+    }
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
     if (message.unsupported === 'post' && isMaintenanceOwner(this.admission.scope, this.config, message)) {
       this.transport.state.transaction(() => {
         if (this.transport.state.remember(message)) this.transport.state.send(message.chat,
-          '暂不支持这类消息。请用纯文本交办任务；进度查询可发送 /tasks 或 /task 完整编号，也支持仅包含进度或权限只读查询的文字富文本。', { replyTo: message.id });
+          '暂不支持这类消息。请在本人私聊发送纯文本，或在同一条消息里写清任务并附上截图。审批等操作请单独发送命令。', { replyTo: message.id });
       });
       return { status: 'rejected' as const };
     }
@@ -79,13 +87,11 @@ export class PilotInteractions {
     if (/^\/(?:verify|verify-repair|verification)(?:\s|$)/.test(message.text.trim())) return this.verificationCommand(message);
     if (/^\/recover(?:\s|$)/.test(message.text.trim())) return this.recovery.receive(message);
     if (/^\/(?:queue|withdraw)(?:\s|$)/.test(message.text.trim())) return this.queue.receive(message);
-    const operator = message.tenant === this.admission.scope.tenant && message.user === this.admission.scope.operator && message.chat === this.admission.scope.chat;
     const approval = /^\/(?:approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
     const admin = approval && message.tenant === this.admission.scope.tenant && this.config.approvalUsers.includes(message.user) &&
       message.chat === (this.config.approvalChat ?? this.admission.scope.chat) &&
       (this.config.accessMode !== 'allowlist' || this.config.allowedUsers.includes(message.user));
     if (!operator && !admin) return { status: 'ignored' as const };
-    const ordinaryOwner = operator && message.chatType === 'p2p';
     if (ordinaryOwner) {
       const request = this.admission.store.requestForMessage(message);
       if (request) {
@@ -96,8 +102,27 @@ export class PilotInteractions {
       if (control) return { status: 'duplicate' as const, control };
       if (this.matters.hasDisposition(message)) return this.matters.route(message);
       if (this.transport.state.hasSeen(message)) return { status: 'duplicate' as const };
+      if (message.parentId && !message.unsupported && message.text.trim() && message.text.length <= 30_000 &&
+        !message.text.trimStart().startsWith('/') && naturalControl(message.text.trim()) !== 'stop') {
+        const file = this.admission.store.replyAttachment(message);
+        if (file?.attachment) {
+          const original = file.parentId ? this.admission.store.requestForMessage({ ...message, id: file.parentId }) : undefined;
+          const linked = { ...message, parentId: file.parentId, attachment: file.attachment };
+          const ownedOriginal = original?.project === this.admission.project && ownerKey(original.message) === ownerKey(message) ? original : undefined;
+          const confirmedAnswer = file.parentId ? this.transport.state.confirmedAnswer(linked) : undefined;
+          if (file.parentId && !ownedOriginal && !confirmedAnswer && !this.transport.state.matterReference(linked)) {
+            this.attachmentNotice(message, '无法核对该文件引用的原任务。请在原任务或 Bot 最终答复下重新发送文件，再回复该文件说明需求。');
+            return { status: 'rejected' as const };
+          }
+          if (file.parentId && this.matters.conflictsWithFileAnchor(linked, ownedOriginal?.conversation, confirmedAnswer)) {
+            this.attachmentNotice(message, '这个文件已引用原事项。要用于其他事项，请直接发文件，再回复文件说明事项和需求。');
+            return { status: 'rejected' as const };
+          }
+          message = linked;
+        }
+      }
     }
-    const natural = naturalControl(message.text.trim());
+    const natural = message.imageKeys?.length || message.attachment ? undefined : naturalControl(message.text.trim());
     const command = /^\/(?:help|status|stop|steer|approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
     if (ordinaryOwner && message.parentId && !message.unsupported && !this.matters.opensNewTopic(message) &&
       message.text.length <= 30_000 && message.text.trim() && !message.text.trimStart().startsWith('/') && natural !== 'stop') {
@@ -132,7 +157,7 @@ export class PilotInteractions {
       if (!this.transport.state.remember(message)) return { status: 'duplicate' as const };
       this.transport.state.send(message.chat,
         present('使用帮助',
-          section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。', '在本人私聊回复原任务消息，可补充正在等待或执行的任务，或追问已结束的任务。']),
+          section('交办任务', ['直接发送文字；本人私聊可在任务中附上截图。文件可先发，再回复文件说明需求。', '回复原任务可用文字补充等待中或执行中的任务，也可以对已结束的任务发起追问。']),
           section('按事项接续', ['- 「换个话题，第一条需求」一次新建并交办 · `/matters` 查看及切换',
             '- 可回复 Bot 的普通最终答案，或用「事项名：任务」、事项卡片、精确 PR 地址直达', '- `/matter-bind PR链接` 绑定已选中的事项']),
           section('交付等待', ['- `/delivery-wait 普通任务编号 证据引用` 登记 · `/delivery 任务编号` 查看',
@@ -207,6 +232,12 @@ export class PilotInteractions {
     if (message.text.trim() === '/stop' || natural === 'stop') void this.relay(control).catch(() => console.error('Stop relay unavailable; retained dispatch will be inspected'));
     void this.flushControls().catch(() => console.error('Control relay unavailable; retained dispatch will be inspected'));
     return { status: 'control' as const, control };
+  }
+
+  private attachmentNotice(message: IncomingMessage, text: string): void {
+    this.transport.state.transaction(() => {
+      if (this.transport.state.remember(message)) this.transport.state.send(message.chat, text, { replyTo: message.id });
+    });
   }
 
   private findingsCommand(message: IncomingMessage) {
@@ -358,6 +389,19 @@ export class PilotInteractions {
       user: request.message.user, chat: request.message.chat, project: this.admission.scope.pilot, directory: this.admission.directory,
       thread: this.admission.store.conversationThread(request.conversation) };
     const { id, chatType, createTime, parentId } = message;
+    const imageCount = message.imageKeys?.length ?? 0;
+    if (imageCount || message.attachment) {
+      const attached = imageCount ? await this.contextPort?.attachedImages?.(message) : undefined;
+      const attachmentBytes = message.attachment ? await readAttachment(this.contextPort, message.attachment).catch(() => undefined) : undefined;
+      if (this.admission.store.request(request.id)?.blocked || this.admission.store.submission(request.id)?.status === 'blocked') return;
+      const missingImages = imageCount > 0 && attached?.images?.length !== imageCount;
+      const missingFile = message.attachment && attachmentBytes === undefined;
+      this.admission.store.saveReference(execution, message,
+        missingFile || missingImages ? { status: 'unavailable', messages: [], note: missingFile ? attachmentUnavailable : '本次截图未能全部读取。' }
+          : { ...(attached ?? { status: 'available', messages: [], note: '本轮的附件属于已验证的飞书回复。' }),
+            ...(attachmentBytes !== undefined ? { attachmentBytes } : {}) });
+      return;
+    }
     const context = (limit || parentId) && this.contextPort
       ? await this.contextPort.context(session, { id, chatType, createTime, parentId }, limit)
       : { status: 'unavailable' as const, messages: [], note: '尚未启用群聊前文读取；请引用或粘贴要讨论的内容。' };
@@ -365,8 +409,8 @@ export class PilotInteractions {
   }
 
   private async publish(): Promise<void> {
-    for (const request of this.admission.store.unpreparedGroupReferences()) {
-      await this.prepareReference(request, request.message, this.config.groupContextMessages);
+    for (const request of this.admission.store.unpreparedReferences()) {
+      await this.prepareReference(request, request.message, request.message.chatType === 'group' ? this.config.groupContextMessages : 0);
     }
     await this.source.flush();
   }

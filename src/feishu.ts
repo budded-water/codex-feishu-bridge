@@ -5,10 +5,11 @@ import { join } from 'node:path';
 import { reviewCard, normalizeReviewClick, type ReviewPresentation, type ReviewHandler } from './review-card.js';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { attachImages, contextText, mentionText, postRows } from './chat-images.js';
-import { MAX_CONTEXT_MESSAGES, CONTEXT_WINDOW_MS } from './context-limits.js';
+import { MAX_CONTEXT_IMAGES, MAX_CONTEXT_MESSAGES, CONTEXT_WINDOW_MS } from './context-limits.js';
+import { naturalControl } from './ux.js';
 import { RECEIVED_EMOJI, type ReactionPort } from './feedback.js';
 import { markdownPost, notificationPost, ReplyTargetUnavailable, safeMentionText, VisualReplyRejected } from './reply.js';
-import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext, type DeliveryOptions } from './types.js';
+import { record, string, type IncomingMessage, type ContextPort, type Session, type Task, type ChatContext, type DeliveryOptions, type FileAttachment } from './types.js';
 import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
 import { visualReceiptCard } from './visual-receipt-card.js';
@@ -32,6 +33,35 @@ function queryPost(body: Record<string, unknown>): string | undefined {
   return /^\/(?:tasks(?:\s+[1-9][0-9]{0,5})?|rules|reviews|(?:task|review)\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(text) ? text : undefined;
 }
 
+function imageTaskPost(body: Record<string, unknown>, messageId: string): { text: string; imageKeys: string[] } | undefined {
+  const { title, rows } = postRows(body);
+  if (!/^om_[\w-]{1,200}$/.test(messageId) || rows.length > 100) return;
+  const lines: string[] = [];
+  const keys = new Set<string>();
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length > 100) return;
+    let line = '';
+    for (const value of row) {
+      const part = record(value);
+      if (part.tag === 'img') {
+        const key = string(part.image_key);
+        if (!/^img_[\w-]{1,200}$/.test(key)) return;
+        keys.add(key);
+        if (keys.size > MAX_CONTEXT_IMAGES) return;
+      } else if (['text', 'md', 'code_block'].includes(string(part.tag)) && typeof part.text === 'string') line += part.text;
+      else if (part.tag === 'a' && typeof part.text === 'string' && /^https?:\/\/[^\s]{1,2048}$/i.test(string(part.href))) {
+        line += part.text === part.href ? part.text : part.text + ' (' + part.href + ')';
+      } else return;
+    }
+    lines.push(line);
+  }
+  const prose = lines.join('\n').trim();
+  const text = [title.trim(), prose].filter(Boolean).join('\n');
+  if (!prose || !keys.size || text.length > 30_000 || prose.startsWith('/') || text.startsWith('/') ||
+    naturalControl(prose) === 'stop' || naturalControl(text) === 'stop') return;
+  return { text, imageKeys: [...keys] };
+}
+
 export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMessage | undefined {
   // EventDispatcher flattens the v2 header and event into its callback argument.
   const event = record(value);
@@ -42,8 +72,14 @@ export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMe
   try { content = record(JSON.parse(string(message.content))); }
   catch { return; }
   const progress = message.message_type === 'post' && message.chat_type === 'p2p' ? queryPost(content) : undefined;
-  const unsupported = message.message_type !== 'text' && !progress ? string(message.message_type) || '未知格式' : undefined;
-  let text = unsupported ? '不支持的消息格式' : progress ?? string(content.text);
+  const imageTask = message.message_type === 'post' && message.chat_type === 'p2p' ? imageTaskPost(content, string(message.message_id)) : undefined;
+  const fileKey = string(content.file_key);
+  const fileName = string(content.file_name).replace(/[\p{C}]/gu, '').trim().slice(0, 240);
+  const messageId = string(message.message_id);
+  const attachment = message.message_type === 'file' && message.chat_type === 'p2p' && /^om_[\w-]{1,200}$/.test(messageId) &&
+    /^file_[\w-]{1,200}$/.test(fileKey) ? { messageId, key: fileKey, name: fileName || 'attachment' } : undefined;
+  const unsupported = message.message_type !== 'text' && !progress && !imageTask && !attachment ? string(message.message_type) || '未知格式' : undefined;
+  let text = unsupported ? '不支持的消息格式' : progress ?? imageTask?.text ?? (attachment ? '[文件附件]' : string(content.text));
   if (message.chat_type === 'group') {
     if (!botOpenId || !Array.isArray(message.mentions)) return;
     const mentions = message.mentions.map(record).filter(mention =>
@@ -64,6 +100,8 @@ export function normalizeMessage(value: unknown, botOpenId?: string): IncomingMe
     chat: string(message.chat_id), id: string(message.message_id), text,
     chatType: message.chat_type as 'p2p' | 'group',
     ...(members.length ? { mentions: members } : {}),
+    ...(imageTask ? { imageKeys: imageTask.imageKeys } : {}),
+    ...(attachment ? { attachment } : {}),
     ...(unsupported ? { unsupported } : {}),
     ...(message.create_time ? { createTime: string(message.create_time) } : {}),
     ...(message.parent_id ? { parentId: string(message.parent_id) } : {}),
@@ -299,6 +337,21 @@ export class Feishu implements ContextPort, ReactionPort {
       if (response.code!==0 || !item) return {};
       return {name:item.sender?.sender_name?.slice(0,80),link:item.message_app_link && /^https:\/\/(?:applink\.)?feishu\.cn\//.test(item.message_app_link) ? item.message_app_link : undefined};
     } catch { return {}; }
+  }
+
+  async openAttachment({ messageId, key }: FileAttachment) {
+    const resource = await this.client.im.v1.messageResource.get({ path: { message_id: messageId, file_key: key }, params: { type: 'file' } });
+    return resource.getReadableStream();
+  }
+
+  async attachedImages(message: IncomingMessage): Promise<ChatContext> {
+    const imageKeys = message.imageKeys ?? [];
+    const item = { message_id: message.id, msg_type: 'post', sender: { sender_type: 'user', sender_name: '本人' },
+      body: { content: JSON.stringify({ content: [imageKeys.map(image_key => ({ tag: 'img', image_key }))] }) } };
+    const context = formatItems([item]);
+    context.note = '图片来自本条任务消息。';
+    return attachImages(context, [item], MAX_CONTEXT_IMAGES, (message_id, file_key) =>
+      this.client.im.v1.messageResource.get({ path: { message_id, file_key }, params: { type: 'image' } }), '本次附图');
   }
 
   async context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext> {

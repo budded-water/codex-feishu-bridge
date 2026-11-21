@@ -29,7 +29,7 @@
 | `approvalUsers` | 非空、不重复的 `ou_...` 数组 | allowedUsers | Codex 命令 / 文件审批的决策者；allowlist 模式下必须是 allowedUsers 子集 |
 | `approvalChat` | `oc_...` / null | null | 指定审批聊天；null 在任务聊天审批；团队推荐部署者私聊 |
 | `groupContextMessages` | 整数 0–50 | 0 | 最近前文记录数；0 关闭自动前文，明确引用仍按引用预算读取 |
-| `groupContextImages` | 整数 0–8 | 0 | 前文 / 引用中资源图片尝试上限；0 关闭；不能替代前文权限或消息时间 |
+| `groupContextImages` | 整数 0–8 | 0 | 前文 / 引用中资源图片尝试上限；0 关闭该范围；P1 本人私聊任务的同消息附图使用独立的固定上限 |
 | `codexExecutable` | 非空字符串 | codex | 可执行名称或完整路径，不是 shell 命令；不能附带参数 |
 | `codexReasoningEffort` | none / minimal / low / medium / high / xhigh / null | null | 单独覆盖此 bot 每次新请求的推理强度；null 或省略不覆盖；实际支持等级取决于所选模型 |
 | `stateDirectory` | 非空路径 | .local/state | JSON 所在目录下的持久化状态；多实例必须独立 |

@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 import { record, string, type ChatContext } from './types.js';
 import { MAX_CONTEXT_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES, IMAGE_FETCH_BUDGET_MS } from './context-limits.js';
+import { openResourceStream } from './message-resource.js';
 
 type FetchImage = (message: string, key: string) => Promise<{ getReadableStream(): Readable }>;
 interface Reference { message: number; id: string; key: string }
@@ -52,7 +53,8 @@ export function contextText(item: Record<string, unknown>, imageDescription?: (k
   return (text || '[消息正文不可用]').slice(0, 1200);
 }
 
-export async function attachImages(context: ChatContext, items: Record<string, unknown>[], limit: number, fetch: FetchImage): Promise<ChatContext> {
+export async function attachImages(context: ChatContext, items: Record<string, unknown>[], limit: number, fetch: FetchImage,
+  labelPrefix = '群聊参考图片'): Promise<ChatContext> {
   if (!limit) return context;
   const refs: Reference[] = [];
   const descriptions = new Map<string, string>();
@@ -69,24 +71,22 @@ export async function attachImages(context: ChatContext, items: Record<string, u
   const images: NonNullable<ChatContext['images']> = [];
   let total = 0;
   let attempted = 0;
-  const deadline = Date.now() + IMAGE_FETCH_BUDGET_MS;
+  const signal = AbortSignal.timeout(IMAGE_FETCH_BUDGET_MS);
   // Explicit quotes precede history; quote presentation orders latest clarification first.
   // Unquoted records retain newest-first selection independently of presentation order.
-  const prioritized = refs.reverse().sort((a, b) => {
+  const prioritized = refs.sort((a, b) => {
     const aQuote = Boolean(context.messages[a.message]?.quoted), bQuote = Boolean(context.messages[b.message]?.quoted);
     if (aQuote !== bQuote) return Number(bQuote) - Number(aQuote);
-    return aQuote ? a.message - b.message : 0;
+    return aQuote ? a.message - b.message : b.message - a.message;
   });
   for (const ref of prioritized) {
     const token = identity(ref.message, ref.key);
-    if (attempted >= Math.min(limit, MAX_CONTEXT_IMAGES) || total >= MAX_TOTAL_IMAGE_BYTES || Date.now() >= deadline) {
+    if (attempted >= Math.min(limit, MAX_CONTEXT_IMAGES) || total >= MAX_TOTAL_IMAGE_BYTES || signal.aborted) {
       descriptions.set(token, '[图片：达到本次读取限额，尚未读取]'); continue;
     }
     attempted++;
     try {
-      const resource = await fetch(ref.id, ref.key);
-      const stream = resource.getReadableStream();
-      const timeout = setTimeout(() => stream.destroy(new Error('Image download timed out')), Math.max(1, deadline - Date.now()));
+      const stream = await openResourceStream(async () => (await fetch(ref.id, ref.key)).getReadableStream(), signal);
       let size = 0;
       const chunks: Buffer[] = [];
       try {
@@ -96,12 +96,12 @@ export async function attachImages(context: ChatContext, items: Record<string, u
           if (size > Math.min(MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES - total)) throw new Error('Image byte limit exceeded');
           chunks.push(chunk);
         }
-      } finally { clearTimeout(timeout); stream.destroy(); }
+      } finally { stream.destroy(); }
       const buffer = Buffer.concat(chunks);
       const mime = imageMime(buffer);
       if (!mime) throw new Error('Unsupported image content');
       total += size;
-      const label = `群聊参考图片 ${images.length + 1}`;
+      const label = labelPrefix + ' ' + (images.length + 1);
       images.push({ messageIndex: ref.message, label, url: `data:${mime};base64,${buffer.toString('base64')}` });
       descriptions.set(token, `[${label}：已附为图片输入，请根据图像内容判断]`);
     } catch { descriptions.set(token, '[图片：下载失败、格式不支持或超过大小限制，尚未读取]'); }

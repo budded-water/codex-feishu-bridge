@@ -6,6 +6,10 @@ Owner-private matter routing is merged, deployed to M6 and verified with real Fe
 
 Owner-private Feishu quoted-task replies are deployed on the managed M6 gateway and Worker. A genuine owner chat verified merging before assignment, steering the exact running turn, and a linked follow-up in the same Codex thread. The [delivered specification](../openspec/specs/owner-task-replies/spec.md) records the contract and the [dated rollout record](live-acceptance.md#2026-11-18-m6-owner-private-quoted-task-replies) records the tested scope.
 
+## Owner-private screenshot and file input
+
+The P1 gateway supports bounded same-message images and separately sent files selected by a text reply. Source, simulated ingress-to-Codex verification and genuine owner-chat acceptance are tracked in the [active change](../openspec/changes/add-owner-private-image-tasks/tasks.md).
+
 ## Owner delivery checkpoints
 
 The [bounded OpenSpec change](../openspec/changes/add-owner-delivery-checkpoints/proposal.md)
