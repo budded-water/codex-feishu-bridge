@@ -2240,6 +2240,9 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五，参考 https://example.com/?names=all（说明）QA,CI&mode=preview 退款和发版都要同步');
   checkCandidates("刚才那个改成周五，参考 https://example.com/?name=O'Reilly&teams=QA,CI 退款和发版都要同步");
   checkCandidates("刚才那个改成周五，参考 'https://example.com/?name=O%27Reilly&teams=QA,CI' 退款和发版都要同步");
+  checkCandidates("刚才那个改成周五，参考 'https://example.com/?name=O'Reilly&teams=QA,CI' 退款和发版都要同步");
+  checkCandidates('刚才那个改成周五，参考‘https://example.com/?q=x’，退款和发版都要同步');
+  checkCandidates('刚才那个改成周五，参考‘https://example.com/?name=O’Reilly&teams=QA,CI’，退款和发版都要同步');
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');

@@ -29,7 +29,7 @@ const urlQueryBrackets: Readonly<Record<string, string>> = {
   '(': ')', '（': '）', '[': ']', '【': '】', '〔': '〕', '《': '》', '〈': '〉',
 };
 const wrappedUrlEnds: Readonly<Record<string, string>> = {
-  ...urlQueryBrackets, '<': '>', '「': '」', '『': '』', '“': '”', '"': '"', "'": "'", '\x60': '\x60',
+  ...urlQueryBrackets, '<': '>', '「': '」', '『': '』', '“': '”', '‘': '’', '"': '"', "'": "'", '\x60': '\x60',
 };
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
@@ -123,7 +123,12 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
       end++;
       continue;
     }
-    if (char === closer || (!closer && char === ')')) break;
+    if (char === closer) {
+      const insideWord = (char === "'" || char === '’') &&
+        endsLatinWord.test(text[end - 1] ?? '') && startsLatinWord.test(text[end + 1] ?? '');
+      if (!insideWord) break;
+    }
+    if (!closer && char === ')') break;
     if (char === '?' || char === '#') queryOrFragment = true;
     if (!closer) {
       const prosePunctuation = !queryOrFragment && (bareUrlProsePunctuation.test(char) ||
