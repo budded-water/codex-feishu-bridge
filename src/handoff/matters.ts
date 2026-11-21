@@ -118,8 +118,11 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
       end += 2;
       continue;
     }
-    if (/\s/u.test(char) ||
-        (possibleQuoteEnd !== undefined && bareUrlProsePunctuation.test(char))) break;
+    if (/\s/u.test(char)) break;
+    if (possibleQuoteEnd !== undefined && /[，。；：！？、,.;:!?]/u.test(char)) {
+      const opener = closer === '’' ? '‘' : "'";
+      if (text.slice(end + 1).trimStart().startsWith(opener)) break;
+    }
     if (char === nested.at(-1)) {
       nested.pop();
       end++;
