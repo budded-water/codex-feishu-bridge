@@ -6,4 +6,4 @@
 
 ## 2. Managed acceptance
 
-- [ ] 2.1 Verify the natural private entry, old-reference continuation and held-message choice on the managed pilot.
+- [x] 2.1 Verified the natural private entry, old-reference continuation, held-message choice, PR binding and corrected prior-message continuation on the managed owner-private pilot. See the [dated M6 acceptance](../../../../docs/live-acceptance.md#2026-11-21-m6-natural-topic-routing).
