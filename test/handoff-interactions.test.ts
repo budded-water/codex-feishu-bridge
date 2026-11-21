@@ -1872,12 +1872,16 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   const other = h.interactions.receive(h.actor('退款调查：继续核对退款资料'));
   assert.ok('request' in other);
   assert.equal(other.request.conversation, a.request.conversation);
-  for (const text of ['刚才那个改一下', '刚才那个改成周五，时间不变', '就按刚才那个方案改吧。', '就按刚才那个方案改吧，时间改成周五']) {
+  for (const text of [
+    '刚才那个改一下', '刚才那个改成周五，时间不变',
+    '就按刚才那个方案改吧。', '就按刚才那个方案改吧，时间改成周五', '就按刚才那个方案改成周五',
+  ]) {
     const correction = h.actor(text);
     assert.equal(h.interactions.receive(correction).status, 'matter-choice');
     assert.equal(h.admission.store.requestForMessage(correction), undefined);
     assert.deepEqual(h.admission.store.matters.held(correction, h.admission.project)?.choices, [release, a.request.conversation]);
   }
+  await drain(h);
   const vague = h.actor('刚才那个改成周五');
   assert.equal(h.interactions.receive(vague).status, 'matter-choice');
   assert.equal(h.admission.store.requestForMessage(vague), undefined);
