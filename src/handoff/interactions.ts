@@ -51,7 +51,7 @@ export class PilotInteractions {
   constructor(readonly admission: PilotAdmission, private config: Config, private source: Pick<SourceOutbox, 'flush' | 'diagnose'>,
     private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = [], private contextPort?: ContextPort,
     private profiles: VerificationProfiles = {}, private workflows: VisualWorkflows = {}, private assertVisualOwner = () => {}) {
-    this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
+    this.transport = new HandoffTransport(admission, config, native, sender, reactions, secrets);
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
     this.queue = new OwnerQueue(admission, config, this.transport.state);
     this.deliveries = new OwnerDeliveries(admission, config, this.transport.state, native, profiles);

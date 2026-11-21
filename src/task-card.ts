@@ -1,5 +1,7 @@
 import { record } from './types.js';
-import { message, section } from './presentation.js';
+import { message, section, escapeMarkdownText as escapeTaskMarkdown } from './presentation.js';
+
+export { escapeTaskMarkdown };
 
 export interface TaskLayout {
   title: string; heading: string; tone: 'blue' | 'green' | 'orange' | 'grey'; summary: string; updated: string;
@@ -11,7 +13,6 @@ export interface TaskPresentation { id: string; execution: string; tenant: strin
 export interface TaskRefreshClick { kind: 'task-refresh'; event: string; tenant: string; user: string; chat: string; message: string; id: string }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bounded = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
-export const escapeTaskMarkdown = (text: string) => text.replace(/[\\`*_{}\[\]()<>!|]/g, '\\$&');
 
 export function taskText(layout: TaskLayout): string {
   return message(escapeTaskMarkdown(layout.title), `**${escapeTaskMarkdown(layout.heading)}**\n${layout.summary}`,

@@ -6,6 +6,8 @@ Owner-private matter routing is merged, deployed to M6 and verified with real Fe
 
 Owner-private Feishu quoted-task replies are deployed on the managed M6 gateway and Worker. A genuine owner chat verified merging before assignment, steering the exact running turn, and a linked follow-up in the same Codex thread. The [delivered specification](../openspec/specs/owner-task-replies/spec.md) records the contract and the [dated rollout record](live-acceptance.md#2026-11-18-m6-owner-private-quoted-task-replies) records the tested scope.
 
+New owner-private matter receipts use an explicit acceptance header, point to the separate final reply and expose the exact progress command to authorized owners. Natural topic titles prefer a short explicit heading. See [receipt behavior](usage.md#收到表情后意味着什么).
+
 ## Owner-private screenshot and file input
 
 The P1 gateway supports bounded same-message images and separately sent files selected by a text reply. The [M6 desktop acceptance](live-acceptance.md#2026-11-21-m6-owner-private-attachments) verified same-message screenshots and PDF and DOCX follow-ups in the original Codex thread. See the [delivered attachment requirements](../openspec/specs/owner-private-image-tasks/spec.md).

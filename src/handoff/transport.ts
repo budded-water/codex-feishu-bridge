@@ -1,7 +1,9 @@
 import { removeMaterializedAttachment } from './attachments.js';
 import { browserAccessText, browserRetryCommand } from '../browser-access.js';
-import { section, copyBlock } from '../presentation.js';
+import { section, copyBlock, taskReceipt } from '../presentation.js';
 import { join } from 'node:path';
+import type { Config } from '../config.js';
+import { isMaintenanceOwner } from './owner-access.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { State } from '../state.js';
 import { Outbox, type Sender } from '../outbox.js';
@@ -26,7 +28,8 @@ export class HandoffTransport {
   private feedback: Feedback;
   private reader?: DatabaseSync;
 
-  constructor(private gateway: PilotAdmission, private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = []) {
+  constructor(private gateway: PilotAdmission, private config: Config, private native: NativeExecutions,
+    sender: Sender, reactions: ReactionPort, secrets: string[] = []) {
     this.state = new State(join(gateway.stateDirectory, 'transport'), secrets);
     this.outbox = new Outbox(this.state, sender, secrets, async delivery => {
       const source = this.state.projectedDelivery(delivery.id);
@@ -48,7 +51,8 @@ export class HandoffTransport {
       : store.conversationThread(request.conversation) ? 'continued' : 'accepted';
     this.state.projectAssignedTask(request, this.gateway.scope.pilot, this.gateway.directory,
       withdrawn ? 'interrupted' : request.blocked || unscheduled ? 'unknown' : execution?.status === 'active' ? 'running' : execution?.status ?? 'queued',
-      matter && routing ? { matter, followup: reply?.followup === request.id, routing } : undefined);
+      matter && routing ? { matter, followup: reply?.followup === request.id, routing,
+        showProgress: isMaintenanceOwner(this.gateway.scope, this.config, request.message) } : undefined);
     if (request.blocked === QUOTED_CONVERSATION_CHANGED) this.state.projectAdmissionNotice(request, '原任务的会话在等待期间发生变化，追问未启动。请重新说明需要处理的事项。');
     else if (unscheduled && !withdrawn) this.state.projectAdmissionNotice(request, '请求已保存，但没有进入预期的调度规则，当前没有开始执行。请部署者检查路由配置；不会换一个编号自动重发。');
   }
@@ -93,7 +97,8 @@ export class HandoffTransport {
         const matter = next && this.matterLabel(next);
         const result = matter && reply.result
           ? reply.kind === 'followup' && next && !this.gateway.store.deliveryForContinuation(next.id)
-            ? '已续接 · ' + matter + '｜本轮已排队'
+            ? taskReceipt('continued', this.state.redact(matter),
+              isMaintenanceOwner(this.gateway.scope, this.config, next.message) ? next.execution : undefined)
             : reply.result + '\n事项 · ' + matter
           : reply.result;
         this.state.projectControlNotice({ ...reply, result, origin: 'task-reply/' + id, status: reply.kind });
