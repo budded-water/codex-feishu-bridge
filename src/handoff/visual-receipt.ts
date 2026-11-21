@@ -112,7 +112,8 @@ function hasCompletePngChunks(png: Buffer): boolean {
     const length = png.readUInt32BE(offset);
     const end = offset + length + 12;
     if (end > png.length || crc32(png.subarray(offset + 4, end - 4)) !== png.readUInt32BE(end - 4)) return false;
-    const kind = png.toString('ascii', offset + 4, offset + 8);
+    const kind = png.toString('latin1', offset + 4, offset + 8);
+    if (!/^[a-zA-Z]{2}[A-Z][a-zA-Z]$/.test(kind) || (kind === 'IHDR' && offset !== 8)) return false;
     if (kind === 'IDAT' && length > 0) imageData = true;
     if (kind === 'IEND') return imageData && length === 0 && end === png.length;
     offset = end;

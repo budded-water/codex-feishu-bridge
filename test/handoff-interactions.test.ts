@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSy
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { crc32 } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import type { Config } from '../src/config.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
@@ -132,9 +133,17 @@ test('an operator-selected Web screenshot reaches the original task with only th
   planFor({ ...entry, sha256: '0'.repeat(64) });
   await assert.rejects(queue, /differs from its plan/);
   const truncated = png.subarray(0, 33);
-  writeFileSync(join(folder, file), truncated);
-  planFor({ ...entry, sha256: fingerprint(truncated) });
-  await assert.rejects(queue, /differs from its plan/);
+  const duplicateHeader = Buffer.concat([truncated, png.subarray(8)]);
+  const wrongType = Buffer.from(png);
+  wrongType[wrongType.length - 8] = wrongType[wrongType.length - 8]! | 0x80;
+  wrongType.writeUInt32BE(crc32(wrongType.subarray(-8, -4)), wrongType.length - 4);
+  const wrongCrc = Buffer.from(png);
+  wrongCrc[wrongCrc.length - 1] = wrongCrc[wrongCrc.length - 1]! ^ 1;
+  for (const invalid of [truncated, duplicateHeader, wrongType, wrongCrc]) {
+    writeFileSync(join(folder, file), invalid);
+    planFor({ ...entry, sha256: fingerprint(invalid) });
+    await assert.rejects(queue, /differs from its plan/);
+  }
   assert.equal(state.pending(Date.now(), true).length, 0);
   writeFileSync(join(folder, file), png);
   planFor();
