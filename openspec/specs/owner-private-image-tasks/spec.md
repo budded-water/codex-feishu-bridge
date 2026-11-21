@@ -28,7 +28,7 @@ The P1 gateway SHALL accept supported image attachments accompanying an ordinary
 
 ### Requirement: Explicit local file handoff
 
-The gateway SHALL retain the registered owner-private file message identity and acknowledgment intent, and SHALL defer download and task execution until an explicit ordinary reply selects that message. It SHALL bind the downloaded bytes to that reply, preserve a verified original task or answer anchor and limit acquisition and streaming by byte count and elapsed time. The Worker SHALL materialize a private execution-scoped copy for the model's existing filesystem tools. The Worker SHALL send only file metadata and path as input. Terminal projection or inspected recovery SHALL remove the working copy and retire the reference payload without reclassifying an unknown outcome.
+The gateway SHALL retain the registered owner-private file message identity and acknowledgment intent, and SHALL defer download and task execution until an explicit ordinary reply selects that message. It SHALL bind the downloaded bytes to that reply, preserve a verified original task or answer anchor and limit acquisition and streaming by byte count and elapsed time.
 
 #### Scenario: Reply to a file that quotes a completed task
 
@@ -42,3 +42,13 @@ The gateway SHALL retain the registered owner-private file message identity and 
 - **THEN** the gateway applies the same receipt, ownership and transfer limits
 - **AND** the model may inspect it with the authorized tools available in that turn
 - **AND** an unreadable transfer or unverified original anchor never dispatches a model turn with silently missing input
+
+### Requirement: Staged file access and cleanup
+
+The Worker SHALL materialize a private execution-scoped copy for the model's existing filesystem tools. The Worker SHALL send only file metadata and path as input. Terminal projection or inspected recovery SHALL remove the working copy and retire the reference payload without reclassifying an unknown outcome.
+
+#### Scenario: The attachment working copy reaches its cleanup boundary
+
+- **WHEN** the attachment-bearing execution is projected as terminal or its uncertain outcome has undergone inspected recovery
+- **THEN** the working copy is removed and the stored reference payload is retired
+- **AND** an unknown execution outcome retains its original classification
