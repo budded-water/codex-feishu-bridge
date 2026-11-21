@@ -2100,6 +2100,8 @@ test('an edit stays in focus when recent work agrees and replacement terms match
     '刚才那个改成周五，参考 https://example.com/docs?names=QA,CI',
     '刚才那个改成周五，参考 https://example.com/?names=all,中文,QA,CI&mode=preview',
     '刚才那个改成周五，参考 https://example.com/?names=all，QA,CI&mode=preview',
+    '刚才那个改成周五，参考 https://example.com/?names=all（说明）QA,CI&mode=preview',
+    '刚才那个改成周五，参考（https://example.com/?names=all（说明）QA,CI&mode=preview）',
     '刚才那个改成周五，参考 https://example.com/?names=all,周五复盘,周五值班&mode=preview',
     '刚才那个改成周五，参考 [网页](https://example.com/docs?from=((QA))&to=CI)。',
     '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all,中文,QA,CI)',
@@ -2167,6 +2169,10 @@ test('an edit counts overlapping matter names only when they have separate menti
   h.interactions.receive(h.actor('/matter-new 老程'));
   checkChoices('刚才那个改成周五，老程序员和发版都要同步', ['程序员 招聘', 'Solura 发版']);
   checkChoices('刚才那个改成周五，老程、程序员和发版都要同步', ['老程', '程序员 招聘', 'Solura 发版']);
+  h.interactions.receive(h.actor("/matter-new O'Reilly"));
+  h.interactions.receive(h.actor("/matter-new D'Angelo"));
+  checkChoices("刚才那个改成周五，O'Reilly 和 D'Angelo 都要同步", ["O'Reilly", "D'Angelo"]);
+  checkChoices("刚才那个改成周五，'O'Reilly' 和 'D'Angelo' 都要同步", ["O'Reilly", "D'Angelo"]);
   const addressed = h.interactions.receive(h.actor('退款调查：刚才那个改成退款和退款调查的共同计划'));
   assert.ok('request' in addressed);
   const scope = { owner: ownerKey(addressed.request.message), project: h.admission.project };
@@ -2178,6 +2184,8 @@ test('a question about a previous change can still match two named matters', t =
   h.interactions.receive(h.actor('/matter-new 退款调查'));
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
   h.interactions.receive(h.actor('/matter-new 消息通知'));
+  h.interactions.receive(h.actor('/matter-new QA'));
+  h.interactions.receive(h.actor('/matter-new CI'));
   h.interactions.receive(h.actor('/matter-new 文档整理'));
   const current = h.interactions.receive(h.actor('整理当前说明'));
   assert.ok('request' in current);
@@ -2223,6 +2231,7 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成退款的周五时段，或改成发版的周六时段');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details,退款和发版会否受影响');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details?v=2 退款和发版会否受影响');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/?names=all（说明）QA,CI&mode=preview 退款和发版都要同步');
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');

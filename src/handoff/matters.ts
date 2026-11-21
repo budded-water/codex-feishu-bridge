@@ -20,13 +20,16 @@ const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
-const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
+const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|(?<![\p{Script=Latin}\p{N}_])'(?:[^'\n]|'(?=[\p{Script=Latin}\p{N}_]))*'(?![\p{Script=Latin}\p{N}_])|《[^》]*》/gu;
 const referenceUrlStart = /https?:\/\//giu;
 const bareUrlEnd = /[\s<>"'\x60）》】」』”]/u;
 const bareUrlProsePunctuation = /[，。；：！？、]/u;
 const markdownLinkTitle = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*(?=\))/u;
+const urlQueryBrackets: Readonly<Record<string, string>> = {
+  '(': ')', '（': '）', '[': ']', '【': '】', '〔': '〕', '《': '》', '〈': '〉',
+};
 const wrappedUrlEnds: Readonly<Record<string, string>> = {
-  '(': ')', '（': '）', '[': ']', '【': '】', '〔': '〕', '《': '》', '〈': '〉', '<': '>', '「': '」', '『': '』', '“': '”', '"': '"', "'": "'", '\x60': '\x60',
+  ...urlQueryBrackets, '<': '>', '「': '」', '『': '』', '“': '”', '"': '"', "'": "'", '\x60': '\x60',
 };
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
@@ -105,8 +108,7 @@ function matchingTitleTerms(title: string, text: string): boolean {
 }
 
 function referenceUrlEnd(text: string, start: number, closer?: string): number {
-  const countParentheses = !closer || closer === ')';
-  let depth = 0;
+  const nested: string[] = [];
   let queryOrFragment = false;
   let end = start;
   while (end < text.length) {
@@ -115,16 +117,21 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
       end += 2;
       continue;
     }
-    if (/\s/u.test(char) || (char === closer && (!countParentheses || !depth))) break;
-    if (char === '?' || char === '#') queryOrFragment = true;
-    const prosePunctuation = !queryOrFragment && (bareUrlProsePunctuation.test(char) ||
-      (!depth && ',;!'.includes(char) && /^\p{Script=Han}/u.test(text.slice(end + 1))));
-    if (!closer && (bareUrlEnd.test(char) || prosePunctuation)) break;
-    if (countParentheses && char === '(') depth++;
-    if (countParentheses && char === ')') {
-      if (!depth) break;
-      depth--;
+    if (/\s/u.test(char)) break;
+    if (char === nested.at(-1)) {
+      nested.pop();
+      end++;
+      continue;
     }
+    if (char === closer || (!closer && char === ')')) break;
+    if (char === '?' || char === '#') queryOrFragment = true;
+    if (!closer) {
+      const prosePunctuation = !queryOrFragment && (bareUrlProsePunctuation.test(char) ||
+        (!nested.length && ',;!'.includes(char) && /^\p{Script=Han}/u.test(text.slice(end + 1))));
+      if (bareUrlEnd.test(char) || prosePunctuation) break;
+    }
+    const pair = urlQueryBrackets[char];
+    if (pair && (pair === closer || (!closer && (queryOrFragment || char === '(')))) nested.push(pair);
     end++;
   }
   return end;
