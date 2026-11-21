@@ -76,7 +76,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
           const inspection = readVisualInspection(reference);
           lease.assertHeld();
           const state = interactions.transport.state;
-          return state.transaction(() => state.visualReviews.reconcile(task, inspection));
+          return state.reconcileVisualOperation(task, inspection);
         }
         return pilotMaintenance(admission, native, interactions.transport.state, request);
       });

@@ -20,7 +20,7 @@ The initial scope is one persistent macOS execution host, one Feishu bot, an ope
 | Mobile publication | Optional release-kit integration | Publication authority, operation journals and external outcome reconciliation |
 | Discovery | Optional follow-up collection, monitoring and scheduled checks | Evidence-backed candidate work; discovery does not itself authorize execution |
 
-This repository is the integration home. Autoloop is an external dependency, not a second product fork. Project-specific checks and release adapters stay with their existing owners. Protocol, transport and scheduling do not embed a new permanent model-backed manager.
+This repository is the integration home. Autoloop is an external dependency, not a second product fork. Project-specific checks and release adapters stay with their existing owners. Feishu's single-action review requires a project adapter that keeps merging separate from publishing. Protocol, transport and scheduling do not embed a new permanent model-backed manager.
 
 The first integration must work through documented extension boundaries. If it needs a kernel change, record the precise missing contract and assess it before expanding scope; do not silently fork Autoloop.
 

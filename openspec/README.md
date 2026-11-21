@@ -41,6 +41,8 @@ The active [refund diagnosis supplement](changes/add-refund-diagnostic-companion
 
 ## Active P3 change
 
+[Single-action visual merge](changes/add-single-action-visual-merge/proposal.md) adds a merge-only decision and a release question after confirmed merge.
+
 [Web screenshot review receipts](changes/add-web-visual-receipts/proposal.md) extend the existing owner-private visual acceptance card to operator-selected candidate screenshots.
 
 [WeChat visual receipts](changes/add-wechat-visual-receipts/proposal.md) associate

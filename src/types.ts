@@ -2,7 +2,7 @@ import type { Readable } from 'node:stream';
 
 export interface Mention { id: string; name: string }
 export interface FileAttachment { messageId: string; key: string; name: string }
-export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; answer?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation; taskView?: import('./task-card.js').TaskPresentation; reviewCard?: import('./review-card.js').ReviewPresentation; matterCard?: import('./matter-card.js').MatterPresentation; visualImages?: import('./visual-review.js').VisualAttachment[]; visualReview?: import('./visual-review.js').VisualReviewView }
+export interface DeliveryOptions { replyTo?: string; deliverBefore?: number; mentions?: Mention[]; taskId?: string; final?: boolean; answer?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation; taskView?: import('./task-card.js').TaskPresentation; reviewCard?: import('./review-card.js').ReviewPresentation; matterCard?: import('./matter-card.js').MatterPresentation; visualImages?: import('./visual-review.js').VisualAttachment[]; visualReview?: import('./visual-review.js').VisualReviewView }
 
 export interface NativeActivity {
   task: string; thread: string; turn: string; generation: string; stage: string;

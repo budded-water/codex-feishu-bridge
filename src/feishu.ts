@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { matterCard, normalizeMatterClick, type MatterClick } from './matter-card.js';
 import { mkdtemp, open, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,6 +15,10 @@ import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type A
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
 import { visualReceiptCard } from './visual-receipt-card.js';
 import { normalizeVisualReviewClick, type VisualAttachment, type VisualReviewClick, type VisualReviewView } from './visual-review.js';
+
+function assertDeliveryWindow(deliverBefore?: number): void {
+  if (deliverBefore !== undefined && Date.now() >= deliverBefore) throw Error('Feishu delivery window expired');
+}
 
 function queryPost(body: Record<string, unknown>): string | undefined {
   const { title, rows } = postRows(body);
@@ -124,6 +129,7 @@ const silentLogger = { trace() {}, debug() {}, info() {}, warn() {}, error() {} 
 
 export class Feishu implements ContextPort, ReactionPort {
   private client: lark.Client;
+  private readonly deliveryWindow = new AsyncLocalStorage<number | undefined>();
   private socket: lark.WSClient;
   private enableGroups: boolean;
   private imageLimit: number;
@@ -137,7 +143,20 @@ export class Feishu implements ContextPort, ReactionPort {
     this.imageLimit = imageLimit;
     this.enableGroups = enableGroups;
     lark.defaultHttpInstance.defaults.timeout = 10_000;
-    this.client = new lark.Client({ ...credentials, domain: lark.Domain.Feishu, logger: silentLogger });
+    type SdkHttpInstance = NonNullable<ConstructorParameters<typeof lark.Client>[0]['httpInstance']>;
+    // The SDK's default Axios interceptor unwraps the response type.
+    const sdkHttp = lark.defaultHttpInstance as unknown as SdkHttpInstance;
+    const httpInstance: SdkHttpInstance = Object.create(sdkHttp);
+    httpInstance.request = request => {
+      const deliverBefore = this.deliveryWindow.getStore();
+      if (deliverBefore === undefined) return sdkHttp.request(request);
+      // The SDK awaits tenant authentication before dispatch. Redirects would
+      // allow the HTTP client to issue a second POST after this check.
+      assertDeliveryWindow(deliverBefore);
+      const bounded = { ...request, maxRedirects: 0 };
+      return sdkHttp.request(bounded);
+    };
+    this.client = new lark.Client({ ...credentials, domain: lark.Domain.Feishu, logger: silentLogger, httpInstance });
     this.socket = new lark.WSClient({
       ...credentials, domain: lark.Domain.Feishu, logger: silentLogger,
       handshakeTimeoutMs: FEISHU_HANDSHAKE_TIMEOUT_MS,
@@ -231,8 +250,11 @@ export class Feishu implements ContextPort, ReactionPort {
       : options.visualImages ? visualReceiptCard(text, options.visualImages, options.visualReview) : undefined;
     const content = JSON.stringify(card ?? notificationPost(styled, options.mentions ?? []));
     const msg_type = card ? 'interactive' : 'post';
-    if (options.replyTo) {
-      const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
+    const { replyTo, deliverBefore } = options;
+    if (replyTo) {
+      assertDeliveryWindow(deliverBefore);
+      const response = await this.deliveryWindow.run(deliverBefore, () =>
+        this.client.im.v1.message.reply({ path: { message_id: replyTo }, data: { msg_type, content, uuid: idempotencyKey } })).catch(error => {
         const code = Number(record(record(record(error).response).data).code ?? record(error).code);
         if ([230011,230110].includes(code) || (options.visualImages && code === 230028)) return {code,data:undefined};
         throw error;
@@ -243,7 +265,9 @@ export class Feishu implements ContextPort, ReactionPort {
       if (![230011,230110].includes(response.code ?? -1)) throw new Error('Feishu rejected message delivery');
       if (options.visualImages) throw new ReplyTargetUnavailable('Original visual receipt message is unavailable');
     }
-    const response = await this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: { receive_id: chat, msg_type, content, uuid: idempotencyKey } });
+    assertDeliveryWindow(deliverBefore);
+    const response = await this.deliveryWindow.run(deliverBefore, () =>
+      this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: { receive_id: chat, msg_type, content, uuid: idempotencyKey } }));
     if (response.code !== 0) throw new Error('Feishu rejected message delivery');
     return response.data?.message_id;
   }

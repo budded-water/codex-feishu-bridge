@@ -107,7 +107,7 @@ The experimental prepared pilot entry uses a private handoff configuration and m
 
 The optional handoff-only `verificationProfiles` registry is defined in [project verification](project-verification.md). It is private trusted executable policy shared by gateway and Worker, not a bridge configuration field or an arbitrary chat command facility.
 
-The optional handoff-only `visualReviewWorkflows` registry is defined in [review actions](project-verification.md#review-actions-on-new-receipts). It binds a repository's private delivery program and optional developer target.
+The optional handoff-only `visualReviewWorkflows` registry is defined in [review actions](project-verification.md#review-actions-on-new-receipts). It binds the repository's private delivery program to its base and either a separately authorized release flow or the optional legacy developer target.
 
 A profile can additionally register the explicit [bounded repair policy](bounded-repair.md#use-and-trusted-policy). It has no default, changes no ordinary-task behavior, and requires the actual Worker launch budget to cover its finite work/cleanup deadlines. Both bridge example configurations remain unchanged.
 

@@ -7,6 +7,7 @@ export function visualReceiptCard(text: string, images: NonNullable<DeliveryOpti
   const [title, candidate, ...details] = safeMentionText(text).split('\n');
   const focus = details.join('\n').trimStart().replace(/^待人工看图 · /, '');
   const webReceipt = title?.startsWith('Web UI 验收 · ');
+  const manualRelease = review?.binding.workflow?.manualRelease;
   const plainText = (content: string) => ({ tag: 'plain_text', content });
   const paragraph = (content: string) => ({ tag: 'div', text: plainText(content) });
   const note = (content: string) => ({ tag: 'div', text: { ...plainText(content), text_size: 'notation' } });
@@ -47,8 +48,8 @@ export function visualReceiptCard(text: string, images: NonNullable<DeliveryOpti
           (review.binding.workflow ? ' → ' + review.binding.workflow.base : ''))] : []),
         ...((review.phase === 'pending' || review.phase === 'reviewed') && review.binding.workflow ?
           [button('merge', review.phase === 'pending' ? '通过并合并 PR' : '合并 PR', true)] : []),
-        ...(review.phase === 'pending' ? [button('accept', '仅确认验收', !review.binding.workflow)] : []),
-        ...(review.phase === 'merged' && review.binding.workflow?.uploadTarget ?
+        ...(review.phase === 'pending' && !manualRelease ? [button('accept', '仅确认验收', !review.binding.workflow)] : []),
+        ...(review.phase === 'merged' && !manualRelease && review.binding.workflow?.uploadTarget ?
           [note('目标 · ' + review.binding.workflow.uploadTarget), button('upload', '上传微信开发版', true)] : []),
       ] : []),
     ] },
@@ -73,7 +74,9 @@ function visualReviewStatus(review: VisualReviewView): string {
   const result = review.result;
   if (result?.status === 'uploaded') return captions[review.phase] + ' · ' + result.version + ' · 回执 ' + result.receipt;
   if (result?.status === 'blocked') {
-    const reasons = { 'stale-source': 'PR 候选已变化，请重新验收', checks: '项目交付检查未通过',
+    const reasons = { 'stale-source': 'PR 候选已更新，请看新版验收卡',
+      conflict: 'PR 与目标分支有冲突。可引用卡片继续处理。',
+      'release-policy': '当前合并流程无法与发布分开', checks: '项目交付检查未通过',
       authorization: '项目授权未就绪', 'target-unavailable': '项目目标不可用',
       'workflow-unavailable': '登记的交付程序不可用或已变化', 'effect-absent': '人工核对确认本次操作未发生' };
     return captions[review.phase] + ' · ' + reasons[result.reason];

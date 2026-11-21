@@ -10,7 +10,7 @@ const sha256 = /^[a-f0-9]{64}$/;
 const targetName = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
 const runFile = promisify(execFile);
 
-export interface VisualWorkflow { executable: string; sha256: string; base: string; uploadTarget?: string }
+export interface VisualWorkflow { executable: string; sha256: string; base: string; uploadTarget?: string; manualRelease?: true }
 export type VisualWorkflows = Record<string, VisualWorkflow>;
 export interface VisualReviewBinding {
   repository: string;
@@ -25,7 +25,7 @@ export interface VisualOperation {
   mergeCommit?: string;
 }
 export type VisualOperationResult =
-  | { status: 'blocked'; reason: 'stale-source' | 'checks' | 'authorization' | 'target-unavailable' | 'workflow-unavailable' | 'effect-absent' }
+  | { status: 'blocked'; reason: 'stale-source' | 'conflict' | 'release-policy' | 'checks' | 'authorization' | 'target-unavailable' | 'workflow-unavailable' | 'effect-absent' }
   | { status: 'merged'; mergeCommit: string }
   | { status: 'uploaded'; version: string; receipt: string };
 
@@ -37,22 +37,23 @@ export function visualWorkflows(value: unknown): VisualWorkflows {
   if (value === undefined) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Invalid visual review workflows');
   const entries = Object.entries(value).map(([repo, raw]) => {
-    const { executable, sha256: hash, base, uploadTarget } = record(raw);
+    const { executable, sha256: hash, base, uploadTarget, manualRelease } = record(raw);
     if (githubRepository('https://github.com/' + repo) !== repo ||
       typeof executable !== 'string' || !isAbsolute(executable) ||
       typeof hash !== 'string' || !sha256.test(hash) ||
       typeof base !== 'string' || !targetName.test(base) ||
+      (manualRelease !== undefined && manualRelease !== true) ||
       (uploadTarget !== undefined && (typeof uploadTarget !== 'string' || !targetName.test(uploadTarget)))) {
       throw Error('Invalid visual review workflow');
     }
-    return [repo, { executable, sha256: hash, base, uploadTarget }];
+    return [repo, { executable, sha256: hash, base, uploadTarget, manualRelease }];
   });
   return Object.fromEntries(entries) as VisualWorkflows;
 }
 
 function matchesWorkflow(pinned: VisualWorkflow, current?: VisualWorkflow) {
   return current?.executable === pinned.executable && current.sha256 === pinned.sha256 && current.base === pinned.base &&
-    current.uploadTarget === pinned.uploadTarget;
+    current.uploadTarget === pinned.uploadTarget && current.manualRelease === pinned.manualRelease;
 }
 
 function systemSnapshotRoot(): string {
@@ -90,7 +91,7 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
   const { binding, action, mergeCommit, id } = operation;
   const { repository, commit, pullRequest, workflow } = binding;
   if (!workflow || !pullRequest || !matchesWorkflow(workflow, workflows[repository]) ||
-      (action === 'upload' && (!workflow.uploadTarget || !mergeCommit))) return { status: 'blocked', reason: 'workflow-unavailable' };
+      (action === 'upload' && (workflow.manualRelease || !workflow.uploadTarget || !mergeCommit))) return { status: 'blocked', reason: 'workflow-unavailable' };
   let directory: string | undefined;
   let executable: string;
   try {
@@ -105,6 +106,7 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
 
   // The configured project workflow owns the repository checks and actual provider receipts.
   const payload = { id, action, repository, commit, pullRequest, base: workflow.base,
+    ...(workflow.manualRelease && { manualRelease: true }),
     ...(action === 'upload' && { mergeCommit, target: workflow.uploadTarget }) };
   const { PATH, HOME, LANG, TMPDIR } = process.env;
   const { stdout } = await runFile(executable, [JSON.stringify(payload)], {
@@ -112,13 +114,15 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
   }).finally(() => { rmSync(dirname(executable), { recursive: true, force: true }); });
   const result = record(JSON.parse(stdout));
   if (result.id !== id || result.action !== action || result.repository !== repository ||
-      result.commit !== commit || result.pullRequest !== pullRequest || result.base !== workflow.base ||
+      result.commit !== commit || result.pullRequest !== pullRequest || result.base !== workflow.base || result.manualRelease !== workflow.manualRelease ||
       (action === 'upload' && (result.mergeCommit !== mergeCommit || result.target !== workflow.uploadTarget))) {
     throw Error('Visual workflow receipt identity differs');
   }
   const reason = result.reason;
   if (result.status === 'blocked' &&
-    (reason === 'stale-source' || reason === 'checks' || reason === 'authorization' || reason === 'target-unavailable')) {
+    (reason === 'stale-source' || (action === 'merge' && reason === 'conflict') ||
+      (workflow.manualRelease && action === 'merge' && reason === 'release-policy') ||
+      reason === 'checks' || reason === 'authorization' || reason === 'target-unavailable')) {
     return { status: 'blocked', reason };
   }
   const confirmed = confirmedVisualResult(action, result);
