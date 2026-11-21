@@ -58,7 +58,7 @@ const fixture = { ...build, projectRoot: candidate, projectId: 'prepared-web', s
   repair: { scenarios: ['home'], timeoutMs: 300_000 } };
 const profiles = verificationProfiles({
   fixture,
-  'over-budget': { ...fixture, repair: { ...fixture.repair, timeoutMs: (workerTimeoutMinutes - 1) * 60_000 } },
+  'over-budget': { ...fixture, repair: { ...fixture.repair, timeoutMs: (workerTimeoutMinutes - 2) * 60_000 } },
 });
 mkdirSync(home, { mode: 0o700 }); writeFileSync(audit, '');
 const url = 'http://127.0.0.1:' + await port();
@@ -107,19 +107,21 @@ try {
     assert.equal(run.state, 'nothing');
     const goal = admission.store.repairs.get(rejectedExecution);
     assert.equal(goal?.status, 'incomplete');
-    assert.match(goal.reason, /actual Worker budget is insufficient/);
+    assert.equal(goal.reason, 'Actual Worker budget is insufficient for cleanup');
     const launch = JSON.parse(readFileSync(join(workerLaunches, run.run + '.json'), 'utf8'));
     assert.equal(launch.run, run.run);
     assert.equal(launch.rule, run.rule);
     const workerDeadline = launch.launchedAt + launch.timeoutMinutes * 60_000;
+    const deadlineIfRestarted = launch.runnerStartedAt + launch.timeoutMinutes * 60_000;
     assert.ok(goal.deadline < workerDeadline, 'The work window fits the actual Worker deadline');
     assert.ok(workerDeadline < goal.cleanupDeadline, 'The actual Worker deadline leaves insufficient cleanup time');
+    assert.ok(goal.cleanupDeadline < deadlineIfRestarted, 'A fresh timer at runner start would incorrectly allow dispatch');
     assert.equal(goal.attempts.length, 0);
     assert.equal(readFileSync(audit, 'utf8'), '');
     assert.equal(admission.store.unsettled().length, 0);
     return { execution: rejectedExecution, run: run.run, status: goal.status, attempts: goal.attempts.length,
-      workerDeadline, workDeadline: goal.deadline, cleanupDeadline: goal.cleanupDeadline };
-  }, 30_000);
+      workerDeadline, workDeadline: goal.deadline, cleanupDeadline: goal.cleanupDeadline, deadlineIfRestarted };
+  }, 60_000);
   console.log('PASS: the work window fits the Worker timeout, but cleanup does not; no native or verifier launch.');
   const trigger = actor('/verify-repair fixture 隔离验收：目标是让 page.html 的 h1 为 REPAIRED_TITLE。首轮请仅回复 REPAIR_PROBE_FIRST，不使用工具、不修改文件；待系统验证后，在唯一修复续接轮读取报告并修复 page.html，保持所有 ui-eval 策略、脚本和断言不变。只修改这个隔离目录。');
   const result = interactions.receive(trigger); assert.ok('request' in result); const execution = result.request.execution;

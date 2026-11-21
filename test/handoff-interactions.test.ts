@@ -1916,6 +1916,40 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   assert.equal(h.codex.calls.length, 0);
 });
 
+test('an edit stays in focus when recent work agrees and replacement terms match other matters', t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 周五 复盘'));
+  h.interactions.receive(h.actor('/matter-new 周五 值班'));
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const current = h.interactions.receive(h.actor('核对发版日程'));
+  assert.ok('request' in current);
+  const edit = h.interactions.receive(h.actor('刚才那个改成周五，时间不变'));
+  assert.ok('request' in edit);
+  assert.equal(edit.request.conversation, current.request.conversation);
+});
+
+test('an edit counts overlapping matter names only when they have separate mentions', t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款'));
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  h.interactions.receive(h.actor('/matter-new 旧日程'));
+  assert.ok('request' in h.interactions.receive(h.actor('先检查旧日程')));
+  h.interactions.receive(h.actor('/matter-new 新日程'));
+  const checkChoices = (text: string, expected: string[]) => {
+    const edit = h.actor(text);
+    assert.equal(h.interactions.receive(edit).status, 'matter-choice');
+    const scope = { owner: ownerKey(edit), project: h.admission.project };
+    const held = h.admission.store.matters.held(edit, scope.project)!;
+    assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(), expected.sort());
+  };
+  checkChoices('刚才那个改成退款调查', ['旧日程', '新日程']);
+  checkChoices('刚才那个改成退款调查和退款的共同计划', ['退款', '退款调查']);
+  const addressed = h.interactions.receive(h.actor('退款调查：刚才那个改成退款和退款调查的共同计划'));
+  assert.ok('request' in addressed);
+  const scope = { owner: ownerKey(addressed.request.message), project: h.admission.project };
+  assert.equal(h.admission.store.matters.owned(scope, addressed.request.conversation)?.title, '退款调查');
+});
+
 test('a question about a previous change can still match two named matters', t => {
   const h = setup(t);
   h.interactions.receive(h.actor('/matter-new 退款调查'));

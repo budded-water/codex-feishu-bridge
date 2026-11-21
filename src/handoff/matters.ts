@@ -5,7 +5,7 @@ import type { CardResult } from '../approval.js';
 import { NEW_MATTER_CHOICE, type MatterClick, type MatterPresentation } from '../matter-card.js';
 import { naturalControl } from '../ux.js';
 import type { Admission, PilotAdmission } from './gateway.js';
-import { DEFAULT_MATTER, DEFAULT_MATTER_TITLE, type HeldMatter, type MatterNotice } from './matter-store.js';
+import { DEFAULT_MATTER, DEFAULT_MATTER_TITLE, type HeldMatter, type Matter, type MatterNotice } from './matter-store.js';
 
 const PAGE_SIZE = 6;
 const USAGE = '发送 /matter-new 事项名称 新建并切换。发送 /matters 查看事项和默认对话。已选中事项可用 /matter-bind GitHub PR 链接 绑定对象。';
@@ -87,6 +87,16 @@ function matchingTitleTerms(title: string, text: string): boolean {
   // Terms can trigger a choice. Only confirmed references select a matter.
   const terms = [...title.split(/\s+/), ...Array.from(words.segment(title), item => item.isWordLike ? item.segment : '')];
   return terms.some(term => term.length >= (/^[\x00-\x7f]+$/.test(term) ? 3 : 2) && text.includes(term.toLowerCase()));
+}
+
+function mentionedMatters(candidates: Matter[], text: string): Matter[] {
+  const titles = candidates.map(matter => matter.title.toLowerCase().normalize('NFC'));
+  if (titles.length < 2) return [];
+  // Consume whole mentions from left to right, preferring the longest title at each position.
+  const pattern = [...new Set(titles)].sort((a, b) => b.length - a.length)
+    .map(title => title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const mentioned = new Set(text.match(new RegExp(pattern, 'gu')));
+  return candidates.filter((_, index) => mentioned.has(titles[index]!));
 }
 
 export class OwnerMatters {
@@ -329,13 +339,10 @@ export class OwnerMatters {
     const normalized = text.toLowerCase().normalize('NFC');
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
     if (focus && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
+      const named = mentionedMatters(candidates, normalized);
+      if (named.length > 1) return this.holdConflict(message, named.map(m => m.id));
       const alternate = store.alternateFocusForFollowup(scope);
-      if (alternate) {
-        // Full matter names keep their choice; incidental title words do not change this edit's candidates.
-        const named = candidates.filter(m => normalized.includes(m.title.toLowerCase().normalize('NFC')));
-        if (named.length > 1) return this.holdConflict(message, named.map(m => m.id));
-        return this.clarify(store.hold(scope, message, [focus, alternate]));
-      }
+      return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
     }
 
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
