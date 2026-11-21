@@ -6,5 +6,5 @@
 
 ## 2. Managed validation
 
-- [ ] 2.1 Activate and verify with a private fixture and signed-in Feishu client.
+- [x] 2.1 Verified activation and acceptance-only card updates in the [M6 owner-private desktop client](../../../docs/live-acceptance.md#2026-11-21-m6-screenshot-review-action).
 - [ ] 2.2 Enroll the project's actual delivery adapter and validate its release workflow separately.

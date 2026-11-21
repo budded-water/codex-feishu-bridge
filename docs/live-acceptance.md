@@ -1,5 +1,13 @@
 # Live acceptance evidence
 
+## 2026-11-21 M6 screenshot review action
+
+The managed gateway and Worker adopted the reviewed artifact from [PR #64](https://github.com/budded-water/codex-feishu-bridge/pull/64) after local and exact-head checks and independent review. The coordinated deployment reopened admission with a verified closed backup and retained sealed task evidence.
+
+A new receipt in the enrolled Feishu desktop private chat reused two verified WeChat simulator screenshots from a completed task. The acceptance-only button recorded one decision and updated that exact Feishu message with both original image keys. The click added zero requests, Codex executions, or Hub assignments. A regular quote of that updated card resumed the original Codex thread in a new turn and included the reviewed state. Feishu delivered the resulting answer, and managed admission was open and drained. Private evidence records the correlation. Duplicate callbacks and both deferred quote destinations after restart were exercised in fixtures.
+
+The live receipt exercised visual acceptance only. The merge and developer-upload branch, including inspected recovery after an uncertain provider result, was exercised with local workflow fixtures. Actual project adapter enrollment and a selected business candidate remain open in the [review-action change](../openspec/changes/add-visual-review-actions/tasks.md).
+
 ## 2026-11-21 M6 natural topic routing
 
 The managed gateway and Worker adopted [PR #65](https://github.com/budded-water/codex-feishu-bridge/pull/65) and its [prior-message correction in PR #66](https://github.com/budded-water/codex-feishu-bridge/pull/66). Both merged trees matched the reviewed sources. Local checks, exact-head CI and independent review passed. The coordinated cutovers retained conversation rows, sealed originals and native command rules, and the closed backup passed integrity checks for six databases.
