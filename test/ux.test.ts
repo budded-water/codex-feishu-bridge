@@ -1,3 +1,6 @@
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { defaultHttpInstance } from '@larksuiteoapi/node-sdk';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { message, setup, until } from './helpers.js';
@@ -25,6 +28,82 @@ test('reply transport keeps UUID and only falls back after explicit deletion, ne
  code=230011;assert.equal(await f.send('chat','Result','fallback-uuid',{replyTo:'om_deleted'}),'om_fallback');assert.equal(calls.length,3);
  Object.assign(f,{client:{im:{v1:{message:{reply:async()=>{throw new Error('uncertain');},create:async()=>{throw new Error('must never send elsewhere');}}}}}});
  await assert.rejects(f.send('chat','Result','stable',{replyTo:'om_original'}),/uncertain/);
+
+ let now = Date.now();
+ const deliverBefore = now + 100;
+ t.mock.method(Date, 'now', () => now);
+ let standalone = false;
+ Object.assign(f,{client:{im:{v1:{message:{
+   reply:async()=>{now = deliverBefore;return {code:230011};},
+   create:async()=>{standalone = true;return {code:0,data:{message_id:'om_late'}};},
+ }}}}});
+ await assert.rejects(f.send('chat','Release question','bounded',{replyTo:'om_deleted',deliverBefore}),/delivery window expired/);
+ assert.equal(standalone,false);
+});
+
+test('bounded Feishu sends recheck the deadline after the SDK refreshes its token', async t => {
+  const feishu = new Feishu({ appId: 'fixture', appSecret: 'fixture' });
+  t.after(() => feishu.close());
+  const tokenManager = Reflect.get(Reflect.get(feishu, 'client'), 'tokenManager') as {
+    getTenantAccessToken(): Promise<string>;
+  };
+  let now = Date.now();
+  const deliverBefore = now + 100;
+  t.mock.method(Date, 'now', () => now);
+  let authFinishesAt = deliverBefore;
+  t.mock.method(tokenManager, 'getTenantAccessToken', async () => {
+    await Promise.resolve();
+    now = authFinishesAt;
+    return 'fixture-token';
+  });
+  const request = t.mock.method(defaultHttpInstance, 'request', async (_options: { maxRedirects?: number }) => ({
+    code: 0, data: { message_id: 'om_expected' },
+  }));
+
+  for (const replyTo of ['om_parent', undefined]) {
+    now = deliverBefore - 1;
+    await assert.rejects(feishu.send('chat', 'Release question', 'bounded', { replyTo, deliverBefore }), /delivery window expired/);
+  }
+  assert.equal(request.mock.callCount(), 0);
+  authFinishesAt = now = deliverBefore - 1;
+  assert.equal(await feishu.send('chat', 'Release question', 'bounded', { deliverBefore }), 'om_expected');
+  assert.equal(await feishu.send('chat', 'Ordinary result', 'ordinary'), 'om_expected');
+  assert.deepEqual(request.mock.calls.map(call => call.arguments[0]?.maxRedirects), [0, undefined]);
+});
+
+test('bounded Feishu sends do not repeat a message POST through a redirect at expiry', async t => {
+  const feishu = new Feishu({ appId: 'fixture', appSecret: 'fixture' });
+  t.after(() => feishu.close());
+  const client = Reflect.get(feishu, 'client');
+  const tokenManager = Reflect.get(client, 'tokenManager') as { getTenantAccessToken(): Promise<string> };
+  t.mock.method(tokenManager, 'getTenantAccessToken', async () => 'fixture-token');
+  const originalProxy = defaultHttpInstance.defaults.proxy;
+  defaultHttpInstance.defaults.proxy = false;
+  t.after(() => { defaultHttpInstance.defaults.proxy = originalProxy; });
+  let now = Date.now();
+  const deliverBefore = now + 100;
+  t.mock.method(Date, 'now', () => now);
+  const requests: Array<string | undefined> = [];
+  const server = createServer((request, response) => {
+    requests.push(request.url);
+    request.resume();
+    if (requests.length === 1) {
+      now = deliverBefore;
+      response.writeHead(307, { location: '/redirect' }).end();
+    } else {
+      response.writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ code: 0, data: { message_id: 'om_redirected' } }));
+    }
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => { server.close(); });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  Reflect.set(client, 'domain', 'http://127.0.0.1:' + address.port);
+
+  await assert.rejects(feishu.send('chat', 'Release question', 'bounded', { replyTo: 'om_parent', deliverBefore }), /status code 307/);
+  assert.deepEqual(requests, ['/open-apis/im/v1/messages/om_parent/reply']);
 });
 
 test('natural supplement steers one owned running task without enqueueing or duplicating inference', async t => {

@@ -29,6 +29,9 @@ export class VisualReviewStore {
         rendered INTEGER NOT NULL DEFAULT 0, next INTEGER NOT NULL DEFAULT 0,
         reviewedAt INTEGER, mergeApprovedAt INTEGER, uploadApprovedAt INTEGER
       );
+      CREATE TABLE IF NOT EXISTS visual_review_merge_notices (
+        card TEXT PRIMARY KEY REFERENCES visual_review_cards(id), delivery TEXT NOT NULL UNIQUE, message TEXT UNIQUE
+      );
       CREATE TABLE IF NOT EXISTS visual_review_inspections (
         card TEXT NOT NULL REFERENCES visual_review_cards(id), action TEXT NOT NULL, observation TEXT NOT NULL,
         observedAt INTEGER NOT NULL, PRIMARY KEY(card,action)
@@ -52,7 +55,8 @@ export class VisualReviewStore {
   }
 
   context(message: string): string | undefined {
-    const row = this.db.prepare('SELECT * FROM visual_review_cards WHERE message=?').get(message) as unknown as ReviewRow | undefined;
+    const row = this.db.prepare(`SELECT * FROM visual_review_cards WHERE message=?
+      OR id=(SELECT card FROM visual_review_merge_notices WHERE message=?)`).get(message, message) as unknown as ReviewRow | undefined;
     if (!row) return;
     const { phase, binding, mergeCommit, result } = this.presentation(row);
     return JSON.stringify({ repository: binding.repository, candidate: binding.commit, pullRequest: binding.pullRequest, phase, mergeCommit, result });
@@ -64,6 +68,7 @@ export class VisualReviewStore {
         row.actor !== click.user || !row.images) return 'rejected';
     const binding = JSON.parse(row.binding) as VisualReviewBinding;
     if (click.decision === 'accept') {
+      if (binding.workflow?.manualRelease) return 'rejected';
       if (row.phase !== 'pending') return 'duplicate';
       this.db.prepare('UPDATE visual_review_cards SET reviewedAt=? WHERE id=?').run(Date.now(), row.id);
       this.transition(row.id, 'reviewed');
@@ -79,7 +84,7 @@ export class VisualReviewStore {
       this.db.prepare('UPDATE visual_review_cards SET reviewedAt=COALESCE(reviewedAt,?),mergeApprovedAt=? WHERE id=?').run(now, now, row.id);
       this.transition(row.id, 'merge-queued');
     } else {
-      if (!binding.workflow?.uploadTarget || !row.mergeCommit) return 'rejected';
+      if (binding.workflow?.manualRelease || !binding.workflow?.uploadTarget || !row.mergeCommit) return 'rejected';
       if (row.phase !== 'merged') return 'duplicate';
       if (this.db.prepare(`SELECT 1 FROM visual_review_cards WHERE id<>? AND
         json_extract(binding,'$.workflow.uploadTarget')=? AND phase IN ('upload-queued','uploading','upload-unknown') LIMIT 1`)
@@ -106,7 +111,7 @@ export class VisualReviewStore {
   }
 
   finish(operation: VisualOperation, result?: VisualOperationResult) {
-    this.recordOutcome(operation.id, operation.action, operation.action === 'merge' ? 'merging' : 'uploading', result);
+    return this.recordOutcome(operation.id, operation.action, operation.action === 'merge' ? 'merging' : 'uploading', result);
   }
 
   reconcile(id: string, value: Record<string, unknown>) {
@@ -117,7 +122,7 @@ export class VisualReviewStore {
     const { binding } = this.presentation(row);
     if (value.id !== id || !binding.workflow || !binding.pullRequest || repository !== binding.repository || commit !== binding.commit ||
         pullRequest !== binding.pullRequest || base !== binding.workflow.base || (action === 'upload' &&
-          (!binding.workflow.uploadTarget || !row.mergeCommit || value.target !== binding.workflow.uploadTarget || value.mergeCommit !== row.mergeCommit))) {
+          (binding.workflow.manualRelease || !binding.workflow.uploadTarget || !row.mergeCommit || value.target !== binding.workflow.uploadTarget || value.mergeCommit !== row.mergeCommit))) {
       throw Error('Visual inspection identity differs');
     }
     const result = inspectedVisualResult(action, value);
@@ -136,6 +141,19 @@ export class VisualReviewStore {
     this.db.prepare(`UPDATE visual_review_cards SET phase=?,result=?,mergeCommit=COALESCE(?,mergeCommit),revision=revision+1,next=0
       WHERE id=? AND phase=?`).run(phase, result ? JSON.stringify(result) : null, result?.status === 'merged' ? result.mergeCommit : null, id, previous);
     return phase;
+  }
+
+  registerMergeNotice(card: string, delivery: string) {
+    const row = this.row(card);
+    if (!row?.message || row.phase !== 'merged' || !row.mergeCommit) return;
+    const { binding } = this.presentation(row);
+    if (!binding.workflow?.manualRelease || !binding.pullRequest) return;
+    if (!this.db.prepare('INSERT OR IGNORE INTO visual_review_merge_notices(card,delivery) VALUES (?,?)').run(card, delivery).changes) return;
+    return { chat: row.chat, message: row.message, repository: binding.repository, pullRequest: binding.pullRequest, mergeCommit: row.mergeCommit };
+  }
+
+  mergeNoticeDelivered(id: string, message: string) {
+    this.db.prepare('UPDATE visual_review_merge_notices SET message=? WHERE delivery=?').run(message, id);
   }
 
   pendingUpdates(now: number) {

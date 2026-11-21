@@ -1,3 +1,4 @@
+import { visualReceiptCard } from '../src/visual-receipt-card.js';
 import { DatabaseSync } from 'node:sqlite';
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
@@ -123,8 +124,8 @@ test('an operator-selected Web screenshot reaches the original task with only th
   writeFileSync(join(folder, file), png);
   const plan = join(root, '.ui-eval', 'review.json');
   const entry = { file, sha256: fingerprint(png), label: '订单侧栏 · 通过 · 已执行断言 1/1' };
-  const planFor = (screenshot = entry) => writeFileSync(plan, JSON.stringify({ format: 'web-screenshot', projectRoot: root,
-    projectId: 'fixture', commit, pullRequest: 193, reviewFocus: '核对服务订单的位置', screenshots: [screenshot] }), { mode: 0o600 });
+  const planFor = (screenshot = entry, overrides: Record<string, unknown> = {}) => writeFileSync(plan, JSON.stringify({ format: 'web-screenshot', projectRoot: root,
+    projectId: 'fixture', commit, pullRequest: 193, reviewFocus: '核对服务订单的位置', screenshots: [screenshot], ...overrides }), { mode: 0o600 });
   const state = h.interactions.transport.state;
   const workflows = { 'example/web': { executable: '/fixture-workflow', sha256: 'f'.repeat(64), base: 'main' } };
   const queue = () => queueVisualReceipt(h.admission, state, active.request.execution, plan, () => {}, workflows);
@@ -156,6 +157,11 @@ test('an operator-selected Web screenshot reaches the original task with only th
   }
   assert.equal(state.pending(Date.now(), true).length, 0);
   writeFileSync(join(folder, file), png);
+  planFor(entry, { merge: true, pullRequest: undefined });
+  await assert.rejects(queue, /requires a bound PR/);
+  planFor(entry, { merge: true });
+  await assert.rejects(queue, /requires a workflow with separate release authorization/);
+  assert.equal(state.pending(Date.now(), true).length, 0);
   planFor();
   const receipt = await queue();
   assert.deepEqual(await queue(), receipt);
@@ -204,6 +210,14 @@ test('an operator-selected Web screenshot reaches the original task with only th
   assert.equal(state.visualReviews.take(), undefined);
   assert.equal(h.admission.store.requests().length, 1);
   assert.equal(state.confirmedAnswer(h.actor('继续', { parentId: 'web-card' })), active.request.execution);
+
+  planFor(entry, { merge: true });
+  const mergeWorkflows = { 'example/web': { ...workflows['example/web'], manualRelease: true as const } };
+  const next = await queueVisualReceipt(h.admission, state, active.request.execution, plan, () => {}, mergeWorkflows);
+  assert.notEqual(next.delivery, receipt.delivery);
+  const mergeView = state.visualReviews.view(next.delivery);
+  assert.equal(mergeView?.binding.workflow?.manualRelease, true);
+  assert.deepEqual(await queueVisualReceipt(h.admission, state, active.request.execution, plan, () => {}, mergeWorkflows), next);
 });
 
 test('owner visual evidence is paired by scenario, sent once after retry and binds the quote to its task', async t => {
@@ -494,6 +508,152 @@ test('visual action reconciliation retries a failed result write without repeati
   assert.equal(h.interactions.transport.state.visualReviews.view(revoked)?.phase, 'merge-blocked');
   assert.deepEqual(h.interactions.transport.state.visualReviews.view(revoked)?.result, { status: 'blocked', reason: 'authorization' });
   assert.equal(readFileSync(writes, 'utf8'), 'merge\n');
+});
+
+test('single-action review reports a conflict and asks about release only for a verified merge', async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'visual-single-merge-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const executable = join(root, 'adapter');
+  const writes = join(root, 'writes');
+  const repository = 'example/project';
+  const commit = 'a'.repeat(40), mergeCommit = 'b'.repeat(40);
+  const script = [
+    '#!' + process.execPath,
+    'const input = JSON.parse(process.argv[2]);',
+    'if (input.action !== "merge" || input.manualRelease !== true) throw Error("Unexpected authority");',
+    'if (input.pullRequest === 31) console.log(JSON.stringify({...input,status:"blocked",reason:"conflict"}));',
+    'else if (input.pullRequest === 33) process.exit(1);',
+    'else if (input.pullRequest === 34) console.log(JSON.stringify({...input,status:"blocked",reason:"stale-source"}));',
+    'else if (input.pullRequest === 36) console.log(JSON.stringify({...input,status:"blocked",reason:"release-policy"}));',
+    'else {',
+    '  require("node:fs").appendFileSync(' + JSON.stringify(writes) + ', JSON.stringify(input) + "\\n");',
+    '  console.log(JSON.stringify({...input,status:"merged",mergeCommit:"' + mergeCommit + '"}));',
+    '}',
+  ].join('\n');
+  writeFileSync(executable, script, { mode: 0o700 });
+  const workflow = { executable, sha256: fingerprint(script), base: 'main', manualRelease: true as const, uploadTarget: 'legacy-dev' };
+  const h = setup(t, undefined, undefined, [], { [repository]: workflow });
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
+  const active = await h.launch();
+  h.codex.complete(active.thread, active.turn);
+  await active.running;
+  await drain(h);
+  const state = h.interactions.transport.state;
+  const images = [{ caption: '侧栏', key: 'img_fixture' }];
+  const body = 'Web UI 验收 · 1 张截图\n浏览器截图 · 候选\n核对侧栏';
+  const register = (pullRequest: number) => {
+    const binding = { repository, commit, pullRequest, workflow };
+    const transport = h.interactions.transport.state;
+    const { delivery: id } = transport.projectVisualReceipt(active.request, { evidence: String(pullRequest), body, images: [], binding });
+    const message = 'om_card_' + pullRequest;
+    transport.delivered(id, message, images);
+    return { ...active.message, message, id, decision: 'merge' as const };
+  };
+  const buttons = (id: string) => visualReceiptCard(body, images, state.visualReviews.view(id)).body.elements
+    .filter(element => element.tag === 'button').map(element => Reflect.get(element, 'text').content);
+  const conflict = register(31);
+  assert.deepEqual(buttons(conflict.id), ['通过并合并 PR']);
+  assert.equal(h.interactions.visualReviewAction({ ...conflict, decision: 'accept' }), 'rejected');
+  assert.equal(h.interactions.visualReviewAction(conflict), 'accepted');
+  const waitFor = async (id: string, phase: string) => {
+    await h.interactions.flush();
+    await until(() => h.interactions.transport.state.visualReviews.view(id)?.phase === phase);
+  };
+  await waitFor(conflict.id, 'merge-blocked');
+  assert.match(JSON.stringify(visualReceiptCard(body, images, state.visualReviews.view(conflict.id))), /PR 与目标分支有冲突/);
+  assert.deepEqual(buttons(conflict.id), []);
+  const notices = () => h.sent.filter(item => item.text.includes('接下来要部署或发版吗'));
+  assert.equal(notices().length, 0);
+  assert.equal(h.interactions.visualReviewAction(conflict), 'duplicate');
+  const followup = h.actor('解决冲突', { parentId: conflict.message });
+  h.interactions.receive(followup);
+  const repair = h.admission.store.requestForMessage(followup)!;
+  assert.equal(h.admission.store.conversationThread(repair.conversation), active.thread);
+  assert.match(repair.input, /"reason":"conflict"/);
+
+  const stale = register(34);
+  assert.equal(h.interactions.visualReviewAction(stale), 'accepted');
+  await waitFor(stale.id, 'merge-blocked');
+  assert.match(JSON.stringify(visualReceiptCard(body, images, state.visualReviews.view(stale.id))), /PR 候选已更新/);
+  const releasePolicy = register(36);
+  assert.equal(h.interactions.visualReviewAction(releasePolicy), 'accepted');
+  await waitFor(releasePolicy.id, 'merge-blocked');
+  assert.match(JSON.stringify(visualReceiptCard(body, images, state.visualReviews.view(releasePolicy.id))), /无法与发布分开/);
+  assert.equal(notices().length, 0);
+
+  const success = register(32);
+  assert.equal(h.interactions.visualReviewAction(success), 'accepted');
+  assert.equal(h.interactions.visualReviewAction(success), 'duplicate');
+  await waitFor(success.id, 'merged');
+  assert.deepEqual(buttons(success.id), []);
+  assert.equal(h.interactions.visualReviewAction({ ...success, decision: 'upload' }), 'rejected');
+  assert.deepEqual(readFileSync(writes, 'utf8').trim().split('\n').map(line => JSON.parse(line)), [
+    { id: success.id, action: 'merge', repository, commit, pullRequest: 32, base: 'main', manualRelease: true },
+  ]);
+  await drain(h);
+  assert.equal(notices().length, 1);
+  assert.equal(notices()[0]!.options?.replyTo, success.message);
+  assert.match(notices()[0]!.text, /example\/project PR #32/);
+  const continuation = h.actor('上线', { parentId: 'delivered-' + notices()[0]!.id });
+  h.interactions.receive(continuation);
+  const release = h.admission.store.requestForMessage(continuation)!;
+  assert.equal(h.admission.store.conversationThread(release.conversation), active.thread);
+  assert.match(release.input, new RegExp(mergeCommit));
+
+  const uncertain = register(33);
+  assert.equal(h.interactions.visualReviewAction(uncertain), 'accepted');
+  await waitFor(uncertain.id, 'merge-unknown');
+  assert.equal(notices().length, 1);
+  const inspection = { id: uncertain.id, action: 'merge', repository, commit, pullRequest: 33, base: 'main',
+    evidence: 'Provider confirmed merge after a response loss', status: 'merged', mergeCommit };
+  assert.equal(state.reconcileVisualOperation(uncertain.id, inspection).status, 'recorded');
+  assert.equal(state.reconcileVisualOperation(uncertain.id, inspection).status, 'duplicate');
+  await h.restart(true);
+  await drain(h);
+  assert.deepEqual(notices().map(notice => notice.options?.replyTo), [success.message, uncertain.message]);
+
+  const retained = h.interactions.transport.state;
+  const attempts: string[] = [];
+  h.setSend(async (chat, text, id, options) => {
+    if (text.includes('接下来要部署或发版吗')) {
+      assert.ok(options?.deliverBefore && options.deliverBefore > Date.now());
+      attempts.push(id);
+      throw Error('Feishu accepted the message but its acknowledgment was lost');
+    }
+    h.sent.push({ chat, text, id, options });
+    return 'delivered-' + id;
+  });
+  const lost = register(35);
+  assert.equal(h.interactions.visualReviewAction(lost), 'accepted');
+  await waitFor(lost.id, 'merged');
+  await drain(h);
+  await until(() => attempts.length === 1);
+  retained.send(active.message.chat, '后续普通消息');
+  await drain(h);
+  assert.ok(h.sent.some(item => item.text === '后续普通消息'));
+  const recordedEffects = readFileSync(writes, 'utf8');
+  let now = Date.now() + 5_000;
+  const clock = t.mock.method(Date, 'now', () => now);
+  try {
+    await h.restart(true);
+    await drain(h);
+    await until(() => attempts.length === 2);
+    assert.equal(attempts[0], attempts[1]);
+    now += 56 * 60_000;
+    await drain(h);
+    assert.equal(attempts.length, 2);
+    const final = h.interactions.transport.state;
+    assert.equal(final.visualReviews.view(lost.id)?.phase, 'merged');
+    assert.equal(final.visualReviews.take(), undefined);
+    assert.equal(final.pending(Date.now(), true).length, 0);
+    assert.equal(readFileSync(writes, 'utf8'), recordedEffects);
+    const database = new DatabaseSync(join(h.admission.stateDirectory, 'transport', 'bridge.db'), { readOnly: true });
+    try {
+      assert.equal(database.prepare('SELECT status FROM projected_control_notices WHERE id=?').get(attempts[0]!)?.status,
+        'delivery-unconfirmed');
+    } finally { database.close(); }
+  } finally { clock.mock.restore(); }
 });
 
 for (const [name, reference] of [
