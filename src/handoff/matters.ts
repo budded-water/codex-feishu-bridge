@@ -17,6 +17,7 @@ const prReadLead = /^(?:(?:请|麻烦|帮我)\s*){0,3}(?:看(?:看|一下|下)|�
 const prShortAddress = /(?<![\w./-])([a-z0-9_.-]+\/[a-z0-9_.-]+)(?:\s*的\s*|\s+)PR\s*[#＃]([1-9][0-9]{0,11})(?![a-z0-9_-])/gi;
 const urlBoundary = /^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"'*，。？！、；：…—]|\p{Script=Han}|[,;!](?=$|[\s\p{Pe}\p{Script=Han}]))/u;
 const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|审核状态|改动|差异|检查结果|CI(?:\s*(?:状态|结果|为什么(?:没|没有|未)(?:跑|运行)))?)|(?:为什么|怎么)(?:没|没有|未)(?:跑|运行)\s*CI|(?:latest\s+)?(?:status|checks?|diff|CI(?:\s+status)?|merge status|review status)|why\s+CI\s+(?:didn['’]t\s+run|isn['’]t\s+running))$/iu;
+const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -314,8 +315,17 @@ export class OwnerMatters {
     if (targets.length === 1) return submit(targets[0], address?.input);
 
     const candidates = store.list(scope, -1, 0, false);
-    const normalized = message.text.toLowerCase().normalize('NFC');
+    const normalized = text.toLowerCase().normalize('NFC');
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
+    const followup = text.replace(/[\s。？！.!?…]+$/u, '');
+    const additive = !/^(?:这|那|上面|之前|刚才|剩下)/u.test(followup) &&
+      /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(followup);
+    // A reference to the preceding message is stronger than shared title words.
+    if (focus && !message.parentId && !additive && priorMessage.test(normalized) &&
+        !related.some(m => m.id !== focus && normalized.includes(m.title.toLowerCase().normalize('NFC')))) {
+      const alternate = store.alternateFocusForFollowup(scope);
+      return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
+    }
     if (related.length > 1) {
       if (related.length > PAGE_SIZE) {
         return this.requireResend(message, '有多个可能的事项。请在 /matters 中选择，或引用事项卡片后重发。');
@@ -325,13 +335,11 @@ export class OwnerMatters {
 
     const selected = focus;
     if (selected && !message.parentId) {
-      const text = message.text.trim().replace(/[\s。？！.!?…]+$/u, '');
-      if (vagueFollowup.some(pattern => pattern.test(text))) {
+      if (vagueFollowup.some(pattern => pattern.test(followup))) {
         const alternate = store.alternateFocusForFollowup(scope);
         if (alternate) return this.clarify(store.hold(scope, message, [selected, alternate]));
       }
-      if (!/^(?:这|那|上面|之前|刚才|剩下)/u.test(text) &&
-          /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(text)) {
+      if (additive) {
         const choices = [...new Set([selected, ...related.map(m => m.id), NEW_MATTER_CHOICE])];
         return this.clarify(store.hold(scope, message, choices));
       }
