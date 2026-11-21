@@ -22,7 +22,8 @@ const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:�
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
 const referenceUrlStart = /https?:\/\//giu;
-const bareUrlEnd = /[\s<>"'\x60，。；：！？、）》】」』”]/u;
+const bareUrlEnd = /[\s<>"'\x60）》】」』”]/u;
+const bareUrlProsePunctuation = /[，。；：！？、]/u;
 const markdownLinkTitle = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*(?=\))/u;
 const wrappedUrlEnds: Readonly<Record<string, string>> = {
   '(': ')', '（': '）', '[': ']', '【': '】', '〔': '〕', '《': '》', '〈': '〉', '<': '>', '「': '」', '『': '』', '“': '”', '"': '"', "'": "'", '\x60': '\x60',
@@ -116,8 +117,9 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
     }
     if (/\s/u.test(char) || (char === closer && (!countParentheses || !depth))) break;
     if (char === '?' || char === '#') queryOrFragment = true;
-    if (!closer && (bareUrlEnd.test(char) ||
-        (!depth && !queryOrFragment && ',;!'.includes(char) && /^\p{Script=Han}/u.test(text.slice(end + 1))))) break;
+    const prosePunctuation = !queryOrFragment && (bareUrlProsePunctuation.test(char) ||
+      (!depth && ',;!'.includes(char) && /^\p{Script=Han}/u.test(text.slice(end + 1))));
+    if (!closer && (bareUrlEnd.test(char) || prosePunctuation)) break;
     if (countParentheses && char === '(') depth++;
     if (countParentheses && char === ')') {
       if (!depth) break;
@@ -151,19 +153,29 @@ function withoutReferenceUrls(text: string): string {
   return parts.join('') + text.slice(consumed);
 }
 
-function separateTitleMentions(titles: Iterable<string>, normalized: string): RegExpExecArray[] {
+function separateTitleMentions(titles: Iterable<string>, normalized: string): string[] {
   const folded = normalized.toLowerCase();
-  const matching = [...titles].filter(title => folded.includes(title.toLowerCase())).sort((a, b) => b.length - a.length);
-  if (!matching.length) return [];
-
-  // One span supplies one mention. Prefer a longer title when positions overlap.
-  const pattern = matching.map(title => {
+  const spans: { index: number; name: string }[] = [];
+  for (const title of titles) {
+    if (!folded.includes(title.toLowerCase())) continue;
     const literal = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const before = startsLatinWord.test(title) ? '(?<!' + latinWordChar + ')' : '';
     const after = endsLatinWord.test(title) ? '(?!' + latinWordChar + ')' : '';
-    return before + literal + after;
-  }).join('|');
-  return [...normalized.matchAll(new RegExp(pattern, 'giu'))];
+    for (const { index, 1: name } of normalized.matchAll(new RegExp('(?=' + before + '(' + literal + ')' + after + ')', 'giu'))) {
+      if (name) spans.push({ index, name });
+    }
+  }
+
+  // Take longer matches first even when a shorter match starts earlier.
+  const reserved = new Uint8Array(normalized.length);
+  const mentions: string[] = [];
+  for (const { index, name } of spans.sort((a, b) => b.name.length - a.name.length || a.index - b.index)) {
+    const end = index + name.length;
+    if (reserved.subarray(index, end).includes(1)) continue;
+    reserved.fill(1, index, end);
+    mentions.push(name);
+  }
+  return mentions;
 }
 
 function editMatterChoices(candidates: Matter[], text: string): Matter[] {
@@ -185,7 +197,7 @@ function editMatterChoices(candidates: Matter[], text: string): Matter[] {
   const proseChoices = [...new Set([...titleChoices, ...terms.keys()])];
   const mentioned = new Set<Matter>();
   const collect = (value: string, quoted: boolean) => {
-    for (const { 0: name } of separateTitleMentions(quoted ? titleChoices : proseChoices, value)) {
+    for (const name of separateTitleMentions(quoted ? titleChoices : proseChoices, value)) {
       const folded = name.toLowerCase();
       const complete = exact.get(name) ?? foldedTitles.get(folded);
       // A complete title takes priority at the same span. Shared terms cannot identify a matter.

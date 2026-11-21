@@ -2099,6 +2099,7 @@ test('an edit stays in focus when recent work agrees and replacement terms match
     '刚才那个改成周五，参考 https://example.com/docs?from=(QA)&to=CI',
     '刚才那个改成周五，参考 https://example.com/docs?names=QA,CI',
     '刚才那个改成周五，参考 https://example.com/?names=all,中文,QA,CI&mode=preview',
+    '刚才那个改成周五，参考 https://example.com/?names=all，QA,CI&mode=preview',
     '刚才那个改成周五，参考 https://example.com/?names=all,周五复盘,周五值班&mode=preview',
     '刚才那个改成周五，参考 [网页](https://example.com/docs?from=((QA))&to=CI)。',
     '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all,中文,QA,CI)',
@@ -2163,6 +2164,9 @@ test('an edit counts overlapping matter names only when they have separate menti
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
   checkChoices('刚才那个改成周五，程序员和发版都要同步', ['程序员 招聘', 'Solura 发版']);
   checkChoices('刚才那个改成周五，程序、程序员和发版都要同步', ['程序', '程序员 招聘', 'Solura 发版']);
+  h.interactions.receive(h.actor('/matter-new 老程'));
+  checkChoices('刚才那个改成周五，老程序员和发版都要同步', ['程序员 招聘', 'Solura 发版']);
+  checkChoices('刚才那个改成周五，老程、程序员和发版都要同步', ['老程', '程序员 招聘', 'Solura 发版']);
   const addressed = h.interactions.receive(h.actor('退款调查：刚才那个改成退款和退款调查的共同计划'));
   assert.ok('request' in addressed);
   const scope = { owner: ownerKey(addressed.request.message), project: h.admission.project };
