@@ -12,7 +12,7 @@ import { record } from '../src/types.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
-import { MAX_ATTACHMENT_BYTES } from '../src/handoff/attachments.js';
+import { MAX_ATTACHMENT_BYTES, materializeAttachment } from '../src/handoff/attachments.js';
 import { OwnerTasks } from '../src/handoff/tasks.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from '../src/task-card.js';
 import type { Config } from '../src/config.js';
@@ -339,6 +339,10 @@ test('a quoted file reply uses its exact bytes and resumes the original topic af
   } } } } } });
   const h = setup(t, [], adapter);
   const original = await h.start(h.admit('换个话题。记录后台菜单的验收要求。'));
+  const activeUpload = fileMessage('active.pdf', original.request.message.id);
+  h.interactions.receive(activeUpload);
+  assert.equal(h.interactions.receive(message('换个话题。读取这个文件。', { chatType: 'p2p', parentId: activeUpload.id })).status, 'rejected');
+  assert.equal(h.admission.store.requests().length, 1);
   original.complete();
   await original.running;
   await h.drain();
@@ -358,9 +362,16 @@ test('a quoted file reply uses its exact bytes and resumes the original topic af
   }
   await h.drain();
   assert.equal(h.admission.store.requests().length, 2);
-  assert.equal(h.sent.filter(sent => sent.body.includes('已登记文件')).length, uploads.length);
+  assert.equal(h.sent.filter(sent => sent.body.includes('已登记文件')).length, uploads.length + 1);
   assert.deepEqual(downloads, []);
+  // Simulate interruption after durable registration and before acknowledgment.
+  const recoveredUpload = fileMessage('pending.pdf');
+  assert.equal(h.admission.store.registerAttachment(recoveredUpload), true);
   await h.restart();
+  await h.drain();
+  assert.equal(h.sent.filter(sent => sent.options?.replyTo === recoveredUpload.id && sent.body.includes('已登记文件')).length, 1);
+  assert.equal(h.interactions.receive(message('换个话题。读取这个文件。', { chatType: 'p2p', parentId: uploads[0]!.message.id })).status, 'rejected');
+  assert.equal(h.admission.store.requests().length, 2);
   for (const entry of uploads.slice().reverse()) {
     const followup = message('请读取这份附件。', { chatType: 'p2p', parentId: entry.message.id });
     assert.equal(h.interactions.receive(followup).status, 'task-reply');
@@ -389,6 +400,31 @@ test('a quoted file reply uses its exact bytes and resumes the original topic af
     assert.equal(h.admission.store.reference(request.execution, followup)?.context, null);
   }
   assert.equal(downloads.length, uploads.length);
+});
+
+test('inspected recovery retires a staged file only after the guard is released', async t => {
+  const h = setup(t, [], {
+    async context() { throw Error('unexpected context lookup'); },
+    async openAttachment() { return Readable.from([Buffer.from('test file')]); },
+  });
+  const upload = fileMessage('notes.txt');
+  h.interactions.receive(upload);
+  const followup = message('请检查这个文件。', { chatType: 'p2p', parentId: upload.id });
+  const result = h.interactions.receive(followup);
+  assert.ok('request' in result);
+  const { execution, id } = result.request;
+  await h.drain();
+  await until(() => Boolean(h.admission.store.reference(execution, followup)));
+  assert.equal(h.admission.store.reserve(id, 1).kind, 'start');
+  const { path } = materializeAttachment(h.admission.stateDirectory, execution, upload.attachment!, Buffer.from('test file').toString('base64'));
+  h.admission.store.ownerUnconfirmed(execution);
+  await h.drain();
+  assert.equal(existsSync(path), true);
+  h.admission.store.reconcile(message('已检查', { chatType: 'p2p' }), execution, 'Synthetic inspection');
+  await h.drain();
+  assert.equal(h.admission.store.execution(execution)?.status, 'unknown');
+  assert.equal(existsSync(path), false);
+  assert.equal(h.admission.store.reference(execution, followup)?.context, null);
 });
 
 test('an oversized file cannot start a model turn, and an unknown file anchor cannot silently route to another matter', async t => {

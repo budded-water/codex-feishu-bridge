@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 import { record, string, type ChatContext } from './types.js';
 import { MAX_CONTEXT_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES, IMAGE_FETCH_BUDGET_MS } from './context-limits.js';
+import { openResourceStream } from './message-resource.js';
 
 type FetchImage = (message: string, key: string) => Promise<{ getReadableStream(): Readable }>;
 interface Reference { message: number; id: string; key: string }
@@ -70,7 +71,7 @@ export async function attachImages(context: ChatContext, items: Record<string, u
   const images: NonNullable<ChatContext['images']> = [];
   let total = 0;
   let attempted = 0;
-  const deadline = Date.now() + IMAGE_FETCH_BUDGET_MS;
+  const signal = AbortSignal.timeout(IMAGE_FETCH_BUDGET_MS);
   // Explicit quotes precede history; quote presentation orders latest clarification first.
   // Unquoted records retain newest-first selection independently of presentation order.
   const prioritized = refs.sort((a, b) => {
@@ -80,14 +81,12 @@ export async function attachImages(context: ChatContext, items: Record<string, u
   });
   for (const ref of prioritized) {
     const token = identity(ref.message, ref.key);
-    if (attempted >= Math.min(limit, MAX_CONTEXT_IMAGES) || total >= MAX_TOTAL_IMAGE_BYTES || Date.now() >= deadline) {
+    if (attempted >= Math.min(limit, MAX_CONTEXT_IMAGES) || total >= MAX_TOTAL_IMAGE_BYTES || signal.aborted) {
       descriptions.set(token, '[图片：达到本次读取限额，尚未读取]'); continue;
     }
     attempted++;
     try {
-      const resource = await fetch(ref.id, ref.key);
-      const stream = resource.getReadableStream();
-      const timeout = setTimeout(() => stream.destroy(new Error('Image download timed out')), Math.max(1, deadline - Date.now()));
+      const stream = await openResourceStream(async () => (await fetch(ref.id, ref.key)).getReadableStream(), signal);
       let size = 0;
       const chunks: Buffer[] = [];
       try {
@@ -97,7 +96,7 @@ export async function attachImages(context: ChatContext, items: Record<string, u
           if (size > Math.min(MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES - total)) throw new Error('Image byte limit exceeded');
           chunks.push(chunk);
         }
-      } finally { clearTimeout(timeout); stream.destroy(); }
+      } finally { stream.destroy(); }
       const buffer = Buffer.concat(chunks);
       const mime = imageMime(buffer);
       if (!mime) throw new Error('Unsupported image content');

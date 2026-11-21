@@ -18,6 +18,8 @@ import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
 const projectedStatus = `CASE WHEN r.blocked=? THEN 'interrupted'
   WHEN r.blocked IS NOT NULL OR s.status='blocked' THEN 'unknown'
   WHEN e.status='active' THEN 'running' ELSE COALESCE(e.status,'queued') END`;
+const inspectedAttachment = `(e.status='unknown' AND json_type(r.message,'$.attachment')='object'
+  AND EXISTS(SELECT 1 FROM recoveries WHERE execution=e.id) AND NOT EXISTS(SELECT 1 FROM guards WHERE execution=e.id))`;
 
 // Transport projections use State's delivery contracts, never its execution queue.
 export class HandoffTransport {
@@ -71,6 +73,14 @@ export class HandoffTransport {
     return this.reader ??= openHandoffReader(join(directory, 'handoff.db'), join(directory, 'transport', 'bridge.db'));
   }
 
+  projectAttachmentReceipt(message: IncomingMessage): void {
+    if (!this.ownerPrivate(message)) return;
+    this.state.transaction(() => {
+      if (this.state.remember(message)) this.state.send(message.chat,
+        '已登记文件。请用飞书「回复」这条文件消息，写清希望我怎么处理。', { replyTo: message.id });
+    });
+  }
+
   private syncTaskReplies(): void {
     for (const { id, kind } of unprojectedTaskReplyNotices(this.openReader())) {
       if (kind === 'thread-change') this.admit(this.gateway.store.request(id)!);
@@ -92,7 +102,11 @@ export class HandoffTransport {
     this.syncTaskReplies();
     const reader = this.openReader();
     // The transport checkpoint and reference tombstones survive restarts independently.
-    const candidates = reader.prepare(`SELECT r.id FROM requests r
+    const unacknowledged = reader.prepare(`SELECT body FROM inbound_attachments a WHERE NOT EXISTS(
+      SELECT 1 FROM transport.seen s WHERE s.tenant=json_extract(a.body,'$.tenant') AND s.id=json_extract(a.body,'$.id')) ORDER BY a.rowid`)
+      .all() as { body: string }[];
+    for (const { body } of unacknowledged) this.projectAttachmentReceipt(JSON.parse(body) as IncomingMessage);
+    const candidates = reader.prepare(`SELECT r.id, ${inspectedAttachment} AS inspected_attachment FROM requests r
       LEFT JOIN submissions s ON s.request=r.id
       LEFT JOIN executions e ON e.id=r.execution
       LEFT JOIN transport.projected_tasks p ON p.execution=r.execution
@@ -100,12 +114,13 @@ export class HandoffTransport {
       WHERE p.execution IS NULL OR t.status IS NOT ${projectedStatus}
         OR (s.status='blocked' AND r.blocked IS NOT ? AND p.notified=0)
         OR (e.id IS NOT NULL AND p.checkpoint IS NULL)
-        OR ((e.status IN ('completed','interrupted') OR (e.id IS NULL AND (r.blocked IS NOT NULL OR s.status='blocked'))) AND EXISTS(
+        OR ((e.status IN ('completed','interrupted') OR ${inspectedAttachment} OR (e.id IS NULL AND (r.blocked IS NOT NULL OR s.status='blocked'))) AND EXISTS(
           SELECT 1 FROM reference_context ref WHERE ref.execution=r.execution AND ref.body IS NOT NULL))
-      ORDER BY r.rowid`).all(OWNER_WITHDRAWN, OWNER_WITHDRAWN) as { id: string }[];
-    for (const { id } of candidates) {
+      ORDER BY r.rowid`).all(OWNER_WITHDRAWN, OWNER_WITHDRAWN) as { id: string; inspected_attachment: number | null }[];
+    for (const { id, inspected_attachment } of candidates) {
       const request = this.gateway.store.request(id)!;
       this.admit(request);
+      if (inspected_attachment) this.retireReferences(request);
       const execution = this.gateway.store.execution(request.execution);
       if (!execution) {
         if (request.blocked || this.gateway.store.submission(request.id)?.status === 'blocked') this.retireReferences(request);

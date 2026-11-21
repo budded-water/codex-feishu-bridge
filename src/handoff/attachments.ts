@@ -1,16 +1,17 @@
 import { lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import { addAbortSignal } from 'node:stream';
 import type { ChatContext, ContextPort, FileAttachment } from '../types.js';
+import { openResourceStream } from '../message-resource.js';
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const ATTACHMENT_TIMEOUT_MS = 20_000;
 export const attachmentUnavailable = '未能读取这条任务的附件，没有开始执行。请检查文件是否可访问、是否超过 10 MiB，然后重新发送文件并回复需求。';
 
 export async function readAttachment(port: ContextPort | undefined, attachment: FileAttachment): Promise<string> {
-  if (!port?.openAttachment) throw Error('Attachment transport unavailable');
+  const open = port?.openAttachment?.bind(port);
+  if (!open) throw Error('Attachment transport unavailable');
   const signal = AbortSignal.timeout(ATTACHMENT_TIMEOUT_MS);
-  const stream = addAbortSignal(signal, await port.openAttachment(attachment));
+  const stream = await openResourceStream(() => open(attachment), signal);
   const chunks: Buffer[] = [];
   let size = 0;
   try {

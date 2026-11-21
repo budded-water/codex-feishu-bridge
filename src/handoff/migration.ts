@@ -95,8 +95,8 @@ function facts(path: string): string {
   return database(path, false, db => {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='maintenance' ORDER BY name").all() as { name: string }[];
     const data = tables.map(({ name }) => ({ name, rows: rows(db, '"' + name.replaceAll('"', '""') + '"').map(canonical).sort() }));
-    // A staged pilot from before delivery checkpoints may create this empty table when opened for rollback.
-    return fingerprint(canonical(data.filter(table => table.name !== 'delivery_checkpoints' || table.rows.length > 0)));
+    const additiveTables = new Set(['delivery_checkpoints', 'inbound_attachments']);
+    return fingerprint(canonical(data.filter(table => table.rows.length > 0 || !additiveTables.has(table.name))));
   });
 }
 

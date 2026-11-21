@@ -67,7 +67,7 @@ export class PilotInteractions {
     const ordinaryOwner = operator && message.chatType === 'p2p';
     if (message.attachment?.messageId === message.id) {
       if (!ordinaryOwner || !this.admission.store.registerAttachment(message)) return { status: 'ignored' as const };
-      this.attachmentNotice(message, '已登记文件。请用飞书「回复」这条文件消息，写清希望我怎么处理。');
+      this.transport.projectAttachmentReceipt(message);
       return { status: 'file-registered' as const };
     }
     if (this.admission.store.retained(message)) return { status: 'ignored' as const };
@@ -111,6 +111,10 @@ export class PilotInteractions {
           if (file.parentId && !(original?.project === this.admission.project && ownerKey(original.message) === ownerKey(message)) &&
             !this.transport.state.confirmedAnswer(linked) && !this.transport.state.matterReference(linked)) {
             this.attachmentNotice(message, '无法核对该文件引用的原任务。请在原任务或 Bot 最终答复下重新发送文件，再回复该文件说明需求。');
+            return { status: 'rejected' as const };
+          }
+          if (file.parentId && this.matters.opensNewTopic(linked)) {
+            this.attachmentNotice(message, '这个文件已引用原事项。要用它开新话题，请直接发文件，再回复文件写下「换个话题」和需求。');
             return { status: 'rejected' as const };
           }
           message = linked;

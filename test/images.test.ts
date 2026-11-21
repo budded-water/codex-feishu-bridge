@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { Feishu } from '../src/feishu.js';
 import { MAX_IMAGE_BYTES } from '../src/context-limits.js';
+import { attachImages } from '../src/chat-images.js';
+import { readAttachment } from '../src/handoff/attachments.js';
 import { message, setup, until } from './helpers.js';
 import { record } from '../src/types.js';
 
@@ -51,6 +53,34 @@ test('images are opt-in and disabled configurations make no resource requests', 
   const context = await h.adapter.context(session, source, 50);
   assert.equal(h.downloads.length, 0); assert.equal(context.images, undefined);
   assert.ok(context.messages[0]!.text.includes('尚未读取'));
+});
+
+test('image and file download deadlines cover opening the resource, including disposal of a late stream', async t => {
+  for (const kind of ['file', 'image']) await t.test(kind, async child => {
+    const deadline = new AbortController();
+    child.mock.method(AbortSignal, 'timeout', () => deadline.signal);
+    let resolveStream!: (stream: Readable) => void;
+    const pending = new Promise<Readable>(resolve => { resolveStream = resolve; });
+    let markStarted!: () => void;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    const open = () => { markStarted(); return pending; };
+    const late = Readable.from([png]);
+    const transfer = kind === 'file'
+      ? readAttachment({ async context() { throw Error('unexpected context lookup'); }, openAttachment: open },
+        { messageId: 'om_file', key: 'file_fixture', name: 'test.pdf' })
+      : attachImages({ status: 'available', note: '', messages: [{ sender: 'Owner', type: 'image', text: '' }] },
+        [row('late')], 1, async () => { const stream = await open(); return { getReadableStream: () => stream }; });
+    await started;
+    deadline.abort(Error('test download deadline'));
+    if (kind === 'file') await assert.rejects(transfer, /test download deadline/);
+    else {
+      const context = await transfer;
+      assert.ok(typeof context !== 'string');
+      assert.deepEqual(context.images, []);
+    }
+    resolveStream(late);
+    await until(() => late.destroyed);
+  });
 });
 
 test('image cap prioritizes the newest images and makes at most eight resource requests', async t => {
