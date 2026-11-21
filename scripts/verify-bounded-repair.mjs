@@ -56,7 +56,7 @@ const fixture = { ...build, projectRoot: candidate, projectId: 'prepared-web', s
   repair: { scenarios: ['home'], timeoutMs: 300_000 } };
 const profiles = verificationProfiles({
   fixture,
-  'over-budget': { ...fixture, repair: { ...fixture.repair, timeoutMs: (workerTimeoutMinutes + 1) * 60_000 } },
+  'over-budget': { ...fixture, repair: { ...fixture.repair, timeoutMs: (workerTimeoutMinutes - 1) * 60_000 } },
 });
 mkdirSync(home, { mode: 0o700 }); writeFileSync(audit, '');
 const url = 'http://127.0.0.1:' + await port();
@@ -90,6 +90,7 @@ try {
   await until('Hub', () => fetch(url + '/healthz').then(x => x.ok).catch(() => false), 30_000);
   const actor = text => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, chatType: 'p2p', id: randomUUID(), text });
   const overBudget = interactions.receive(actor('/verify-repair over-budget Isolated budget preflight'));
+  const admittedBy = Date.now();
   assert.ok('request' in overBudget);
   const rejectedExecution = overBudget.request.execution;
   const rejected = await until('Worker settlement with insufficient budget', async () => {
@@ -103,12 +104,15 @@ try {
     const goal = admission.store.repairs.get(rejectedExecution);
     assert.equal(goal?.status, 'incomplete');
     assert.match(goal.reason, /actual Worker budget is insufficient/);
+    const workerTimeoutMs = workerTimeoutMinutes * 60_000;
+    assert.ok(goal.deadline <= admittedBy + workerTimeoutMs, 'The work window fits even if the Worker starts immediately');
+    assert.ok(goal.cleanupDeadline > Date.now() + workerTimeoutMs, 'Cleanup would overrun even if the Worker started now');
     assert.equal(goal.attempts.length, 0);
     assert.equal(readFileSync(audit, 'utf8'), '');
     assert.equal(admission.store.unsettled().length, 0);
     return { execution: rejectedExecution, run: run.run, status: goal.status, attempts: goal.attempts.length };
   }, 30_000);
-  console.log('PASS: the actual Worker budget rejects an oversized repair before native or verifier launch.');
+  console.log('PASS: the work window fits the Worker timeout, but cleanup does not; no native or verifier launch.');
   const trigger = actor('/verify-repair fixture 隔离验收：目标是让 page.html 的 h1 为 REPAIRED_TITLE。首轮请仅回复 REPAIR_PROBE_FIRST，不使用工具、不修改文件；待系统验证后，在唯一修复续接轮读取报告并修复 page.html，保持所有 ui-eval 策略、脚本和断言不变。只修改这个隔离目录。');
   const result = interactions.receive(trigger); assert.ok('request' in result); const execution = result.request.execution;
   await interactions.flush();
