@@ -2095,6 +2095,7 @@ test('an edit stays in focus when recent work agrees and replacement terms match
     '刚才那个改成周五，参考 https://example.com/docs?version=2',
     '刚才那个改成周五，参考 https://example.com/docs?from=QA&to=CI',
     '刚才那个改成周五，参考 https://example.com/docs?from=(QA)&to=CI',
+    '刚才那个改成周五，参考 https://example.com/docs?names=QA,CI',
     '刚才那个改成周五，参考 [网页](https://example.com/docs?from=((QA))&to=CI)。',
     '刚才那个改成“周五为什么值班？”，时间不变',
   ]) {
@@ -2179,7 +2180,10 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五后，退款和发版难道都要推迟');
   checkCandidates('刚才那个改成周五后，退款和发版得推迟几天');
   checkCandidates('刚才那个改成周五后，退款和发版的安排如何');
+  checkCandidates('刚才那个改成周五后，退款和发版会受到多大影响');
+  checkCandidates('刚才那个改成周五后，退款和发版的截止时间相隔多长时间');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details：退款和发版会否受影响');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/details,退款和发版会否受影响');
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');
