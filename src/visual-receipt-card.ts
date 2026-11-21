@@ -6,6 +6,7 @@ export function visualReceiptCard(text: string, images: NonNullable<DeliveryOpti
   // The outbox stores the original text and captions across gateway versions.
   const [title, candidate, ...details] = safeMentionText(text).split('\n');
   const focus = details.join('\n').trimStart().replace(/^待人工看图 · /, '');
+  const webReceipt = title?.startsWith('Web UI 验收 · ');
   const plainText = (content: string) => ({ tag: 'plain_text', content });
   const paragraph = (content: string) => ({ tag: 'div', text: plainText(content) });
   const note = (content: string) => ({ tag: 'div', text: { ...plainText(content), text_size: 'notation' } });
@@ -15,7 +16,7 @@ export function visualReceiptCard(text: string, images: NonNullable<DeliveryOpti
   });
   const scenes = images.map(image => {
     const caption = safeMentionText(image.caption);
-    const match = /^([\s\S]+) · (通过|失败) · 已执行断言 (\d+\/\d+)$/.exec(caption);
+    const match = webReceipt ? null : /^([\s\S]+) · (通过|失败) · 已执行断言 (\d+\/\d+)$/.exec(caption);
     const label = (match?.[1] ?? caption).replace(/\s+/g, ' ');
     return [
       paragraph(label),

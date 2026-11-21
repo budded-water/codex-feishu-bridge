@@ -1,3 +1,4 @@
+import { crc32 } from 'node:zlib';
 import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { record } from '../types.js';
@@ -31,13 +32,32 @@ export function readVisualReceiptPlan(path: string) {
     throw Error('Visual receipt plan must be private to the runtime owner');
   }
   const plan = privateRecord(path);
-  const { projectRoot, projectId, commit, reviewFocus, scenes, pullRequest } = plan;
+  const { projectRoot, projectId, commit, reviewFocus, scenes, pullRequest, format, screenshots } = plan;
   if (typeof projectRoot !== 'string' || !isAbsolute(projectRoot) ||
     typeof projectId !== 'string' || !segment.test(projectId) ||
     typeof commit !== 'string' || !/^[a-f0-9]{40}$/.test(commit) ||
     typeof reviewFocus !== 'string' || !reviewFocus.trim() || reviewFocus.length > 300 ||
-      !Array.isArray(scenes) || !scenes.length || scenes.length > 3 ||
-      (pullRequest !== undefined && (typeof pullRequest !== 'number' || !Number.isSafeInteger(pullRequest) || pullRequest < 1))) throw Error('Invalid visual receipt plan');
+    (pullRequest !== undefined && (typeof pullRequest !== 'number' || !Number.isSafeInteger(pullRequest) || pullRequest < 1))) throw Error('Invalid visual receipt plan');
+  const metadata = { projectRoot, projectId, commit, reviewFocus: reviewFocus.trim() };
+  const pr = pullRequest !== undefined ? { pullRequest } : {};
+  if (format === 'web-screenshot') {
+    if (scenes !== undefined || !Array.isArray(screenshots) || !screenshots.length || screenshots.length > 3) {
+      throw Error('Web visual receipt requires one to three screenshots');
+    }
+    const entries = screenshots.map(value => {
+      const { file, sha256, label } = record(value);
+      if (typeof file !== 'string' || !/^[a-zA-Z0-9_-]{1,128}\.png$/.test(file) ||
+        typeof sha256 !== 'string' || !digest.test(sha256) ||
+        typeof label !== 'string' || !label.trim() || label.length > 90) throw Error('Invalid Web visual receipt screenshot');
+      return { file, sha256, label: label.trim() };
+    });
+    if (new Set(entries.map(entry => entry.file)).size !== entries.length) throw Error('Duplicate Web visual receipt screenshot');
+    const normalized = { format: 'web-screenshot' as const, ...metadata, entries, ...pr };
+    return { ...normalized, evidence: fingerprint(JSON.stringify(normalized)) };
+  }
+  if (format !== undefined || screenshots !== undefined || !Array.isArray(scenes) || !scenes.length || scenes.length > 3) {
+    throw Error('Invalid visual receipt plan');
+  }
   const entries = scenes.map(value => {
     const { run, reportSha256, checkpoint, label } = record(value);
     if (typeof run !== 'string' || !uuid.test(run) || typeof reportSha256 !== 'string' || !digest.test(reportSha256) ||
@@ -45,19 +65,69 @@ export function readVisualReceiptPlan(path: string) {
       typeof label !== 'string' || !label.trim() || label.length > 90) throw Error('Invalid visual receipt scene');
     return { run, reportSha256, checkpoint, label: label.trim() };
   });
-  const normalized = { projectRoot, projectId, commit, reviewFocus: reviewFocus.trim(), entries,
-    ...(pullRequest !== undefined && { pullRequest }) };
-  return { ...normalized, evidence: fingerprint(JSON.stringify(normalized)) };
+  // Retain the existing evidence identity for registered WeChat plans.
+  const normalized = { ...metadata, entries, ...pr };
+  return { format: 'wechat' as const, ...normalized, evidence: fingerprint(JSON.stringify(normalized)) };
 }
 
-export async function readVisualReceipt(plan: ReturnType<typeof readVisualReceiptPlan>) {
-  const { projectRoot, projectId, commit, reviewFocus, entries, evidence } = plan;
+type VisualReceiptPlan = ReturnType<typeof readVisualReceiptPlan>;
+
+export async function readVisualReceipt(plan: VisualReceiptPlan) {
+  const { projectRoot, commit, evidence } = plan;
   if (realpathSync(projectRoot) !== projectRoot || await gitRead(projectRoot, ['rev-parse', '--show-toplevel']) !== projectRoot) {
     throw Error('Visual receipt requires the candidate worktree root');
   }
   const source = await verificationSourceState(projectRoot);
   if (!source.clean || source.commit !== commit) throw Error('Visual receipt candidate changed');
   const repository = await repositoryIdentity(projectRoot);
+  const content = plan.format === 'web-screenshot' ? webScreenshotContent(plan) : wechatReceiptContent(plan, repository);
+  const finalSource = await verificationSourceState(projectRoot);
+  if (!finalSource.clean || finalSource.commit !== commit || await repositoryIdentity(projectRoot) !== repository) throw Error('Visual receipt candidate changed');
+  const github = githubRepository(repository);
+  if (plan.pullRequest && !github) throw Error('Visual review PR requires a github.com origin');
+  return { ...content, evidence, github, repository };
+}
+
+function webScreenshotContent(plan: Extract<VisualReceiptPlan, { format: 'web-screenshot' }>) {
+  const { projectRoot, entries, commit, reviewFocus } = plan;
+  const images = entries.map(({ file, sha256, label }) => {
+    const png = boundedFile(projectRoot, join(projectRoot, '.ui-eval', 'visual-review', file), imageLimit);
+    if (!hasCompletePngChunks(png) || fingerprint(png) !== sha256) throw Error('Web visual receipt screenshot differs from its plan');
+    return { caption: label, png: png.toString('base64') };
+  });
+  return { images, workflowEligible: false,
+    body: 'Web UI 验收 · ' + images.length + ' 张截图\n浏览器截图 · 候选 ' + commit.slice(0, 12) +
+      '\n\n待人工看图 · ' + reviewFocus + '\n本卡记录看图验收，自动化检查以项目报告为准。' };
+}
+
+function hasPngHeader(png: Buffer): boolean {
+  return png.length >= 33 && png.subarray(0, pngHeader.length).equals(pngHeader) && png.readUInt32BE(16) > 0 && png.readUInt32BE(20) > 0;
+}
+
+// Inspect framing and CRCs without decompressing attacker-controlled image data.
+function hasCompletePngChunks(png: Buffer): boolean {
+  if (!hasPngHeader(png)) return false;
+  let imageData = false;
+  let dataEnd = 0;
+  for (let offset = 8; offset + 12 <= png.length;) {
+    const length = png.readUInt32BE(offset);
+    const end = offset + length + 12;
+    if (end > png.length || crc32(png.subarray(offset + 4, end - 4)) !== png.readUInt32BE(end - 4)) return false;
+    const kind = png.toString('latin1', offset + 4, offset + 8);
+    if (!/^[a-zA-Z]{2}[A-Z][a-zA-Z]$/.test(kind) || (kind === 'IHDR' && offset !== 8)) return false;
+    if (kind === 'IDAT') {
+      if (dataEnd && dataEnd !== offset) return false;
+      dataEnd = end;
+      imageData ||= length > 0;
+    }
+    if (kind === 'IEND') return imageData && length === 0 && end === png.length;
+    offset = end;
+  }
+  return false;
+}
+
+function wechatReceiptContent(plan: Extract<VisualReceiptPlan, { format: 'wechat' }>, repository: string) {
+  const { projectRoot, projectId, commit, reviewFocus, entries } = plan;
   // UI-eval hashes the clean source record with these keys in canonical order.
   const sourceDigest = 'sha256:' + fingerprint(JSON.stringify({ commitSha: commit, dirtyTree: false, repository }));
   const images: VisualImage[] = [];
@@ -87,17 +157,13 @@ export async function readVisualReceipt(plan: ReturnType<typeof readVisualReceip
     const shot = matches[0];
     if (matches.length !== 1 || !shot || shot.path !== checkpoint + '.png') throw Error('Visual receipt screenshot is missing or ambiguous');
     const png = boundedFile(projectRoot, join(directory, shot.path), imageLimit);
-    if (!png.subarray(0, pngHeader.length).equals(pngHeader) || png.length < 33 || png.readUInt32BE(16) !== shot.widthPx ||
+    if (!hasPngHeader(png) || png.readUInt32BE(16) !== shot.widthPx ||
       png.readUInt32BE(20) !== shot.heightPx || 'sha256:' + fingerprint(png) !== shot.digest) throw Error('Visual receipt screenshot differs from its report');
     const total = Number(assertions.passed) + Number(assertions.failed);
     images.push({ caption: label.trim() + ' · ' + verdict + ' · 已执行断言 ' + assertions.passed + '/' + total, png: png.toString('base64') });
     if (report.status === 'passed') passed++;
   }
-  const finalSource = await verificationSourceState(projectRoot);
-  if (!finalSource.clean || finalSource.commit !== commit || await repositoryIdentity(projectRoot) !== repository) throw Error('Visual receipt candidate changed');
-  const github = githubRepository(repository);
-  if (plan.pullRequest && !github) throw Error('Visual review PR requires a github.com origin');
-  return { images, evidence, allPassed: passed === images.length, github, repository,
+  return { images, workflowEligible: passed === images.length,
     body: '微信 UI 验证 · ' + passed + '/' + images.length + ' 个场景通过\n微信开发者工具 · 候选 ' + commit.slice(0, 12) +
       '\n\n待人工看图 · ' + reviewFocus.trim() };
 }
@@ -123,6 +189,6 @@ export async function queueVisualReceipt(admission: PilotAdmission, transport: S
   if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
   return { execution: executionId, ...transport.projectVisualReceipt(request, { ...receipt, binding: {
     repository: receipt.github ?? receipt.repository, commit: plan.commit, pullRequest: plan.pullRequest,
-    workflow: receipt.allPassed && receipt.github && plan.pullRequest ? workflows[receipt.github] : undefined,
+    workflow: receipt.workflowEligible && receipt.github && plan.pullRequest ? workflows[receipt.github] : undefined,
   } }) };
 }

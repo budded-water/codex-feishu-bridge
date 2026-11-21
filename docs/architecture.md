@@ -47,6 +47,8 @@ The separate [bounded repair entry](bounded-repair.md) adds explicit owner-priva
 
 Optional task verification is implemented in the P1 entry through the execution-ID native owner. `/verify` admits one immutable trusted profile selection with a new task; after native completion its existing Worker assignment/guard remain held during the fixed pinned UI-eval invocation. A separate SQLite observation and bound terminal checkpoint preserve native and validation outcomes. Transport atomically persists a bounded verification handoff with the native checkpoint projection, preserving native chunk sizes and sealed journals. `/verification` is read-only; uncertainty never authorizes replay. Configuration, host-command authority and initial local recovery limits are in [project verification](project-verification.md). Deployment/actual acceptance are separately recorded.
 
+A managed local [Web screenshot receipt](project-verification.md#web-screenshot-review-receipts) uses the same owner-private visual decision, with screenshots bound to a clean candidate and operator-supplied hashes. It records human acceptance without a write-side workflow.
+
 The managed local [WeChat visual receipt](project-verification.md#wechat-visual-receipts)
 associates selected existing reports with a completed ordinary execution.
 The gateway persists the checked evidence snapshot in the existing outbox, and
