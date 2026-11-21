@@ -1913,6 +1913,7 @@ test('registered PRs take precedence and an ambiguous input is published once af
   });
   for (const text of [
     '检查 https://github.com/org/Solura-app/pull/9/files?diff=split',
+    'Review https://github.com/Org/solura-app/pull/9/files?filter=bug,ui&label=$triage#focus!diff',
     'Review https://github.com/Org/solura-app/pull/9.',
     'Check https://github.com/Org/solura-app/pull/9, focusing on CI.',
     '检查 https://github.com/Org/solura-app/pull/9,再看 CI',

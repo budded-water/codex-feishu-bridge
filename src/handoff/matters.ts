@@ -35,12 +35,13 @@ function pullRequestAddresses(text: string): { ref: string; index: number; end: 
   const refs: { ref: string; index: number; end: number }[] = [];
   // A slash before an unrecognized character may introduce another path
   // segment. Only treat a trailing slash as complete at a prose boundary.
-  for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%?&#=@~+-]+/gi)) {
+  // Query and fragment punctuation belongs to the URL without extending the PR path.
+  for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%&=@~+-]+(?:[?#][a-z0-9./_:%?&#=@~+,$;!*()'-]*)?/gi)) {
     const value = match[0];
     const end = match.index + value.length;
     if (!urlBoundary.test(text.slice(end))) continue;
     const address = value.replace(text[match.index - 1] === '_' ? /[.:_]+$/ : /[.:]+$/, '');
-    if (address.endsWith('/') && (address !== value ||
+    if (!/[?#]/.test(value) && address.endsWith('/') && (address !== value ||
       !/^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"',;!，。？！、；：…])/u.test(text.slice(match.index + value.length)))) continue;
     const ref = pullRequest(address);
     if (ref) refs.push({ ref, index: match.index, end });
