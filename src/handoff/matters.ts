@@ -75,7 +75,7 @@ function topicTitle(input: string, ref?: string): string {
   const firstLine = input.trim().split(/\r?\n/, 1)[0]!;
   const shortened = firstLine.replace(/^(?:(?:请|帮我|麻烦)\s*){0,3}(?:看看|看一下|查一下|查查|检查|研究一下|研究)\s*/u, '');
   const text = (shortened || firstLine).normalize('NFC').replace(/https?:\/\/\S+/gi, '链接');
-  const prefix = /^([^:：。！？]{1,36})[:：]/u.exec(text)?.[1];
+  const prefix = /^([^:：。！？]{1,36})(?:：|:(?=\s))/u.exec(text)?.[1];
   const label = (prefix ?? text.split(/[。！？]/u, 1)[0]!).replace(/[\u0000-\u001f:：]+/g, ' ').replace(/\s+/g, ' ').trim();
   return label.length > 42 ? label.slice(0, 41).replace(/[\uD800-\uDBFF]$/, '').trimEnd() + '…' : label || '新话题';
 }

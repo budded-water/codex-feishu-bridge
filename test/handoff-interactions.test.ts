@@ -1583,6 +1583,23 @@ test('a long titled request gets one complete receipt with progress and a separa
   assert.equal(h.sent.filter(row => row.options?.replyTo === original.id && row.text === 'Done').length, 1);
 });
 
+test('colons in time and file references do not become explicit topic separators', async t => {
+  const h = setup(t);
+  const subjects = [
+    { input: '检查 10:30 的退款批次。请整理异常', title: '10 30 的退款批次' },
+    { input: '请比较 src/config.ts:120 和 src/config.ts:145', title: '请比较 src/config.ts 120 和 src/config.ts 145' },
+    { input: 'Release checks: verify the candidate commit', title: 'Release checks' },
+  ];
+  for (const { input, title } of subjects) {
+    const original = h.actor('换个话题。' + input);
+    const accepted = h.interactions.receive(original);
+    assert.ok('request' in accepted);
+    assert.equal(accepted.request.input, input);
+    await drain(h);
+    assert.ok(h.sent.some(row => row.options?.replyTo === original.id && row.text.includes('**新事项** · ' + title + '\n')));
+  }
+});
+
 test('an explicit new topic admits its first request once and preserves the older quote and PR binding', async t => {
   const h = setup(t, undefined, undefined, ['other']);
   h.interactions.receive(h.actor('/matter-new 小程序底栏'));
