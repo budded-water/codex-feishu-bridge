@@ -92,6 +92,7 @@ The operator prepares an owner-only (`0600`) local JSON file with:
 | `projectId`, `commit` | Exact project ID and full candidate commit recorded in each planned report. |
 | `reviewFocus` | Brief text describing what the reviewer should inspect in the pictures. |
 | `scenes` | One to three entries, each with the WeChat run UUID in `run`, exact `report.json` SHA-256 (hex, no prefix) in `reportSha256`, and a declared `checkpoint` and readable `label`. |
+| `pullRequest` | Optional positive integer. The GitHub repository comes from the clean candidate's HTTPS origin. Displayed with the candidate and base when a delivery workflow is configured. |
 
 Invoke `npm run handoff -- visual-receipt <consumer-state-root> <execution-id> <absolute-private-plan>` against the running pilot. The state root identifies the managed consumer. The command returns the delivery ID and registration status. The Feishu app needs image upload and existing message permissions. A confirmed reply becomes another quotation anchor for the same task. A recalled or deleted original message produces terminal `target-unavailable`, visible when the same plan is submitted again.
 
@@ -102,6 +103,90 @@ row. Tap a screenshot to open the original.
 The receipt uses Card JSON 2.0 and needs Feishu client 7.20 or later.
 Check the reviewing device's version during mobile acceptance.
 See [Feishu client compatibility](https://open.feishu.cn/document/feishu-cards/card-json-v2-breaking-changes-release-notes).
+
+### Review actions on new receipts
+
+The enrolled private owner and approver can record visual acceptance in the
+card. This updates the original message without starting Codex. A quoted reply
+continues the original task and includes the card's observed review state.
+Existing delivered cards retain their original display and quotation behavior.
+
+With passing selected scenes, a bound PR and an operator-configured workflow,
+the card offers **通过并合并 PR** or **合并 PR** after acceptance. An upload
+button appears after confirmed merge only for a workflow with a developer
+target. Each button authorizes exactly the displayed action. Changes in
+the candidate require fresh evidence and a new receipt. The card reports
+check failures, successful commits and upload receipts separately. Duplicate
+clicks read the retained phase. Inspect the provider after an uncertain
+write before making a new delivery decision.
+
+Configure the repository workflow in private `HANDOFF_CONFIG`. These are
+deployment-owned programs outside the candidate checkout.
+
+```json
+{
+  "visualReviewWorkflows": {
+    "owner/repository": {
+      "executable": "/private/workflows/project-delivery",
+      "sha256": "<64 lowercase hex digits>",
+      "base": "main",
+      "uploadTarget": "wechat-dev-app"
+    }
+  }
+}
+```
+
+The enrolled runtime owner owns the executable, which must be a regular file
+at its canonical absolute path with owner-only write mode. The gateway reads
+the bytes once, checks their registered digest and runs a private snapshot from
+the protected system temporary directory. Use absolute paths for any adapter
+dependencies. The snapshot preserves the executable name and content.
+`uploadTarget` identifies the optional developer app approved for that workflow.
+The gateway also rechecks the recorded approver against the current owner
+scope and approval configuration before launch, including after restart.
+The program receives a single JSON argument with `id`, `action` (`merge` or
+`upload`), `repository`, `commit` (full reviewed commit), `pullRequest` and
+`base`. Upload includes the recorded `mergeCommit` and `target`. The program
+returns one JSON result. Standard output is reserved for the result. Use
+the pair of `id` and `action` to correlate provider effects and evidence.
+
+The workflow owns repository checks and authorization, exact-head and base
+checks, and provider verification. For GitHub, enforce the expected head at
+the merge write and read back the actual merge commit. For upload, verify
+the source and release artifact, developer app, version and applicable
+checks using the project's release tooling. Keep any provider-specific
+observations and uncertain effects in that tool's own ledger. Stdout must
+echo the request identity and report one of these outcomes:
+
+| Status | Additional fields and meaning |
+| --- | --- |
+| `blocked` | `reason` is one of `stale-source`, `checks`, `authorization`, `target-unavailable`. Use only when the requested effect is confirmed absent. |
+| `merged` | `mergeCommit` is the provider-confirmed full merge SHA. |
+| `uploaded` | `version` and `receipt` are the verified developer version and receipt identifier. Echo the exact `mergeCommit` and `target`. |
+
+An error, timeout or unusable result after starting the program leaves the
+effect unknown. A gateway restart retains that distinction and never
+automatically repeats a started action. After confirming the previous workflow
+and its provider operations have settled, the local operator can inspect the
+provider and record the result through the authenticated gateway:
+
+```sh
+npm run handoff -- visual-reconcile <consumer-state-root> <delivery-id> <absolute-private-inspection>
+```
+
+The owner-only JSON file names the original adapter `id` (delivery ID) and the exact `action`, `repository`, `commit`,
+`pullRequest` and `base`, plus an `evidence` reference to the inspection.
+Upload observations also include the original `mergeCommit` and `target`.
+Use `status: "absent"` if the provider confirms no effect, `status: "merged"`
+with the verified `mergeCommit`, or `status: "uploaded"` with the verified
+`version` and `receipt`. The command retains the prior unknown state and
+inspection record, then updates the existing card. A confirmed absence
+releases the corresponding guard. Any later write requires a separate click
+on an eligible card. An exact repeat of the inspection records one outcome.
+
+Drain queued actions and pending
+card updates before replacing the gateway. Preserve its visual review
+ledger during backup and rollback.
 
 The gateway reads only the selected checkpoint PNGs with verified digests, the
 same clean captured source and runtime across scenes, and a matching origin and

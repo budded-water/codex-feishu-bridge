@@ -107,6 +107,8 @@ The experimental prepared pilot entry uses a private handoff configuration and m
 
 The optional handoff-only `verificationProfiles` registry is defined in [project verification](project-verification.md). It is private trusted executable policy shared by gateway and Worker, not a bridge configuration field or an arbitrary chat command facility.
 
+The optional handoff-only `visualReviewWorkflows` registry is defined in [review actions](project-verification.md#review-actions-on-new-receipts). It binds a repository's private delivery program and optional developer target.
+
 A profile can additionally register the explicit [bounded repair policy](bounded-repair.md#use-and-trusted-policy). It has no default, changes no ordinary-task behavior, and requires the actual Worker launch budget to cover its finite work/cleanup deadlines. Both bridge example configurations remain unchanged.
 
 P2 的 P1 网关检查恢复命令沿用 `approvalUsers`、`approvalChat` 和现有访问配置，无新增字段。仅任务本人同时具备审批权限、且处于已登记私聊时可用；管理员身份不允许替另一个任务主人恢复。详见 [检查后恢复](usage.md#p2检查后恢复p1-网关)。实际部署状态见 [验收记录](live-acceptance.md)。

@@ -17,6 +17,7 @@ import { readJournal } from '../src/handoff/journal.js';
 import { Feishu } from '../src/feishu.js';
 import { Outbox } from '../src/outbox.js';
 import { queueVisualReceipt } from '../src/handoff/visual-receipt.js';
+import type { VisualWorkflows } from '../src/handoff/visual-review-workflow.js';
 import { fingerprint } from '../src/handoff/verification-profile.js';
 import { acquireRoot, fenceFile, manageRuntime, openRuntimeControl, writePrivate } from '../src/handoff/ownership.js';
 import { matterCard, normalizeMatterClick, NEW_MATTER_CHOICE } from '../src/matter-card.js';
@@ -32,7 +33,8 @@ class ManagedFake extends FakeCodex implements ManagedCodex {
   async close() { this.exit(); }
 }
 
-function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort, extraProjects: string[] = []) {
+function setup(t: TestContext, publish: () => Promise<void> = async () => {}, context?: ContextPort, extraProjects: string[] = [],
+  workflows: VisualWorkflows = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'handoff-interactions-')));
   const project = join(root, 'project'); mkdirSync(project);
   const projects = { pilot: project, ...Object.fromEntries(extraProjects.map(name => {
@@ -55,12 +57,14 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
   };
   let remove = async (message: string) => { reactions.delete(message); };
   const cardUpdates: { message: string; view: ApprovalView; approval: ApprovalPresentation }[] = [];
+  let updateVisual: import('../src/outbox.js').Sender['updateVisualReview'];
   const sender = { send: (chat: string, text: string, id: string, options?: DeliveryOptions) => send(chat, text, id, options),
+    updateVisualReview: async (...args: Parameters<NonNullable<typeof updateVisual>>) => { await updateVisual?.(...args); },
     updateApproval: async (message: string, approval: ApprovalPresentation, view: ApprovalView) => { cardUpdates.push({ message, view, approval }); } };
   let add = async (message: string) => { const id = 'reaction-' + message; reactions.set(message, id); return id; };
   const port = { addReaction: (message: string) => add(message),
     findReaction: async (message: string) => reactions.get(message), removeReaction: (message: string) => remove(message) };
-  let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
+  let interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context, undefined, workflows);
   const actor = (text: string, overrides = {}) => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, id: randomUUID(), text, chatType: 'p2p' as const, ...overrides });
   const launch = async () => {
     const message = actor('Inspect this assigned task');
@@ -82,20 +86,22 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
       admission = new PilotAdmission(config.stateDirectory, scope);
       native = new NativeExecutions(admission, config, () => codex);
     }
-    interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context);
+    interactions = new PilotInteractions(admission, config, { flush: publish, diagnose: async () => ({ status: 'unavailable' }) }, native, sender, port, ['fixture-private-secret'], context, undefined, workflows);
     await interactions.recover();
     return interactions;
   };
   t.after(async () => { await native.stop(); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
   return { config, get admission() { return admission; }, get native() { return native; }, codex, sent, cardUpdates, reactions, actor, launch, restart, get interactions() { return interactions; },
     setSend: (value: typeof send) => { send = value; }, setAdd: (value: typeof add) => { add = value; },
-    setRemove: (value: typeof remove) => { remove = value; } };
+    setRemove: (value: typeof remove) => { remove = value; }, setVisualUpdate: (value: typeof updateVisual) => { updateVisual = value; } };
 }
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
 
 test('owner visual evidence is paired by scenario, sent once after retry and binds the quote to its task', async t => {
   const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
   const active = await h.launch();
   const execution = active.request.execution;
   const state = h.interactions.transport.state;
@@ -168,6 +174,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   let afterUpload = () => {};
   let standalone = false;
   const replies: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
+  const updates: { path: { message_id: string }; data: { content: string } }[] = [];
   Object.assign(sdk, { client: { im: { v1: {
     image: { create: async ({ data }: { data: { image_type: string; image: ReadStream & { name: string } } }) => {
       assert.equal(data.image_type, 'message');
@@ -179,7 +186,8 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
       afterUpload();
       return { image_key: 'img_fixture_' + uploads.length };
     } },
-    message: { create: async () => { standalone = true; return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
+    message: { create: async () => { standalone = true; return { code: 0 }; },
+      patch: async (value: typeof updates[number]) => { updates.push(value); return { code: 0 }; }, reply: async (value: typeof replies[number]) => {
       if (recalled) return { code: 230011 };
       if (contentRejected) return { code: 230028 };
       if (value.data.uuid !== receipt.delivery) {
@@ -217,7 +225,7 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   assert.equal(rendered.schema, '2.0');
   assert.equal(rendered.header.title.content, '微信 UI 验证 · 2/2 个场景通过');
   assert.equal(rendered.body.elements[1].content, '**待人工验收**');
-  const gallery = rendered.body.elements.at(-1);
+  const gallery = rendered.body.elements.find((element: { tag: string }) => element.tag === 'column_set');
   assert.equal(gallery.tag, 'column_set');
   assert.equal(gallery.flex_mode, 'bisect');
   assert.deepEqual(gallery.columns.map(({ elements: [name, result, image] }: { elements: [
@@ -229,6 +237,23 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   ]);
   assert.equal(state.confirmedAnswer(quote), execution);
   assert.equal(state.confirmedAnswer({ ...quote, user: 'someone-else' }), undefined);
+  const button = rendered.body.elements.at(-1);
+  assert.equal(button.text.content, '仅确认验收');
+  assert.equal(button.width, 'fill');
+  const click = { tenant: quote.tenant, chat: quote.chat, user: quote.user, message: 'visual-receipt', id: receipt.delivery, decision: 'accept' as const };
+  const turns = h.codex.calls.filter(call => call.method === 'turn/start').length;
+  h.setVisualUpdate((...args) => sdk.updateVisualReview(...args));
+  assert.equal(h.interactions.visualReviewAction({ ...click, message: 'wrong-card' }), 'rejected');
+  assert.equal(h.interactions.visualReviewAction({ ...click, user: 'ou_admin' }), 'rejected');
+  assert.equal(h.interactions.visualReviewAction(click), 'accepted');
+  assert.equal(h.interactions.visualReviewAction(click), 'duplicate');
+  await until(() => updates.length === 1);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]?.path.message_id, 'visual-receipt');
+  const renderedUpdate = JSON.parse(updates[0]!.data.content);
+  assert.match(updates[0]!.data.content, /人工验收通过 · 待交付/);
+  assert.deepEqual(renderedUpdate.body.elements.find((element: { tag: string }) => element.tag === 'column_set'), gallery);
+  assert.equal(h.codex.calls.filter(call => call.method === 'turn/start').length, turns);
   unlinkSync(home.imagePath);
   assert.deepEqual(await queue(), receipt);
   writeFileSync(home.imagePath, png);
@@ -272,6 +297,35 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   finally { afterUpload = () => {}; clock.mock.restore(); }
   assert.equal(uploads.length, uploadsBeforeExpiry + 1);
   assert.deepEqual(await queue(), { ...interrupted, status: 'delivery-unconfirmed' });
+  assert.equal(h.interactions.receive(quote).status, 'task-reply');
+  const taskReply = h.admission.store.taskReply(JSON.stringify([quote.tenant, quote.id]));
+  assert.ok(taskReply?.followup);
+  const followup = h.admission.store.request(taskReply.followup)!;
+  assert.equal(followup.conversation, active.request.conversation);
+  assert.match(followup.input, /"phase":"reviewed"/);
+
+  h.interactions.receive(h.actor('/matter-new 发版核对'));
+  const scope = { owner: ownerKey(active.message), project: h.admission.project };
+  const alternate = h.admission.store.matters.focus(scope)!;
+  const chooseSource = h.actor('发版核对：确认截图状态', { parentId: 'visual-receipt' });
+  const chooseAlternate = h.actor('发版核对：检查版本说明', { parentId: 'visual-receipt' });
+  for (const message of [chooseSource, chooseAlternate]) {
+    assert.equal(h.interactions.receive(message).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(message), undefined);
+  }
+  await drain(h);
+  await h.restart(true);
+  for (const [message, choice] of [[chooseSource, 'default'], [chooseAlternate, alternate]] as const) {
+    const sent = h.sent.find(item => item.options?.replyTo === message.id && item.options.matterCard)!;
+    const card = sent.options!.matterCard!;
+    assert.equal(h.interactions.matterAction({ ...card, event: randomUUID(), message: 'delivered-' + sent.id, choice }), 'accepted');
+  }
+  const same = h.admission.store.requestForMessage(chooseSource)!;
+  assert.equal(h.admission.store.conversationThread(same.conversation), active.thread);
+  assert.match(same.input, /"phase":"reviewed"/);
+  const other = h.admission.store.requestForMessage(chooseAlternate)!;
+  assert.equal(other.conversation, alternate);
+  assert.equal(other.input, '检查版本说明');
 });
 
 test('managed visual submission can acknowledge validation slower than native controls', async t => {
@@ -286,6 +340,52 @@ test('managed visual submission can acknowledge validation slower than native co
   t.after(async () => { await controller.close(true); await lease.release(); rmSync(root, { recursive: true, force: true }); });
   await assert.rejects(manageRuntime(root, 'visual-receipt', 'task', 'wrong-plan'), /rejected by the gateway/);
   assert.deepEqual(await manageRuntime(root, 'visual-receipt', 'task', 'approved-plan'), { delivery: 'fixture-receipt' });
+});
+
+test('visual action reconciliation retries a failed result write without repeating the effect', async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'visual-retry-result-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const executable = join(root, 'adapter');
+  const writes = join(root, 'writes');
+  const script = '#!' + process.execPath + '\n' +
+    'require("node:fs").appendFileSync(' + JSON.stringify(writes) + ',"merge\\n");\n' +
+    'console.log(JSON.stringify({...JSON.parse(process.argv[2]),status:"merged",mergeCommit:"' + 'b'.repeat(40) + '"}));\n';
+  writeFileSync(executable, script, { mode: 0o700 });
+  const workflow = { executable, sha256: fingerprint(script), base: 'main' };
+  const repository = 'example/project';
+  const h = setup(t, undefined, undefined, [], { [repository]: workflow });
+  h.config.approvalUsers = ['ou_owner']; h.config.approvalChat = 'chat';
+  const owner = h.actor('');
+  const state = h.interactions.transport.state;
+  const id = randomUUID();
+  state.visualReviews.register(id, owner, 'fixture', { repository, commit: 'a'.repeat(40), pullRequest: 19, workflow });
+  state.visualReviews.delivered(id, 'om_fixture', [{ caption: '首页', key: 'img_fixture' }]);
+  const finish = state.visualReviews.finish.bind(state.visualReviews);
+  let attempts = 0;
+  t.mock.method(state.visualReviews, 'finish', (...args: Parameters<typeof finish>) => {
+    if (++attempts === 1) throw Error('Injected transient store failure');
+    finish(...args);
+  });
+  const click = { tenant: owner.tenant, chat: owner.chat, user: owner.user, message: 'om_fixture', id, decision: 'merge' as const };
+  assert.equal(h.interactions.visualReviewAction(click), 'accepted');
+  await h.interactions.flush();
+  await until(() => attempts === 1);
+  assert.equal(state.visualReviews.view(id)?.phase, 'merging');
+  await h.interactions.flush();
+  assert.equal(state.visualReviews.view(id)?.phase, 'merged');
+  assert.equal(readFileSync(writes, 'utf8'), 'merge\n');
+  assert.equal(h.interactions.visualReviewAction(click), 'duplicate');
+
+  const revoked = randomUUID();
+  state.visualReviews.register(revoked, owner, 'fixture', { repository, commit: 'a'.repeat(40), pullRequest: 20, workflow });
+  state.visualReviews.delivered(revoked, 'om_revoked', [{ caption: '首页', key: 'img_fixture' }]);
+  assert.equal(state.transaction(() => state.visualReviews.decide({ ...click, id: revoked, message: 'om_revoked' })), 'accepted');
+  h.config.approvalUsers = ['ou_admin'];
+  await h.restart(true);
+  await drain(h);
+  assert.equal(h.interactions.transport.state.visualReviews.view(revoked)?.phase, 'merge-blocked');
+  assert.deepEqual(h.interactions.transport.state.visualReviews.view(revoked)?.result, { status: 'blocked', reason: 'authorization' });
+  assert.equal(readFileSync(writes, 'utf8'), 'merge\n');
 });
 
 for (const [name, reference] of [

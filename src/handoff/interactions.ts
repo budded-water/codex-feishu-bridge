@@ -25,6 +25,8 @@ import { OwnerTasks } from './tasks.js';
 import type { TaskRefreshClick } from '../task-card.js';
 import { OwnerPermissions } from './permissions.js';
 import type { ReviewClick } from '../review-card.js';
+import type { VisualReviewClick } from '../visual-review.js';
+import { executeVisualOperation, type VisualOperation, type VisualOperationResult, type VisualWorkflows } from './visual-review-workflow.js';
 
 export class PilotInteractions {
   readonly transport: HandoffTransport;
@@ -41,11 +43,13 @@ export class PilotInteractions {
   private startup?: Promise<void>;
   private publication?: Promise<void>;
   private controlWork?: Promise<void>;
+  private visualWork?: Promise<void>;
+  private visualResult?: { operation: VisualOperation; result?: VisualOperationResult };
   private viewWork: Promise<void> = Promise.resolve();
 
   constructor(readonly admission: PilotAdmission, private config: Config, private source: Pick<SourceOutbox, 'flush' | 'diagnose'>,
     private native: NativeExecutions, sender: Sender, reactions: ReactionPort, secrets: string[] = [], private contextPort?: ContextPort,
-    private profiles: VerificationProfiles = {}) {
+    private profiles: VerificationProfiles = {}, private workflows: VisualWorkflows = {}, private assertVisualOwner = () => {}) {
     this.transport = new HandoffTransport(admission, native, sender, reactions, secrets);
     this.recovery = new FeishuRecovery(admission, config, native, source, this.transport.state);
     this.queue = new OwnerQueue(admission, config, this.transport.state);
@@ -103,7 +107,8 @@ export class PilotInteractions {
         const held = this.matters.holdConflictingAnswer(message, answer);
         if (held) return held;
       }
-      const reply = this.admission.store.acceptTaskReply(message, this.admission.project, answer);
+      const visual = answer ? this.transport.state.visualReviews.context(message.parentId) : undefined;
+      const reply = this.admission.store.acceptTaskReply(message, this.admission.project, answer, visual);
       if (reply) return reply;
     }
     if (!command && (!natural || (natural === 'steer' && this.matters.overridesNaturalSteer(message)))) {
@@ -386,6 +391,49 @@ export class PilotInteractions {
     return this.work;
   }
 
+  visualReviewAction(click: VisualReviewClick): CardResult {
+    if (this.closing || this.admission.store.maintenance.paused ||
+      !isMaintenanceOwner(this.admission.scope, this.config, { ...click, chatType: 'p2p', text: '' })) return 'rejected';
+    if (click.decision !== 'accept' && this.admission.store.unsettled().some(execution => execution.status === 'unknown')) return 'rejected';
+    this.assertVisualOwner();
+    const state = this.transport.state;
+    const result = state.transaction(() => state.visualReviews.decide(click));
+    if (result === 'accepted') void this.flush().catch(() => console.error('Visual decision is retained'));
+    return result;
+  }
+
+  private launchVisualReview(): void {
+    if (this.visualWork || this.closing || !this.persistVisualResult()) return;
+    if (this.admission.store.unsettled().some(execution => execution.status === 'unknown')) return;
+    this.assertVisualOwner();
+    const state = this.transport.state;
+    const operation = state.transaction(() => state.visualReviews.take());
+    if (!operation) return;
+    this.visualWork = (async () => {
+      let result: VisualOperationResult | undefined;
+      try {
+        result = isMaintenanceOwner(this.admission.scope, this.config, { ...operation.owner, chatType: 'p2p', id: operation.id, text: '' })
+          ? await executeVisualOperation(operation, this.workflows)
+          : { status: 'blocked', reason: 'authorization' };
+      } catch { console.error('Visual review workflow result requires inspection'); }
+      this.visualResult = { operation, result };
+      this.persistVisualResult();
+    })().finally(() => { this.visualWork = undefined; });
+  }
+
+  private persistVisualResult(): boolean {
+    if (!this.visualResult) return true;
+    try {
+      this.assertVisualOwner();
+      this.transport.state.visualReviews.finish(this.visualResult.operation, this.visualResult.result);
+      this.visualResult = undefined;
+      return true;
+    } catch {
+      console.error('Visual workflow outcome awaits ledger retry');
+      return false;
+    }
+  }
+
   private async synchronize(): Promise<void> {
     await this.viewWork;
     await this.deliveries.idle();
@@ -396,6 +444,7 @@ export class PilotInteractions {
     this.recovery.sync();
     this.queue.sync();
     this.matters.sync();
+    this.launchVisualReview();
     if (!this.publication) this.publication = this.publish()
       .catch(() => console.error('Source publication unavailable; retained intent will be retried'))
       .finally(() => { this.publication = undefined; });
@@ -410,6 +459,7 @@ export class PilotInteractions {
   }
 
   async recover(): Promise<void> {
+    this.transport.state.visualReviews.recoverLaunches();
     await this.native.recover();
     this.matters.sync();
     this.admission.store.finishTaskReplies();
@@ -432,6 +482,8 @@ export class PilotInteractions {
       await this.work;
       await this.publication;
       await this.controlWork;
+      await this.visualWork;
+      this.persistVisualResult();
       await this.viewWork;
       await this.deliveries.idle();
       await this.tasks.idle();

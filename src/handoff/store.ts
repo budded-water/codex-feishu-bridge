@@ -223,7 +223,7 @@ export class AdmissionStore {
       this.permissionRetry(execution) || this.browserRetry(execution));
   }
 
-  acceptTaskReply(message: IncomingMessage, project: string, answerExecution?: string) {
+  acceptTaskReply(message: IncomingMessage, project: string, answerExecution?: string, visualContext?: string) {
     return this.transaction(() => {
       const origin = JSON.stringify([message.tenant, message.id]);
       if (this.taskReply(origin) || this.db.prepare('SELECT 1 FROM requests WHERE origin=? UNION SELECT 1 FROM controls WHERE origin=? UNION SELECT 1 FROM recoveries WHERE origin=?').get(origin, origin, origin) ||
@@ -264,7 +264,9 @@ export class AdmissionStore {
         }
       } else {
         save('live', null);
-        this.finishTaskReply(this.taskReply(origin)!, request, held?.input ?? undefined);
+        const selected = held?.input ?? message.text;
+        this.finishTaskReply(this.taskReply(origin)!, request, fromAnswer && visualContext ?
+          selected + '\n\n该卡片当前交付记录（只作上下文）\n' + visualContext : selected);
       }
       return { status: 'task-reply' as const };
     });

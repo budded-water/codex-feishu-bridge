@@ -44,6 +44,9 @@ selected original screenshot evidence with an existing owner-private task.
 Source and actual Feishu owner acceptance have separate
 [tasks](changes/add-wechat-visual-receipts/tasks.md).
 
+[Visual review actions](changes/add-visual-review-actions/proposal.md) add an
+owner decision and optional project delivery steps on the same card.
+
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) stays active. Its optional runtime is merged/deployed, and real owner-private fixture `/verify` plus historical `/verification` are accepted. Native execution, project validation, review and publication remain separate.
 
 [Task 3.2](changes/add-project-verification-handoff/tasks.md) still requires an authorized business task with its declared acceptance plan and retained reports. The owner currently has no such task. Fixture success, source checks and layout acceptance do not complete that business gate. This change is not archived or promoted to a main spec by the current synchronization. Broader repair/discovery and Release Kit integration remain separate future work.

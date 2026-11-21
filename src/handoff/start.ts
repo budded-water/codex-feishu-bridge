@@ -11,6 +11,7 @@ import { AutoloopSource, SourceOutbox } from './source.js';
 import { PilotInteractions } from './interactions.js';
 import { pilotMaintenance } from './maintenance.js';
 import { queueVisualReceipt } from './visual-receipt.js';
+import { readVisualInspection, visualWorkflows } from './visual-review-workflow.js';
 import { verificationProfiles } from './verification-profile.js';
 import { managedRefundObserver, type ManagedRefundObserver } from './refund-monitor.js';
 import { parseObserverConfig } from '../sls-refund/sls-source.js';
@@ -26,6 +27,7 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
   const hubUrl = value.hubUrl;
   const sourceKey = process.env.HANDOFF_SOURCE_KEY;
   const profiles = verificationProfiles(value.verificationProfiles);
+  const workflows = visualWorkflows(value.visualReviewWorkflows);
   const refund = value.slsRefundObserver === undefined ? undefined : parseObserverConfig(value.slsRefundObserver, 'live');
   const queueSettings = refund && parseRefundQueueSettings(record(value.slsRefundObserver).smq, refund.binding.region);
   const queue = queueSettings && refund?.aliyun && refundQueue(queueSettings, refund.binding, refund.aliyun.executable);
@@ -65,7 +67,16 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
           return queueVisualReceipt(admission, interactions.transport.state, request.task, request.reference, () => {
             if (stopping || performance.now() >= deadline) throw Error('Visual receipt validation window closed');
             lease.assertHeld();
-          });
+          }, workflows);
+        }
+        if (request.command === 'visual-reconcile') {
+          if (stopping) throw Error('Pilot is closing');
+          const { task, reference } = request;
+          if (typeof task !== 'string' || typeof reference !== 'string') throw Error('Visual inspection requires a card and private plan');
+          const inspection = readVisualInspection(reference);
+          lease.assertHeld();
+          const state = interactions.transport.state;
+          return state.transaction(() => state.visualReviews.reconcile(task, inspection));
         }
         return pilotMaintenance(admission, native, interactions.transport.state, request);
       });
@@ -74,7 +85,8 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       admission = new PilotAdmission(directory, record(value.scope) as unknown as PilotScope, config.projectRouting);
       native = new NativeExecutions(admission, config, undefined, profiles, { nativePermissions: nativePermissions(value.nativePermissions) });
       const source = new SourceOutbox(admission, new AutoloopSource(hubUrl, sourceKey));
-      interactions = new PilotInteractions(admission, config, source, native, feishu, feishu, [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu, profiles);
+      interactions = new PilotInteractions(admission, config, source, native, feishu, feishu,
+        [auth.appSecret, sourceKey, process.env.OPENAI_API_KEY ?? ''], feishu, profiles, workflows, lease.assertHeld);
       admission.store.bindChannel('feishu', await feishu.botIdentity());
       await interactions.start();
     })();
@@ -88,7 +100,8 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
       interactions!.receive(message);
       void interactions!.flush().catch(() => {});
     },
-      click => interactions!.cardAction(click), click => interactions!.taskRefresh(click), click => interactions!.reviewAction(click), click => interactions!.matterAction(click));
+      click => interactions!.cardAction(click), click => interactions!.taskRefresh(click), click => interactions!.reviewAction(click),
+      click => interactions!.matterAction(click), click => stopping ? 'rejected' : interactions!.visualReviewAction(click));
     if (stopping) return;
     if (refund) {
       lease.assertHeld();

@@ -12,6 +12,7 @@ import { record, string, type IncomingMessage, type ContextPort, type Session, t
 import { approvalCard, normalizeApprovalClick, type ApprovalPresentation, type ApprovalView, type ApprovalClick, type CardResult } from './approval.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from './task-card.js';
 import { visualReceiptCard } from './visual-receipt-card.js';
+import { normalizeVisualReviewClick, type VisualAttachment, type VisualReviewClick, type VisualReviewView } from './visual-review.js';
 
 function queryPost(body: Record<string, unknown>): string | undefined {
   const { title, rows } = postRows(body);
@@ -123,7 +124,8 @@ export class Feishu implements ContextPort, ReactionPort {
   }
 
   async start(receive: (message: IncomingMessage) => void, cardAction?: (click: ApprovalClick) => CardResult,
-    taskAction?: (click: TaskRefreshClick) => CardResult, reviewAction?: ReviewHandler, matterAction?: (click: MatterClick) => CardResult): Promise<void> {
+    taskAction?: (click: TaskRefreshClick) => CardResult, reviewAction?: ReviewHandler, matterAction?: (click: MatterClick) => CardResult,
+    visualAction?: (click: VisualReviewClick) => CardResult): Promise<void> {
     if (this.closed || this.startup) throw new Error('Feishu connection cannot be started');
     let botOpenId: string | undefined;
     if (this.enableGroups) {
@@ -144,8 +146,10 @@ export class Feishu implements ContextPort, ReactionPort {
             const review = normalizeReviewClick(data, this.appId);
             const refresh = normalizeTaskRefresh(data, this.appId);
             const matter = normalizeMatterClick(data, this.appId);
+            const visual = normalizeVisualReviewClick(data, this.appId);
             try {
-              if (matter && matterAction && !this.closed) result = matterAction(matter);
+              if (visual && visualAction && !this.closed) result = visualAction(visual);
+              else if (matter && matterAction && !this.closed) result = matterAction(matter);
               else if (review && reviewAction && !this.closed) result = reviewAction(review);
               else if (refresh && taskAction && !this.closed) result = taskAction(refresh);
               else {
@@ -154,7 +158,9 @@ export class Feishu implements ContextPort, ReactionPort {
               }
             } catch { console.error('Card decision could not be confirmed'); }
             return { toast: { type: result === 'rejected' ? 'warning' : 'info', content: result === 'rejected'
-              ? '请求可能已处理、过期或尚未核实，请查看任务状态。' : refresh ? '正在读取任务进度。' : matter ? '已确认事项选择。' : '已收到本次确认，正在核对请求状态。' } };
+              ? '请求可能已处理、过期或尚未核实，请查看任务状态。' : visual ?
+                (result === 'duplicate' ? '此决定已记录，请查看卡片状态。' : '已记录本次决定，请查看卡片进度。')
+                : refresh ? '正在读取任务进度。' : matter ? '已确认事项选择。' : '已收到本次确认，正在核对请求状态。' } };
           },
         }),
       }).catch(() => this.connectionFailed());
@@ -184,7 +190,7 @@ export class Feishu implements ContextPort, ReactionPort {
       : options.reviewCard ? reviewCard(options.reviewCard)
       : options.taskView ? taskCard(options.taskView)
       : options.approval ? approvalCard(options.approval)
-      : options.visualImages ? visualReceiptCard(text, options.visualImages) : undefined;
+      : options.visualImages ? visualReceiptCard(text, options.visualImages, options.visualReview) : undefined;
     const content = JSON.stringify(card ?? notificationPost(styled, options.mentions ?? []));
     const msg_type = card ? 'interactive' : 'post';
     if (options.replyTo) {
@@ -242,6 +248,16 @@ export class Feishu implements ContextPort, ReactionPort {
       .catch(error => { const code = Number(record(record(record(error).response).data).code ?? record(error).code);
         if ([230011, 230110].includes(code)) return { code }; throw error; });
     if (result.code !== 0 && ![230011, 230110].includes(result.code ?? -1)) throw new Error('Task card update unconfirmed');
+  }
+
+  async updateVisualReview(message: string, body: string, images: VisualAttachment[], review: VisualReviewView): Promise<void> {
+    const result = await this.client.im.v1.message.patch({ path: { message_id: message },
+      data: { content: JSON.stringify(visualReceiptCard(body, images, review)) } }).catch(error => {
+      const code = Number(record(record(record(error).response).data).code ?? record(error).code);
+      if ([230011, 230110].includes(code)) return { code };
+      throw error;
+    });
+    if (result.code !== 0 && ![230011, 230110].includes(result.code ?? -1)) throw Error('Visual card update unconfirmed');
   }
 
   async addReaction(message: string): Promise<string> {
