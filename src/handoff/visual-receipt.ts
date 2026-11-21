@@ -32,7 +32,7 @@ export function readVisualReceiptPlan(path: string) {
     throw Error('Visual receipt plan must be private to the runtime owner');
   }
   const plan = privateRecord(path);
-  const { projectRoot, projectId, commit, reviewFocus, scenes, pullRequest, format, screenshots } = plan;
+  const { projectRoot, projectId, commit, reviewFocus, scenes, pullRequest, format, screenshots, merge } = plan;
   if (typeof projectRoot !== 'string' || !isAbsolute(projectRoot) ||
     typeof projectId !== 'string' || !segment.test(projectId) ||
     typeof commit !== 'string' || !/^[a-f0-9]{40}$/.test(commit) ||
@@ -41,6 +41,7 @@ export function readVisualReceiptPlan(path: string) {
   const metadata = { projectRoot, projectId, commit, reviewFocus: reviewFocus.trim() };
   const pr = pullRequest !== undefined ? { pullRequest } : {};
   if (format === 'web-screenshot') {
+    if (merge !== undefined && (merge !== true || !pullRequest)) throw Error('Web visual merge requires a bound PR');
     if (scenes !== undefined || !Array.isArray(screenshots) || !screenshots.length || screenshots.length > 3) {
       throw Error('Web visual receipt requires one to three screenshots');
     }
@@ -52,10 +53,10 @@ export function readVisualReceiptPlan(path: string) {
       return { file, sha256, label: label.trim() };
     });
     if (new Set(entries.map(entry => entry.file)).size !== entries.length) throw Error('Duplicate Web visual receipt screenshot');
-    const normalized = { format: 'web-screenshot' as const, ...metadata, entries, ...pr };
+    const normalized = { format: 'web-screenshot' as const, ...metadata, entries, ...pr, ...(merge === true && { merge }) };
     return { ...normalized, evidence: fingerprint(JSON.stringify(normalized)) };
   }
-  if (format !== undefined || screenshots !== undefined || !Array.isArray(scenes) || !scenes.length || scenes.length > 3) {
+  if (format !== undefined || merge !== undefined || screenshots !== undefined || !Array.isArray(scenes) || !scenes.length || scenes.length > 3) {
     throw Error('Invalid visual receipt plan');
   }
   const entries = scenes.map(value => {
@@ -95,9 +96,9 @@ function webScreenshotContent(plan: Extract<VisualReceiptPlan, { format: 'web-sc
     if (!hasCompletePngChunks(png) || fingerprint(png) !== sha256) throw Error('Web visual receipt screenshot differs from its plan');
     return { caption: label, png: png.toString('base64') };
   });
-  return { images, workflowEligible: false,
+  return { images, workflowEligible: plan.merge === true,
     body: 'Web UI 验收 · ' + images.length + ' 张截图\n浏览器截图 · 候选 ' + commit.slice(0, 12) +
-      '\n\n待人工看图 · ' + reviewFocus + '\n本卡记录看图验收，自动化检查以项目报告为准。' };
+      '\n\n待人工看图 · ' + reviewFocus + '\n自动化检查以项目报告为准。' };
 }
 
 function hasPngHeader(png: Buffer): boolean {
@@ -187,8 +188,12 @@ export async function queueVisualReceipt(admission: PilotAdmission, transport: S
   const receipt = await readVisualReceipt(plan);
   assertOwned();
   if (admission.store.maintenance.paused) throw Error('Visual receipt admission is paused');
+  const workflow = receipt.workflowEligible && receipt.github && plan.pullRequest ? workflows[receipt.github] : undefined;
+  if (plan.format === 'web-screenshot' && plan.merge && !workflow?.manualRelease) {
+    throw Error('Web visual merge requires a workflow with separate release authorization');
+  }
   return { execution: executionId, ...transport.projectVisualReceipt(request, { ...receipt, binding: {
     repository: receipt.github ?? receipt.repository, commit: plan.commit, pullRequest: plan.pullRequest,
-    workflow: receipt.workflowEligible && receipt.github && plan.pullRequest ? workflows[receipt.github] : undefined,
+    workflow,
   } }) };
 }

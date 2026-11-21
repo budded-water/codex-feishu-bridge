@@ -116,12 +116,14 @@ project, review focus and optional PR fields. Set `format` to `web-screenshot`
 and replace `scenes` with `screenshots` entries containing a bare PNG `file`,
 its exact lowercase hex `sha256`, and a short `label`.
 
-The gateway verifies the candidate, PNG chunk integrity and screenshot hashes, then sends the images
-through the existing persistent card outbox. This format records visual
-acceptance only and offers **仅确认验收**. Automation checks remain in the
-project report. The operator binds this plan to the original task and verifies
-its scope before queueing. To continue from the review, quote the delivered
-card in the registered owner-private chat.
+The gateway verifies the candidate, PNG chunk integrity and screenshot hashes,
+then sends the images through the existing persistent card outbox. The default
+button is **仅确认验收**. Set `merge: true` with a `pullRequest` to request
+the single merge button. This requires the repository to have a workflow
+registered with `manualRelease: true`. Project checks are evaluated by that
+workflow. The operator binds this plan to the original task and verifies its
+scope before queueing. Quote the delivered card in the registered owner-private
+chat to report problems or request a follow-up.
 
 ### Review actions on new receipts
 
@@ -130,14 +132,20 @@ card. This updates the original message without starting Codex. A quoted reply
 continues the original task and includes the card's observed review state.
 Existing delivered cards retain their original display and quotation behavior.
 
-With passing selected WeChat scenes, a bound PR and an operator-configured workflow,
-the card offers **通过并合并 PR** or **合并 PR** after acceptance. An upload
-button appears after confirmed merge only for a workflow with a developer
-target. Each button authorizes exactly the displayed action. Changes in
-the candidate require fresh evidence and a new receipt. The card reports
-check failures, successful commits and upload receipts separately. Duplicate
-clicks read the retained phase. Inspect the provider after an uncertain
-write before making a new delivery decision.
+With `manualRelease: true`, an eligible card offers one button,
+**通过并合并 PR**. Eligibility is an explicitly merge-bound Web plan or an
+existing WeChat plan with passing selected scenes and a bound PR. The click
+accepts and authorizes the displayed candidate. A conflict is shown on the
+same card. Candidate changes require fresh evidence and a new receipt.
+After a provider-confirmed merge, the gateway updates the card and queues one
+reply asking about deployment or release. Quoting the card or that reply
+continues the original task. A reply asking to release is a new request under
+the project's existing publication rules.
+
+Legacy WeChat workflows can offer a separate acceptance choice and a separate
+post-merge upload for a configured developer target. Duplicate clicks consult
+the retained result. Inspect the provider after an uncertain write before
+making a new delivery decision.
 
 Configure the repository workflow in private `HANDOFF_CONFIG`. These are
 deployment-owned programs outside the candidate checkout.
@@ -149,7 +157,7 @@ deployment-owned programs outside the candidate checkout.
       "executable": "/private/workflows/project-delivery",
       "sha256": "<64 lowercase hex digits>",
       "base": "main",
-      "uploadTarget": "wechat-dev-app"
+      "manualRelease": true
     }
   }
 }
@@ -160,13 +168,20 @@ at its canonical absolute path with owner-only write mode. The gateway reads
 the bytes once, checks their registered digest and runs a private snapshot from
 the protected system temporary directory. Use absolute paths for any adapter
 dependencies. The snapshot preserves the executable name and content.
-`uploadTarget` identifies the optional developer app approved for that workflow.
+`manualRelease: true` is an operator assertion about the verified project
+workflow. Register it only when merge can be performed without a deployment,
+store submission or release triggered by the merge itself. Check repository
+push workflows and other release integrations before enrollment. The legacy
+`uploadTarget` identifies a separately approved developer app.
 The gateway also rechecks the recorded approver against the current owner
 scope and approval configuration before launch, including after restart.
 The program receives a single JSON argument with `id`, `action` (`merge` or
 `upload`), `repository`, `commit` (full reviewed commit), `pullRequest` and
-`base`. Upload includes the recorded `mergeCommit` and `target`. The program
-returns one JSON result. Standard output is reserved for the result. Use
+`base`. A single-button adapter must require `action: "merge"` and
+`manualRelease: true` before writing, and echo `manualRelease: true` in its
+receipt. This also rejects calls from a gateway version without the
+single-button contract. Legacy upload includes the recorded `mergeCommit`
+and `target`. The program returns one JSON result. Standard output is reserved for the result. Use
 the pair of `id` and `action` to correlate provider effects and evidence.
 
 The workflow owns repository checks and authorization, exact-head and base
@@ -179,7 +194,7 @@ echo the request identity and report one of these outcomes:
 
 | Status | Additional fields and meaning |
 | --- | --- |
-| `blocked` | `reason` is one of `stale-source`, `checks`, `authorization`, `target-unavailable`. Use only when the requested effect is confirmed absent. |
+| `blocked` | `reason` is one of `stale-source`, `conflict` (merge only), `checks`, `authorization`, `target-unavailable`. Use only when the requested effect is confirmed absent. |
 | `merged` | `mergeCommit` is the provider-confirmed full merge SHA. |
 | `uploaded` | `version` and `receipt` are the verified developer version and receipt identifier. Echo the exact `mergeCommit` and `target`. |
 

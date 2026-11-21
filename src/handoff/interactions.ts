@@ -469,7 +469,7 @@ export class PilotInteractions {
     if (!this.visualResult) return true;
     try {
       this.assertVisualOwner();
-      this.transport.state.visualReviews.finish(this.visualResult.operation, this.visualResult.result);
+      this.transport.state.finishVisualOperation(this.visualResult.operation, this.visualResult.result);
       this.visualResult = undefined;
       return true;
     } catch {

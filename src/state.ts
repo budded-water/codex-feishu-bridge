@@ -9,7 +9,7 @@ import { OWNER_WITHDRAWN, QUOTED_CONVERSATION_CHANGED, type RequestRecord, type 
 import type { JournalProjection } from './handoff/journal.js';
 import type { VisualImage } from './handoff/visual-receipt.js';
 import { VisualReviewStore } from './handoff/visual-review-store.js';
-import type { VisualReviewBinding } from './handoff/visual-review-workflow.js';
+import type { VisualOperation, VisualOperationResult, VisualReviewBinding } from './handoff/visual-review-workflow.js';
 import type { VisualAttachment } from './visual-review.js';
 import { splitReply } from './reply.js';
 import { approvalCard, approvalText, parseApproval, cardMessage, approvalReplyTarget, APPROVAL_CARD_BYTES, type ApprovalPresentation, type ApprovalClick, type ApprovalView } from './approval.js';
@@ -293,6 +293,33 @@ export class State {
         .run(id, request.message.chat, this.redact(receipt.body), request.message.id, request.execution, JSON.stringify(images), deadline);
       return { delivery: id, status: 'registered' };
     });
+  }
+
+  finishVisualOperation(operation: VisualOperation, result?: VisualOperationResult): void {
+    this.transaction(() => {
+      if (this.visualReviews.finish(operation, result) === 'merged') this.projectVisualMergeNotice(operation.id);
+    });
+  }
+
+  reconcileVisualOperation(id: string, inspection: Record<string, unknown>) {
+    return this.transaction(() => {
+      const result = this.visualReviews.reconcile(id, inspection);
+      if (result.phase === 'merged') this.projectVisualMergeNotice(id);
+      return result;
+    });
+  }
+
+  private projectVisualMergeNotice(card: string): void {
+    const source = this.projectedDelivery(card);
+    if (!source) return;
+    const id = randomUUID();
+    const notice = this.visualReviews.registerMergeNotice(card, id);
+    if (!notice) return;
+    this.db.prepare('INSERT INTO projected_deliveries VALUES (?,?,0)').run(id, source.execution);
+    this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to,response_task,ordinary_answer) VALUES (?,?,?,?,?,1)')
+      .run(id, notice.chat, `已合并 · ${notice.repository} PR #${notice.pullRequest} · ${notice.mergeCommit.slice(0, 12)}
+接下来要部署或发版吗？`,
+        notice.message, source.execution);
   }
 
   saveVisualImages(delivery: string, images: VisualImage[]): void {
@@ -759,6 +786,7 @@ export class State {
           .run(message, card.response_task, card.chat);
         if (!saved.changes) throw new Error('Answer delivery identity changed');
         if (visualImages) this.visualReviews.delivered(id, message, visualImages);
+        else this.visualReviews.mergeNoticeDelivered(id, message);
         this.db.prepare('UPDATE tasks SET delivered_at=COALESCE(delivered_at,?) WHERE id=?').run(Date.now(), card.response_task);
         this.db.prepare('DELETE FROM outbox WHERE id=?').run(id);
       });
