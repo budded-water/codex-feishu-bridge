@@ -110,6 +110,7 @@ function matchingTitleTerms(title: string, text: string): boolean {
 function referenceUrlEnd(text: string, start: number, closer?: string): number {
   const nested: string[] = [];
   let queryOrFragment = false;
+  let possibleQuoteEnd: number | undefined;
   let end = start;
   while (end < text.length) {
     const char = text[end]!;
@@ -124,9 +125,13 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
       continue;
     }
     if (char === closer) {
-      const insideWord = (char === "'" || char === '’') &&
-        endsLatinWord.test(text[end - 1] ?? '') && startsLatinWord.test(text[end + 1] ?? '');
-      if (!insideWord) break;
+      const singleQuote = char === "'" || char === '’';
+      const after = text.slice(end + 1);
+      const insideWord = endsLatinWord.test(text[end - 1] ?? '') && startsLatinWord.test(after);
+      const beforeParameter = queryOrFragment && /^[&;][\w.%~-]+=/u.test(after);
+      if (!singleQuote || (!insideWord && !beforeParameter)) return end;
+      // It may close the wrapper before adjacent prose. Use it if there is no later closing quote.
+      possibleQuoteEnd ??= end;
     }
     if (!closer && char === ')') break;
     if (char === '?' || char === '#') queryOrFragment = true;
@@ -139,7 +144,7 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
     if (pair && (pair === closer || (!closer && (queryOrFragment || char === '(')))) nested.push(pair);
     end++;
   }
-  return end;
+  return possibleQuoteEnd ?? end;
 }
 
 function withoutReferenceUrls(text: string): string {
