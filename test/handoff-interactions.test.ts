@@ -1944,6 +1944,15 @@ test('registered PRs take precedence and an ambiguous input is published once af
     assert.ok('request' in unrelated);
     assert.equal(unrelated.request.conversation, bView.anchor);
   }
+  for (const text of [
+    'Review (https://github.com/Org/solura-app/pull/9?diff=split),(https://github.com/Org/backend/pull/7)',
+    'Review https://github.com/Org/solura-app/pull/9?diff=split,https://github.com/Org/backend/pull/7',
+  ]) {
+    const ambiguous = h.actor(text);
+    assert.equal(h.interactions.receive(ambiguous).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(ambiguous), undefined);
+    assert.deepEqual(h.admission.store.matters.held(ambiguous, h.admission.project)?.choices, [aView.anchor, bView.anchor]);
+  }
   await drain(h);
 
   const deferred = h.actor('昨天那个发版再查一下');
