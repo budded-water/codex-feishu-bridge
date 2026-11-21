@@ -118,7 +118,8 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
       end += 2;
       continue;
     }
-    if (/\s/u.test(char)) break;
+    if (/\s/u.test(char) ||
+        (possibleQuoteEnd !== undefined && bareUrlProsePunctuation.test(char))) break;
     if (char === nested.at(-1)) {
       nested.pop();
       end++;

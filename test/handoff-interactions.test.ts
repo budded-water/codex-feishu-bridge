@@ -2181,6 +2181,8 @@ test('an edit counts overlapping matter names only when they have separate menti
   checkChoices('刚才那个改成周五，Team “QA” 和 Team “CI” 都要同步', ['Team “QA”', 'Team “CI”']);
   checkChoices("刚才那个改成周五，参考 'https://example.com/?q=x'Alpha和Beta都要同步", ['Alpha', 'Beta']);
   checkChoices('刚才那个改成周五，参考‘https://example.com/?q=x’Alpha和Beta都要同步', ['Alpha', 'Beta']);
+  checkChoices("刚才那个改成周五，参考 'https://example.com/?q=x'Alpha和Beta都要同步，'备注'", ['Alpha', 'Beta']);
+  checkChoices('刚才那个改成周五，参考‘https://example.com/?q=x’Alpha和Beta都要同步，‘备注’', ['Alpha', 'Beta']);
   const addressed = h.interactions.receive(h.actor('退款调查：刚才那个改成退款和退款调查的共同计划'));
   assert.ok('request' in addressed);
   const scope = { owner: ownerKey(addressed.request.message), project: h.admission.project };
