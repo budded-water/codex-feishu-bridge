@@ -1595,6 +1595,8 @@ test('topic headings retain their wording and ignore colons in time and file ref
     { input: 'src/layout.ts：20 核对: verify the heading', title: 'src/layout.ts 20 核对' },
     { input: '检查：请核对今晚的出库记录。', title: '检查' },
     { input: '研究: 请核对本地报告。', title: '研究' },
+    { input: 'Status https://example.com: verify alerts', title: 'Status 链接' },
+    { input: '状态 https://example.com：核对通知', title: '状态 链接' },
   ];
   for (const { input, title } of subjects) {
     const original = h.actor('换个话题。' + input);

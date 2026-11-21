@@ -72,13 +72,14 @@ function topicTitle(input: string, ref?: string): string {
     const [, repo, , number] = ref.split('/');
     return repo!.slice(0, 27) + ' PR #' + number;
   }
-  const firstLine = input.trim().split(/\r?\n/, 1)[0]!.normalize('NFC').replace(/https?:\/\/\S+/gi, '链接');
+  const firstLine = input.trim().split(/\r?\n/, 1)[0]!.normalize('NFC');
   const sentence = firstLine.split(/[。！？]/u, 1)[0]!;
+  const cleanLabel = (value: string) => value.replace(/https?:\/\/\S+/gi, '链接')
+    .replace(/[\u0000-\u001f:：]+/g, ' ').replace(/\s+/g, ' ').trim();
   const separator = /：(?!\p{Nd})|:(?=\s)/u.exec(sentence);
-  const heading = separator && separator.index > 0 && separator.index <= 36
-    ? sentence.slice(0, separator.index)
-    : sentence.replace(/^(?:(?:请|帮我|麻烦)\s*){0,3}(?:看看|看一下|查一下|查查|检查|研究一下|研究)\s*/u, '') || sentence;
-  const label = heading.replace(/[\u0000-\u001f:：]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const heading = separator ? cleanLabel(sentence.slice(0, separator.index)) : '';
+  const shortSentence = sentence.replace(/^(?:(?:请|帮我|麻烦)\s*){0,3}(?:看看|看一下|查一下|查查|检查|研究一下|研究)\s*/u, '');
+  const label = heading && heading.length <= 36 ? heading : cleanLabel(shortSentence || sentence);
   return label.length > 42 ? label.slice(0, 41).replace(/[\uD800-\uDBFF]$/, '').trimEnd() + '…' : label || '新话题';
 }
 
