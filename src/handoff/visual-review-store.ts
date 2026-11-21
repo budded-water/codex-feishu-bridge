@@ -115,7 +115,7 @@ export class VisualReviewStore {
     if (!row || (action !== 'merge' && action !== 'upload') || typeof evidence !== 'string' ||
         !evidence.trim() || evidence.length > 2000) throw Error('Invalid visual inspection');
     const { binding } = this.presentation(row);
-    if (!binding.workflow || !binding.pullRequest || repository !== binding.repository || commit !== binding.commit ||
+    if (value.id !== id || !binding.workflow || !binding.pullRequest || repository !== binding.repository || commit !== binding.commit ||
         pullRequest !== binding.pullRequest || base !== binding.workflow.base || (action === 'upload' &&
           (!binding.workflow.uploadTarget || !row.mergeCommit || value.target !== binding.workflow.uploadTarget || value.mergeCommit !== row.mergeCommit))) {
       throw Error('Visual inspection identity differs');

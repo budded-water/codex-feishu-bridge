@@ -1,7 +1,7 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute } from 'node:path';
+import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import { record } from '../types.js';
 
@@ -55,16 +55,34 @@ function matchesWorkflow(pinned: VisualWorkflow, current?: VisualWorkflow) {
     current.uploadTarget === pinned.uploadTarget;
 }
 
-function protectedParents(executable: string, uid: number): boolean {
-  let directory = dirname(executable);
+function systemSnapshotRoot(): string {
+  const root = realpathSync('/tmp');
+  let directory = root;
   for (;;) {
     const info = lstatSync(directory);
-    if (!info.isDirectory() || (info.uid !== uid && info.uid !== 0) ||
-        ((info.mode & 0o022) !== 0 && (info.mode & 0o1000) === 0)) return false;
+    if (!info.isDirectory() || info.uid !== 0 || ((info.mode & 0o022) !== 0 &&
+        (directory !== root || (info.mode & 0o1000) === 0))) throw Error('System snapshot directory is not protected');
+    if (process.platform === 'darwin' && /^\s*\d+:/m.test(execFileSync('/bin/ls', ['-blde', directory], { encoding: 'utf8' }))) {
+      throw Error('System snapshot directory has an extended ACL');
+    }
     const parent = dirname(directory);
-    if (directory === parent) return true;
+    if (directory === parent) return root;
     directory = parent;
   }
+}
+
+function adapterBytes(executable: string, expected: string): Buffer {
+  if (realpathSync(executable) !== executable) throw Error('Workflow executable path differs');
+  const handle = openSync(executable, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const file = fstatSync(handle);
+    if (!file.isFile() || file.uid !== process.getuid?.() || (file.mode & 0o022) !== 0 || file.size > 2 * 1024 * 1024) {
+      throw Error('Workflow executable is not owned and protected');
+    }
+    const bytes = readFileSync(handle);
+    if (createHash('sha256').update(bytes).digest('hex') !== expected) throw Error('Workflow executable digest differs');
+    return bytes;
+  } finally { closeSync(handle); }
 }
 
 export async function executeVisualOperation(operation: VisualOperation, workflows: VisualWorkflows,
@@ -73,16 +91,17 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
   const { repository, commit, pullRequest, workflow } = binding;
   if (!workflow || !pullRequest || !matchesWorkflow(workflow, workflows[repository]) ||
       (action === 'upload' && (!workflow.uploadTarget || !mergeCommit))) return { status: 'blocked', reason: 'workflow-unavailable' };
-  const executable = workflow.executable;
+  let directory: string | undefined;
+  let executable: string;
   try {
-    const file = lstatSync(executable);
-    if (!file.isFile() || realpathSync(executable) !== executable || file.uid !== process.getuid?.() ||
-        (file.mode & 0o022) !== 0 || file.size > 2 * 1024 * 1024 ||
-        !protectedParents(executable, file.uid) ||
-        createHash('sha256').update(readFileSync(executable)).digest('hex') !== workflow.sha256) {
-      return { status: 'blocked', reason: 'workflow-unavailable' };
-    }
-  } catch { return { status: 'blocked', reason: 'workflow-unavailable' }; }
+    const bytes = adapterBytes(workflow.executable, workflow.sha256);
+    directory = mkdtempSync(join(systemSnapshotRoot(), 'bridge-visual-action-'));
+    executable = join(directory, basename(workflow.executable));
+    writeFileSync(executable, bytes, { flag: 'wx', mode: 0o700 });
+  } catch {
+    if (directory) rmSync(directory, { recursive: true, force: true });
+    return { status: 'blocked', reason: 'workflow-unavailable' };
+  }
 
   // The configured project workflow owns the repository checks and actual provider receipts.
   const payload = { id, action, repository, commit, pullRequest, base: workflow.base,
@@ -90,7 +109,7 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
   const { PATH, HOME, LANG, TMPDIR } = process.env;
   const { stdout } = await runFile(executable, [JSON.stringify(payload)], {
     env: { PATH, HOME, LANG, TMPDIR }, timeout, killSignal: 'SIGKILL', maxBuffer: 32 * 1024,
-  });
+  }).finally(() => { rmSync(dirname(executable), { recursive: true, force: true }); });
   const result = record(JSON.parse(stdout));
   if (result.id !== id || result.action !== action || result.repository !== repository ||
       result.commit !== commit || result.pullRequest !== pullRequest || result.base !== workflow.base ||

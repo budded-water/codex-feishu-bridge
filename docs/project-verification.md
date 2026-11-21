@@ -137,10 +137,10 @@ deployment-owned programs outside the candidate checkout.
 ```
 
 The enrolled runtime owner owns the executable, which must be a regular file
-at its canonical absolute path and writable only by its owner. Its parent
-directories must be owned by the runtime owner or root and must protect entries
-against replacement by other accounts. The gateway checks directory ownership
-and modes, the registered digest and the current configuration at launch.
+at its canonical absolute path with owner-only write mode. The gateway reads
+the bytes once, checks their registered digest and runs a private snapshot from
+the protected system temporary directory. Use absolute paths for any adapter
+dependencies. The snapshot preserves the executable name and content.
 `uploadTarget` identifies the optional developer app approved for that workflow.
 The gateway also rechecks the recorded approver against the current owner
 scope and approval configuration before launch, including after restart.
@@ -174,7 +174,7 @@ provider and record the result through the authenticated gateway:
 npm run handoff -- visual-reconcile <consumer-state-root> <delivery-id> <absolute-private-inspection>
 ```
 
-The owner-only JSON file names the exact `action`, `repository`, `commit`,
+The owner-only JSON file names the original adapter `id` (delivery ID) and the exact `action`, `repository`, `commit`,
 `pullRequest` and `base`, plus an `evidence` reference to the inspection.
 Upload observations also include the original `mergeCommit` and `target`.
 Use `status: "absent"` if the provider confirms no effect, `status: "merged"`

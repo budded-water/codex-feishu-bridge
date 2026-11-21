@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -21,6 +22,9 @@ test('a bound visual review runs each explicit write once and presents provider 
   const adapter = [
     '#!' + process.execPath,
     'const fs = require("node:fs");',
+    'const path = require("node:path");',
+    'const snapshot = path.dirname(process.argv[1]);',
+    'if (!path.basename(snapshot).startsWith("bridge-visual-action-") || (fs.statSync(snapshot).mode & 0o077)) throw Error("Adapter did not run from a private verified snapshot");',
     'const input = JSON.parse(process.argv[2]);',
     'const head = fs.readFileSync(' + JSON.stringify(provider) + ', "utf8");',
     'if (head === "foreign-target") { console.log(JSON.stringify({...input,target:"other",status:"blocked",reason:"checks"})); process.exit(0); }',
@@ -40,12 +44,12 @@ test('a bound visual review runs each explicit write once and presents provider 
   const id = randomUUID();
   const owner = { tenant: 'tenant', user: 'ou_owner', chat: 'oc_private' };
   const binding = { repository, commit, pullRequest: 41, workflow };
-  chmodSync(root, 0o777);
+  chmodSync(executable, 0o722);
   try {
     assert.deepEqual(await executeVisualOperation({ id, action: 'merge', binding }, workflows),
       { status: 'blocked', reason: 'workflow-unavailable' });
     assert.equal(existsSync(effects), false);
-  } finally { chmodSync(root, 0o700); }
+  } finally { chmodSync(executable, 0o700); }
   const images = [{ caption: '首页 · 通过 · 已执行断言 4/4', key: 'img_fixture' }];
   const body = '微信 UI 验证 · 1/1 个场景通过\n候选版本\n\n待人工看图 · 首页';
   state.visualReviews.register(id, owner, body, binding);
@@ -76,7 +80,14 @@ test('a bound visual review runs each explicit write once and presents provider 
   assert.deepEqual(buttons(), ['合并 PR']);
   assert.equal(decide('merge'), 'accepted');
   assert.equal(decide('merge'), 'duplicate');
-  assert.deepEqual(await run(), { status: 'merged', mergeCommit });
+  if (process.platform === 'darwin') {
+    execFileSync('/bin/chmod', ['+a', 'everyone allow add_file,delete_child', root]);
+  }
+  try {
+    assert.deepEqual(await run(), { status: 'merged', mergeCommit });
+  } finally {
+    if (process.platform === 'darwin') execFileSync('/bin/chmod', ['-N', root]);
+  }
   assert.deepEqual(buttons(), ['上传微信开发版']);
   assert.equal(decide('upload'), 'accepted');
   assert.equal(decide('upload'), 'duplicate');
@@ -117,7 +128,7 @@ test('a bound visual review runs each explicit write once and presents provider 
   state.visualReviews.delivered(replacement, 'om_new', images);
   assert.equal(decide('merge', replacement, 'om_new'), 'rejected');
   const inspectionPath = join(root, 'inspection.json');
-  const mergeObservation = { action: 'merge', repository, commit, pullRequest: 43, base: 'main', status: 'absent', evidence: 'Provider checked original PR head and merge state' };
+  const mergeObservation = { id: interrupted, action: 'merge', repository, commit, pullRequest: 43, base: 'main', status: 'absent', evidence: 'Provider checked original PR head and merge state' };
   writeFileSync(inspectionPath, JSON.stringify(mergeObservation), { mode: 0o644 });
   assert.throws(() => readVisualInspection(inspectionPath), /private to the runtime owner/);
   chmodSync(inspectionPath, 0o600);
@@ -130,7 +141,13 @@ test('a bound visual review runs each explicit write once and presents provider 
   assert.equal(state.visualReviews.take(), undefined);
   writeFileSync(provider, commit);
   assert.equal(decide('merge', replacement, 'om_new'), 'accepted');
-  assert.deepEqual(await run(), { status: 'merged', mergeCommit });
+  const retry = state.visualReviews.take()!;
+  assert.equal(retry.id, replacement);
+  state.visualReviews.finish(retry);
+  assert.throws(() => state.transaction(() => state.visualReviews.reconcile(replacement, mergeInspection)), /identity differs/);
+  assert.equal(state.visualReviews.view(replacement)?.phase, 'merge-unknown');
+  assert.equal(state.transaction(() => state.visualReviews.reconcile(replacement, { ...mergeInspection, id: replacement,
+    status: 'merged', mergeCommit, evidence: 'Provider confirmed the new merge attempt' })).phase, 'merged');
 
   const secondTarget = randomUUID();
   state.visualReviews.register(secondTarget, owner, body, { ...binding, pullRequest: 44 });
@@ -147,7 +164,7 @@ test('a bound visual review runs each explicit write once and presents provider 
   state.visualReviews.finish(upload);
   assert.equal(state.visualReviews.view(secondTarget)?.phase, 'upload-unknown');
   assert.equal(decide('upload', replacement, 'om_new'), 'rejected');
-  const uploadInspection = { action: 'upload', repository, commit, pullRequest: 44, base: 'main', target: 'test-dev-app', mergeCommit,
+  const uploadInspection = { id: secondTarget, action: 'upload', repository, commit, pullRequest: 44, base: 'main', target: 'test-dev-app', mergeCommit,
     status: 'absent', evidence: 'Provider developer build list inspected' };
   assert.throws(() => state.transaction(() => state.visualReviews.reconcile(secondTarget, { ...uploadInspection, target: 'other' })), /identity differs/);
   assert.equal(state.transaction(() => state.visualReviews.reconcile(secondTarget, uploadInspection)).phase, 'upload-blocked');
@@ -169,7 +186,7 @@ test('a bound visual review runs each explicit write once and presents provider 
   state.visualReviews.register(other, owner, body, { ...binding, pullRequest: 45 });
   state.visualReviews.delivered(other, 'om_other', images);
   assert.equal(decide('merge', other, 'om_other'), 'rejected');
-  const verifiedMerge = { ...mergeInspection, pullRequest: 45, status: 'merged', mergeCommit, evidence: 'Provider confirmed the merge commit' };
+  const verifiedMerge = { ...mergeInspection, id: malformed, pullRequest: 45, status: 'merged', mergeCommit, evidence: 'Provider confirmed the merge commit' };
   assert.equal(state.transaction(() => state.visualReviews.reconcile(malformed, verifiedMerge)).phase, 'merged');
   assert.equal(state.visualReviews.view(malformed)?.mergeCommit, mergeCommit);
   assert.equal(state.visualReviews.take(), undefined);
