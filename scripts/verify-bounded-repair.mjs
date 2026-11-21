@@ -25,6 +25,8 @@ const runtimeFingerprint = () => fingerprint(JSON.stringify(readdirSync(join(roo
 const bridgeCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), bridgeRuntimeHash = runtimeFingerprint();
 const engine = realpathSync(arg('--engine')), revision = arg('--revision'), upstream = pinnedSource(arg('--autoloop'));
 const candidate = join(output, 'candidate'), state = join(output, 'state'), home = join(output, 'home');
+const workerLaunches = join(output, 'worker-launches');
+mkdirSync(workerLaunches, { mode: 0o700 });
 const native = process.argv.includes('--native'), audit = join(output, 'native-audit.jsonl');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(label, read, timeout = 480_000) {
@@ -61,7 +63,10 @@ const profiles = verificationProfiles({
 mkdirSync(home, { mode: 0o700 }); writeFileSync(audit, '');
 const url = 'http://127.0.0.1:' + await port();
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(AGENT_AUTOLOOP_|HANDOFF_|BRIDGE_PROBE_|FEISHU_)/.test(name) && name !== 'NODE_TEST_CONTEXT'));
-Object.assign(env, { AGENT_AUTOLOOP_HOME: home, SHELL: '/bin/sh', HANDOFF_RUNNER: join(root, 'dist/handoff/run-assignment.js') });
+Object.assign(env, { AGENT_AUTOLOOP_HOME: home, SHELL: '/bin/sh',
+  HANDOFF_RUNNER: join(root, 'test/fixtures/record-worker-launch.mjs'),
+  BRIDGE_PROBE_REPAIR_RUNNER: join(root, 'dist/handoff/run-assignment.js'),
+  BRIDGE_PROBE_WORKER_LAUNCHES: workerLaunches });
 const cli = ['--disable-warning=ExperimentalWarning', join(upstream, 'bin/agent-autoloop.ts')];
 writeFileSync(join(home, 'rules.json'), JSON.stringify({ sources: { fixture: { name: 'Fixture' } },
   agents: { native: { name: 'Fixture native', worker: 'fixture-worker', use: 'bridge-native', access: 'read', timeout: workerTimeoutMinutes } }, channels: { fixture: { name: 'Synthetic destination' } },
@@ -90,7 +95,6 @@ try {
   await until('Hub', () => fetch(url + '/healthz').then(x => x.ok).catch(() => false), 30_000);
   const actor = text => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, chatType: 'p2p', id: randomUUID(), text });
   const overBudget = interactions.receive(actor('/verify-repair over-budget Isolated budget preflight'));
-  const admittedBy = Date.now();
   assert.ok('request' in overBudget);
   const rejectedExecution = overBudget.request.execution;
   const rejected = await until('Worker settlement with insufficient budget', async () => {
@@ -104,13 +108,17 @@ try {
     const goal = admission.store.repairs.get(rejectedExecution);
     assert.equal(goal?.status, 'incomplete');
     assert.match(goal.reason, /actual Worker budget is insufficient/);
-    const workerTimeoutMs = workerTimeoutMinutes * 60_000;
-    assert.ok(goal.deadline <= admittedBy + workerTimeoutMs, 'The work window fits even if the Worker starts immediately');
-    assert.ok(goal.cleanupDeadline > Date.now() + workerTimeoutMs, 'Cleanup would overrun even if the Worker started now');
+    const launch = JSON.parse(readFileSync(join(workerLaunches, run.run + '.json'), 'utf8'));
+    assert.equal(launch.run, run.run);
+    assert.equal(launch.rule, run.rule);
+    const workerDeadline = launch.launchedAt + launch.timeoutMinutes * 60_000;
+    assert.ok(goal.deadline < workerDeadline, 'The work window fits the actual Worker deadline');
+    assert.ok(workerDeadline < goal.cleanupDeadline, 'The actual Worker deadline leaves insufficient cleanup time');
     assert.equal(goal.attempts.length, 0);
     assert.equal(readFileSync(audit, 'utf8'), '');
     assert.equal(admission.store.unsettled().length, 0);
-    return { execution: rejectedExecution, run: run.run, status: goal.status, attempts: goal.attempts.length };
+    return { execution: rejectedExecution, run: run.run, status: goal.status, attempts: goal.attempts.length,
+      workerDeadline, workDeadline: goal.deadline, cleanupDeadline: goal.cleanupDeadline };
   }, 30_000);
   console.log('PASS: the work window fits the Worker timeout, but cleanup does not; no native or verifier launch.');
   const trigger = actor('/verify-repair fixture 隔离验收：目标是让 page.html 的 h1 为 REPAIRED_TITLE。首轮请仅回复 REPAIR_PROBE_FIRST，不使用工具、不修改文件；待系统验证后，在唯一修复续接轮读取报告并修复 page.html，保持所有 ui-eval 策略、脚本和断言不变。只修改这个隔离目录。');

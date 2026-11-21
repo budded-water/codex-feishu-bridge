@@ -18,12 +18,14 @@ const prShortAddress = /(?<![\w./-])([a-z0-9_.-]+\/[a-z0-9_.-]+)(?:\s*的\s*|\s+
 const urlBoundary = /^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"'*，。？！、；：…—]|\p{Script=Han}|[,;!](?=$|[\s\p{Pe}\p{Script=Han}]))/u;
 const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|审核状态|改动|差异|检查结果|CI(?:\s*(?:状态|结果|为什么(?:没|没有|未)(?:跑|运行)))?)|(?:为什么|怎么)(?:没|没有|未)(?:跑|运行)\s*CI|(?:latest\s+)?(?:status|checks?|diff|CI(?:\s+status)?|merge status|review status)|why\s+CI\s+(?:didn['’]t\s+run|isn['’]t\s+running))$/iu;
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
-const unanchoredEdit = /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)[，,]?\s*(?:改一下|调整一下|(?:改成|调整为)\s*\S)/u;
+const unanchoredEdits = [
+  /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)[，,]?\s*(?:改一下|调整一下|(?:改成|调整为)\s*\S)/u,
+  /^(?:那)?(?:就)?(?:按|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?)(?:做|改|处理|继续)(?:吧|一下)?(?:$|[\s，,。！？.!?：:；;…])/u,
+];
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
   /^(?:那个|上一步)(?:呢|怎么样了)$/u,
-  /^(?:那)?(?:就)?(?:按|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?)(?:做|改|处理|继续)(?:吧|一下)?$/u,
 ];
 
 function pullRequest(value: string): string | undefined {
@@ -325,7 +327,7 @@ export class OwnerMatters {
     if (targets.length === 1) return submit(targets[0], address?.input);
 
     // An edit's replacement text can mention another matter's title without addressing it.
-    if (focus && !message.parentId && unanchoredEdit.test(text)) {
+    if (focus && !message.parentId && unanchoredEdits.some(pattern => pattern.test(text))) {
       const alternate = store.alternateFocusForFollowup(scope);
       return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
     }
