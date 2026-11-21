@@ -31,6 +31,8 @@ The delivered [matter follow-up refinement](changes/archive/2026-11-19-clarify-o
 
 [Natural topic creation](changes/archive/2026-11-21-start-matters-from-chat/tasks.md) extends the delivered [matter specification](specs/owner-matter-routing/spec.md). The [M6 acceptance](../docs/live-acceptance.md#2026-11-21-m6-natural-topic-routing) records one-message creation, held selection, quote and PR continuation and the prior-message correction.
 
+[Owner-private attachments](specs/owner-private-image-tasks/spec.md) support same-message screenshots and quoted files. The [M6 desktop acceptance](../docs/live-acceptance.md#2026-11-21-m6-owner-private-attachments) covers inline PNG, PDF and DOCX. See the [completed change](changes/archive/2026-11-21-add-owner-private-image-tasks/tasks.md).
+
 ## Delivered SLS observer and subscription
 
 The subscription, read-only observation, owner-private card delivery and quoted Codex continuation were verified on the managed M6 pilot. See the [dated acceptance record](../docs/live-acceptance.md#2026-11-19-m6-sls-refund-subscription) for the scope and observed incident disposition.
@@ -38,8 +40,6 @@ The subscription, read-only observation, owner-private card delivery and quoted 
 The active [refund diagnosis supplement](changes/add-refund-diagnostic-companion/proposal.md) adds a bounded same-batch read and presents it beside the original incident assessment. The existing recovery boundary remains authoritative and deployment evidence is tracked separately.
 
 ## Active P3 change
-
-[Owner-private attachments](changes/add-owner-private-image-tasks/proposal.md) add image and ordinary file input to P1 tasks with separate simulated and live acceptance.
 
 [WeChat visual receipts](changes/add-wechat-visual-receipts/proposal.md) associate
 selected original screenshot evidence with an existing owner-private task.

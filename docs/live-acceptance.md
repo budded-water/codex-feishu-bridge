@@ -1,5 +1,13 @@
 # Live acceptance evidence
 
+## 2026-11-21 M6 owner-private attachments
+
+The managed gateway and Worker adopted [PR #69](https://github.com/budded-water/codex-feishu-bridge/pull/69) at merge commit `3cea881d332a75bb8a37610014e990adb5efe9da`, whose tree matched the reviewed candidate. The cutover verified a closed backup of six SQLite databases and the retained native execution evidence before reopening admission.
+
+In the enrolled Feishu desktop private chat, a synthetic PDF uploaded as a reply to the original task and a synthetic DOCX uploaded as a reply to its confirmed final answer were registered without execution. A separate instruction quoting each file produced a new turn in that same Codex thread. Each turn read the expected text from its own document, and Feishu delivered both answers. A rich post with an inline PNG and an explicit new-topic instruction opened a separate thread and returned the correct visual observations.
+
+The attachment payloads and task-scoped working copies were retired. Default focus was restored, and admission remained open and drained. The private deployment inventory holds the correlated records. The live exercise covered these three inputs in one enrolled desktop private chat. Reading other file formats depends on the authorized tools available to the task.
+
 ## 2026-11-21 M6 screenshot review action
 
 The managed gateway and Worker adopted the reviewed artifact from [PR #64](https://github.com/budded-water/codex-feishu-bridge/pull/64) after local and exact-head checks and independent review. The coordinated deployment reopened admission with a verified closed backup and retained sealed task evidence.
