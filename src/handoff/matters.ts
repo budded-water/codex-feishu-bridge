@@ -216,6 +216,15 @@ export class OwnerMatters {
     if (targets.length > 1) return this.holdConflict(message, targets, address?.input, execution);
   }
 
+  conflictsWithFileAnchor(message: IncomingMessage, originalConversation?: string, confirmedAnswer?: string): boolean {
+    const scope = this.scope(message);
+    const anchor = originalConversation
+      ? this.admission.store.matters.owned(scope, originalConversation)?.id ?? DEFAULT_MATTER
+      : confirmedAnswer ? this.answerMatter(message, confirmedAnswer) : this.state.matterReference(message)?.anchor;
+    if (!anchor || this.opensNewTopic(message)) return true;
+    return this.explicitTargets(message, undefined, this.address(message)?.matter).some(target => target !== anchor);
+  }
+
   hasDisposition(message: IncomingMessage): boolean {
     const store = this.admission.store.matters;
     return this.owner(message) &&

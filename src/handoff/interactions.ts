@@ -108,13 +108,14 @@ export class PilotInteractions {
         if (file?.attachment) {
           const original = file.parentId ? this.admission.store.requestForMessage({ ...message, id: file.parentId }) : undefined;
           const linked = { ...message, parentId: file.parentId, attachment: file.attachment };
-          if (file.parentId && !(original?.project === this.admission.project && ownerKey(original.message) === ownerKey(message)) &&
-            !this.transport.state.confirmedAnswer(linked) && !this.transport.state.matterReference(linked)) {
+          const ownedOriginal = original?.project === this.admission.project && ownerKey(original.message) === ownerKey(message) ? original : undefined;
+          const confirmedAnswer = file.parentId ? this.transport.state.confirmedAnswer(linked) : undefined;
+          if (file.parentId && !ownedOriginal && !confirmedAnswer && !this.transport.state.matterReference(linked)) {
             this.attachmentNotice(message, '无法核对该文件引用的原任务。请在原任务或 Bot 最终答复下重新发送文件，再回复该文件说明需求。');
             return { status: 'rejected' as const };
           }
-          if (file.parentId && this.matters.opensNewTopic(linked)) {
-            this.attachmentNotice(message, '这个文件已引用原事项。要用它开新话题，请直接发文件，再回复文件写下「换个话题」和需求。');
+          if (file.parentId && this.matters.conflictsWithFileAnchor(linked, ownedOriginal?.conversation, confirmedAnswer)) {
+            this.attachmentNotice(message, '这个文件已引用原事项。要用于其他事项，请直接发文件，再回复文件说明事项和需求。');
             return { status: 'rejected' as const };
           }
           message = linked;

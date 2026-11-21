@@ -10,7 +10,7 @@ import { PilotAdmission, type PilotScope } from './gateway.js';
 import { NativeExecutions } from './native.js';
 import { recoveryNoticeTarget } from './recovery.js';
 import { withdrawalNoticeTarget } from './queue.js';
-import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
+import { pendingAttachmentRetirements, openHandoffReader, unprojectedAttachmentReceipts, unprojectedTaskReplyNotices } from './read-only.js';
 import { acquireRoot, controllerFile, fenceFile, privateRecord, readFence, requireClosed, writePrivate, verifyImportedState } from './ownership.js';
 
 type Row = Record<string, string | number | null>;
@@ -233,6 +233,8 @@ async function checkPilot(plan: MigrationPlan): Promise<void> {
     const reader = openHandoffReader(join(plan.pilotDirectory, 'handoff.db'), join(plan.pilotDirectory, 'transport/bridge.db'));
     try {
       if (unprojectedTaskReplyNotices(reader).length) throw new Error('Committed task reply notice has not been projected');
+      if (unprojectedAttachmentReceipts(reader).length) throw new Error('Committed file receipt has not been projected');
+      if (pendingAttachmentRetirements(reader).length) throw new Error('File attachment cleanup has not finished');
     } finally { reader.close(); }
     if (admission.store.matters.unprojected().length || admission.store.matters.unprojectedNotices().length) {
       throw new Error('Committed matter response has not been projected');

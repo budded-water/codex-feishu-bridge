@@ -4,6 +4,8 @@ The optional P3 registry adds task-bound verification state and a terminal nativ
 
 The migration tools prepare one-host pilot state and manage the runtime admission gate. Keep the private plan, compatible bridge artifacts and bundle together throughout the handoff. The [P1 tasks](../openspec/changes/archive/2026-11-16-integrate-feishu-autoloop-handoff/tasks.md) track native interactive acceptance, independent review, service inventory and owner-authorized live acceptance.
 
+Before rollback, drain registered file acknowledgments and any attachment cleanup reported after inspected recovery. File staging is scoped to the original execution. Closing the gateway attempts cleanup for an inspected release and retains the unknown execution outcome.
+
 Managed [SLS refund observation](sls-refund-observer.md) adds an optional SQLite evidence directory to the pilot inventory. The closed-state rollback archive retains its database, along with the handoff and transport ledgers. Keep this evidence private.
 
 ## Prepare the private plan

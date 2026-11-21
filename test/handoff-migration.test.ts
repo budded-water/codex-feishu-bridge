@@ -119,6 +119,18 @@ test('rollback treats empty additive tables as compatible with an older staged b
   assert.deepEqual(readFileSync(join(h.plan.legacyDirectory, 'bridge.db')), original);
 });
 
+test('rollback requires a committed attachment registration to be projected before downgrading', async t => {
+  const h = await fixture(t);
+  await stageHandoff(h.plan);
+  const admission = new PilotAdmission(h.plan.pilotDirectory, h.plan.scope);
+  const id = 'om_fixture_file';
+  assert.equal(admission.store.registerAttachment({ ...h.message, id, chatType: 'p2p', text: '[文件附件]',
+    attachment: { messageId: id, key: 'file_fixture', name: 'fixture.pdf' } }), true);
+  admission.close();
+  await assert.rejects(rollbackHandoff(h.plan), /Committed file receipt has not been projected/);
+  assert.equal(readFence(h.plan.legacyDirectory)!.role, 'pilot');
+});
+
 test('post-traffic rollback imports deduplication, native continuation and delivered reply associations', async t => {
   const h = await fixture(t);
   const history = new State(h.plan.legacyDirectory);

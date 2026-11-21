@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { openHandoffReader, unprojectedTaskReplyNotices } from './read-only.js';
+import { pendingAttachmentRetirements, openHandoffReader, unprojectedAttachmentReceipts, unprojectedTaskReplyNotices } from './read-only.js';
 import type { State } from '../state.js';
 import type { PilotAdmission } from './gateway.js';
 import type { NativeExecutions } from './native.js';
@@ -21,7 +21,9 @@ export async function pilotMaintenance(admission: PilotAdmission, native: Native
   const delivery = transport.drainStatus();
   const reader = openHandoffReader(join(admission.stateDirectory, 'handoff.db'), join(admission.stateDirectory, 'transport/bridge.db'));
   try {
-    return { ...admission.store.drainStatus(), outbox: Number(delivery.outbox) + unprojectedTaskReplyNotices(reader).length, reactions: delivery.reactions, prompts: delivery.prompts,
+    return { ...admission.store.drainStatus(),
+      outbox: Number(delivery.outbox) + unprojectedTaskReplyNotices(reader).length + unprojectedAttachmentReceipts(reader).length,
+      attachmentCleanup: pendingAttachmentRetirements(reader).length, reactions: delivery.reactions, prompts: delivery.prompts,
       uncertain: admission.store.unsettled().filter(execution => execution.status === 'unknown').map(execution => execution.id) };
   } finally { reader.close(); }
 }
