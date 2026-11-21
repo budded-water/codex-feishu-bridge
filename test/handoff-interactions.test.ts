@@ -2024,15 +2024,33 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   assert.equal(h.interactions.receive(backToDefault).status, 'matter-choice');
   const a = h.interactions.receive(h.actor('退款调查：收集微信渠道错误'));
   assert.ok('request' in a, 'an explicit title bypasses the ambiguous follow-up guard');
+  h.interactions.receive(h.actor('/matter-new 周五 复盘'));
+  h.interactions.receive(h.actor('/matter-new 周五 值班'));
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
   const scope = { owner: ownerKey(backToDefault), project: h.admission.project };
   const release = h.admission.store.matters.focus(scope)!;
   const other = h.interactions.receive(h.actor('退款调查：继续核对退款资料'));
   assert.ok('request' in other);
   assert.equal(other.request.conversation, a.request.conversation);
-  const vague = h.actor('就按刚才那个方案改吧。');
+  for (const text of [
+    '刚才那个改一下', '刚才那个改成周五，时间不变', '刚才那个修改成周五',
+    '刚才那个改到周五', '刚才那个改回周五', '刚才那个改在周五',
+    '刚才那个改成几何图标，颜色不变',
+    '刚才那个改成多重验证，其他不变',
+    '刚才那个改成多快好省，其他不变',
+    '刚才那个改成周五后，照常提醒我',
+    '就按刚才那个方案改吧。', '就按刚才那个方案改吧，时间改成周五', '就按刚才那个方案改成周五',
+  ]) {
+    const correction = h.actor(text);
+    assert.equal(h.interactions.receive(correction).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(correction), undefined);
+    assert.deepEqual(h.admission.store.matters.held(correction, h.admission.project)?.choices, [release, a.request.conversation]);
+  }
+  await drain(h);
+  const vague = h.actor('刚才那个改成周五');
   assert.equal(h.interactions.receive(vague).status, 'matter-choice');
   assert.equal(h.admission.store.requestForMessage(vague), undefined);
+  assert.deepEqual(h.admission.store.matters.held(vague, h.admission.project)?.choices, [release, a.request.conversation]);
   await h.restart();
   await drain(h);
   const defaultMessage = h.sent.find(row => row.options?.replyTo === backToDefault.id)!;
@@ -2047,6 +2065,7 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   assert.equal(h.interactions.matterAction(click), 'accepted');
   assert.equal(h.interactions.matterAction(click), 'accepted');
   assert.equal(h.admission.store.requestForMessage(vague)?.conversation, a.request.conversation);
+  assert.equal(h.admission.store.requestForMessage(vague)?.input, vague.text);
   assert.equal(h.admission.store.requests().length, count + 1);
   assert.equal(h.interactions.receive(vague).status, 'duplicate');
   const keepGoing = h.interactions.receive(h.actor('继续上一步'));
@@ -2062,11 +2081,221 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   assert.equal(h.codex.calls.length, 0);
 });
 
+test('an edit stays in focus when recent work agrees and replacement terms match other matters', t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 周五 复盘'));
+  h.interactions.receive(h.actor('/matter-new 周五 值班'));
+  h.interactions.receive(h.actor('/matter-new QA'));
+  h.interactions.receive(h.actor('/matter-new CI'));
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  const current = h.interactions.receive(h.actor('核对发版日程'));
+  assert.ok('request' in current);
+  for (const text of [
+    '刚才那个改成周五，时间不变',
+    '刚才那个改成周五，任何时间都可以',
+    '刚才那个改成「周五是否值班」，时间不变',
+    '刚才那个改成周五，参考 https://example.com/docs?version=2',
+    '刚才那个改成周五，参考 https://example.com/docs?from=QA&to=CI',
+    '刚才那个改成周五，参考 https://example.com/docs?from=(QA)&to=CI',
+    '刚才那个改成周五，参考 https://example.com/docs?names=QA,CI',
+    '刚才那个改成周五，参考 https://example.com/?names=all,中文,QA,CI&mode=preview',
+    '刚才那个改成周五，参考 https://example.com/?names=all，QA,CI&mode=preview',
+    '刚才那个改成周五，参考 https://example.com/?names=all（说明）QA,CI&mode=preview',
+    '刚才那个改成周五，参考（https://example.com/?names=all（说明）QA,CI&mode=preview）',
+    "刚才那个改成周五，参考 'https://example.com/?name=O'Reilly，QA,CI'，时间不变",
+    '刚才那个改成周五，参考‘https://example.com/?name=O’Reilly，QA,CI’，时间不变',
+    '刚才那个改成周五，参考 https://example.com/?names=all,周五复盘,周五值班&mode=preview',
+    '刚才那个改成周五，参考 [网页](https://example.com/docs?from=((QA))&to=CI)。',
+    '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all,中文,QA,CI)',
+    '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all，中文,QA,CI)',
+    '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all\\)QA,CI)',
+    '刚才那个改成周五，参考 <https://example.com/docs?names=all，中文,QA,CI>',
+    '刚才那个改成周五，参考 [议题](<https://example.com/docs?names=all)QA,CI>)',
+    '刚才那个改成周五，参考 `https://example.com/docs?names=all，中文,QA,CI`',
+    '刚才那个改成周五，时间还是不变',
+    '刚才那个改成周五，还是周五的时间',
+    '刚才那个改成周五，参考【https://example.com/docs?names=all，中文,QA,CI】',
+    '刚才那个改成周五，参考 [网页]( https://example.com/docs?names=all，中文,QA,CI )',
+    '刚才那个改成周五，参考 [网页](https://example.com/docs?names=all，中文,QA,CI "链接标题")',
+    '刚才那个改成周五，参考 [网页](<https://example.com/docs?names=all，中文,QA,CI> "QA 和 CI")',
+    '刚才那个改成周五，参考 [网页](<https://example.com/?q=x QA,CI&mode=preview>)',
+    '刚才那个改成周五，参考 [网页](<https://example.com/?q=x\\>QA,CI&mode=preview>)',
+    '刚才那个改成“周五为什么值班？”，时间不变',
+  ]) {
+    const edit = h.interactions.receive(h.actor(text));
+    assert.ok('request' in edit);
+    assert.equal(edit.request.conversation, current.request.conversation);
+  }
+});
+
+test('removing a quoted reference preserves adjacent partial matter names as prose', t => {
+  const h = setup(t);
+  for (const title of ['Alpha work', 'Beta work', '文档整理']) h.interactions.receive(h.actor('/matter-new ' + title));
+  assert.ok('request' in h.interactions.receive(h.actor('整理当前说明')));
+  for (const text of [
+    "参考 'https://example.com/?q=x'Alpha和Beta都要同步,'备注'",
+    "参考 'https://example.com/?q=x'Alpha和Beta都要同步（'备注'）",
+    "参考 'https://example.com/?q=x'Alpha和Beta都要同步、'备注'",
+    '参考‘https://example.com/?q=x’Alpha和Beta都要同步（‘备注’）',
+  ]) {
+    const edit = h.actor('刚才那个改成周五，' + text);
+    assert.equal(h.interactions.receive(edit).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(edit), undefined);
+    const scope = { owner: ownerKey(edit), project: h.admission.project };
+    const held = h.admission.store.matters.held(edit, scope.project)!;
+    assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(), ['Alpha work', 'Beta work']);
+  }
+});
+
+test('a description in an additive request preserves the option to start a new matter', t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 小程序底栏'));
+  const initial = h.interactions.receive(h.actor('核对底栏布局'));
+  assert.ok('request' in initial);
+  const additive = h.actor('刚刚那个改成蓝色的登录页也看看');
+  assert.equal(h.interactions.receive(additive).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(additive), undefined);
+  assert.deepEqual(h.admission.store.matters.held(additive, h.admission.project)?.choices,
+    [initial.request.conversation, NEW_MATTER_CHOICE]);
+});
+
+test('an edit counts overlapping matter names only when they have separate mentions', t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款'));
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  h.interactions.receive(h.actor('/matter-new ALPHA'));
+  h.interactions.receive(h.actor('/matter-new Alpha'));
+  h.interactions.receive(h.actor('/matter-new Beta'));
+  h.interactions.receive(h.actor('/matter-new 旧日程'));
+  assert.ok('request' in h.interactions.receive(h.actor('先检查旧日程')));
+  h.interactions.receive(h.actor('/matter-new 新日程'));
+  const checkChoices = (text: string, expected: string[]) => {
+    const edit = h.actor(text);
+    assert.equal(h.interactions.receive(edit).status, 'matter-choice');
+    const scope = { owner: ownerKey(edit), project: h.admission.project };
+    const held = h.admission.store.matters.held(edit, scope.project)!;
+    assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(), expected.sort());
+  };
+  checkChoices('刚才那个改成退款调查', ['旧日程', '新日程']);
+  checkChoices('刚才那个改成退款调查和退款的共同计划', ['退款', '退款调查']);
+  checkChoices('刚才那个改成 Alpha2 和 Beta2 的共同计划', ['旧日程', '新日程']);
+  checkChoices('刚才那个改成Alpha和Beta的共同计划', ['Alpha', 'Beta']);
+  checkChoices('刚才那个改成 Alpha 和 Beta 的多重验证计划', ['Alpha', 'Beta']);
+  checkChoices('刚才那个改成 Alpha 的排班', ['旧日程', '新日程']);
+  checkChoices('刚才那个改成 Alpha 和 ALPHA 的共同计划', ['Alpha', 'ALPHA']);
+  checkChoices('刚才那个改成 alpha 和 Beta 的共同计划', ['旧日程', '新日程']);
+  h.interactions.receive(h.actor('/matter-new 程序'));
+  h.interactions.receive(h.actor('/matter-new 程序员 招聘'));
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  checkChoices('刚才那个改成周五，程序员和发版都要同步', ['程序员 招聘', 'Solura 发版']);
+  checkChoices('刚才那个改成周五，程序、程序员和发版都要同步', ['程序', '程序员 招聘', 'Solura 发版']);
+  h.interactions.receive(h.actor('/matter-new 老程'));
+  checkChoices('刚才那个改成周五，老程序员和发版都要同步', ['程序员 招聘', 'Solura 发版']);
+  checkChoices('刚才那个改成周五，老程、程序员和发版都要同步', ['老程', '程序员 招聘', 'Solura 发版']);
+  h.interactions.receive(h.actor("/matter-new O'Reilly"));
+  h.interactions.receive(h.actor("/matter-new D'Angelo"));
+  checkChoices("刚才那个改成周五，O'Reilly 和 D'Angelo 都要同步", ["O'Reilly", "D'Angelo"]);
+  checkChoices("刚才那个改成周五，'O'Reilly' 和 'D'Angelo' 都要同步", ["O'Reilly", "D'Angelo"]);
+  h.interactions.receive(h.actor('/matter-new O’Reilly'));
+  h.interactions.receive(h.actor('/matter-new D’Angelo'));
+  checkChoices('刚才那个改成周五，‘O’Reilly’ 和 ‘D’Angelo’ 都要同步', ['O’Reilly', 'D’Angelo']);
+  h.interactions.receive(h.actor('/matter-new Team “QA”'));
+  h.interactions.receive(h.actor('/matter-new Team “CI”'));
+  checkChoices('刚才那个改成周五，Team “QA” 和 Team “CI” 都要同步', ['Team “QA”', 'Team “CI”']);
+  checkChoices("刚才那个改成周五，参考 'https://example.com/?q=x'Alpha和Beta都要同步", ['Alpha', 'Beta']);
+  checkChoices('刚才那个改成周五，参考‘https://example.com/?q=x’Alpha和Beta都要同步', ['Alpha', 'Beta']);
+  checkChoices("刚才那个改成周五，参考 'https://example.com/?q=x'Alpha和Beta都要同步，'备注'", ['Alpha', 'Beta']);
+  checkChoices('刚才那个改成周五，参考‘https://example.com/?q=x’Alpha和Beta都要同步，‘备注’', ['Alpha', 'Beta']);
+  checkChoices("刚才那个改成周五，参考 'https://example.com/?q=x'Alpha和Beta都要同步,'备注'", ['Alpha', 'Beta']);
+  checkChoices('刚才那个改成周五，参考‘https://example.com/?q=x’Alpha和Beta都要同步,‘备注’', ['Alpha', 'Beta']);
+  const addressed = h.interactions.receive(h.actor('退款调查：刚才那个改成退款和退款调查的共同计划'));
+  assert.ok('request' in addressed);
+  const scope = { owner: ownerKey(addressed.request.message), project: h.admission.project };
+  assert.equal(h.admission.store.matters.owned(scope, addressed.request.conversation)?.title, '退款调查');
+});
+
+test('a question about a previous change can still match two named matters', t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  h.interactions.receive(h.actor('/matter-new 消息通知'));
+  h.interactions.receive(h.actor('/matter-new QA'));
+  h.interactions.receive(h.actor('/matter-new CI'));
+  h.interactions.receive(h.actor('/matter-new 文档整理'));
+  const current = h.interactions.receive(h.actor('整理当前说明'));
+  assert.ok('request' in current);
+  const checkCandidates = (text: string) => {
+    const question = h.actor(text);
+    assert.equal(h.interactions.receive(question).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(question), undefined);
+    const scope = { owner: ownerKey(question), project: h.admission.project };
+    const held = h.admission.store.matters.held(question, scope.project)!;
+    assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(),
+      ['Solura 发版', '退款调查'].sort());
+  };
+  checkCandidates('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
+  checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？');
+  checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗');
+  checkCandidates('刚才那个改成周五是否会影响退款和发版，请确认。');
+  checkCandidates('刚才那个改成周五的改动为什么影响退款和发版');
+  checkCandidates('刚才那个改成周五的改动对退款和发版各有什么影响');
+  checkCandidates('刚才那个改成周五的改动对退款和发版各有何影响');
+  checkCandidates('刚才那个改成周五后，退款和发版分别由谁跟进');
+  checkCandidates('刚才那个改成周五后，退款和发版分别受哪些影响');
+  checkCandidates('刚才那个改成周五后，退款和发版分别受何影响');
+  checkCandidates('刚才那个改成周五后，退款和发版会否受影响');
+  checkCandidates('刚才那个改成周五后，退款和发版有无影响');
+  checkCandidates('刚才那个改成周五后，退款和发版难道都要推迟');
+  checkCandidates('刚才那个改成周五后，退款和发版得推迟几天');
+  checkCandidates('刚才那个改成周五后，退款和发版的安排如何');
+  checkCandidates('刚才那个改成周五后，退款和发版会受到多大影响');
+  checkCandidates('刚才那个改成周五后，退款和发版的截止时间相隔多长时间');
+  checkCandidates('刚才那个改成周五后，退款和发版为何都要延期');
+  checkCandidates('刚才那个改成周五后，退款和发版一起做可行不');
+  checkCandidates('刚才那个改成周五后，退款和发版分别需要跟进');
+  checkCandidates('刚才那个改成周五后退款和发版分别需要跟进');
+  checkCandidates('刚才那个改成周五的改动对退款和发版分别有什么影响');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/details：退款和发版会否受影响');
+  checkCandidates('刚才那个改成周五，参考（https://example.com/details：退款和发版分别由谁跟进？');
+  checkCandidates('刚才那个改成周五还是周六更适合退款和发版');
+  checkCandidates('刚才那个改成退款的周五时段还是发版的周六时段');
+  checkCandidates('刚才那个改成周五，分别更新退款和发版的日程');
+  checkCandidates('刚才那个改成周五，发版和「退款调查」都要同步');
+  checkCandidates('刚才那个改成周五，参考 [网页](https://example.com/docs?mode=2 "说明")，发版和「退款调查」都要同步');
+  checkCandidates('刚才那个改成退款的周五时段或发版的周六时段');
+  checkCandidates('刚才那个改成退款的周五时段，或改成发版的周六时段');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/details,退款和发版会否受影响');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/details?v=2 退款和发版会否受影响');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/?names=all（说明）QA,CI&mode=preview 退款和发版都要同步');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/?names=one）QA,CI&mode=preview 退款和发版都要同步');
+  checkCandidates("刚才那个改成周五，参考 https://example.com/?name=O'Reilly&teams=QA,CI 退款和发版都要同步");
+  checkCandidates("刚才那个改成周五，参考 'https://example.com/?name=O%27Reilly&teams=QA,CI' 退款和发版都要同步");
+  checkCandidates("刚才那个改成周五，参考 'https://example.com/?name=O'Reilly&teams=QA,CI' 退款和发版都要同步");
+  checkCandidates('刚才那个改成周五，参考‘https://example.com/?q=x’，退款和发版都要同步');
+  checkCandidates('刚才那个改成周五，参考‘https://example.com/?name=O’Reilly&teams=QA,CI’，退款和发版都要同步');
+  checkCandidates("刚才那个改成周五，参考 'https://example.com/?authors=writers'&teams=QA,CI' 退款和发版都要同步");
+  checkCandidates('刚才那个改成周五，参考‘https://example.com/?authors=writers’&teams=QA,CI’，退款和发版都要同步');
+  checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
+  checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
+  checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');
+  assert.ok('request' in h.interactions.receive(h.actor('消息通知：核对一下回执')));
+  checkCandidates('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
+  checkCandidates('刚才那个改成周五的改动会同时影响退款调查和 Solura 发版吗？');
+  const three = h.actor('刚才那个改成周五，退款调查、Solura 发版和通知都要同步');
+  assert.equal(h.interactions.receive(three).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(three), undefined);
+  const scope = { owner: ownerKey(three), project: h.admission.project };
+  const held = h.admission.store.matters.held(three, scope.project)!;
+  assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(),
+    ['退款调查', 'Solura 发版', '消息通知'].sort());
+});
+
 test('short continuation follows ordinary admission history through empty switches and specialized work', t => {
   const h = setup(t);
   const initial = h.interactions.receive(h.actor('先查退款积压'));
   assert.ok('request' in initial);
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  h.interactions.receive(h.actor('/matter-new 消息通知'));
   h.interactions.receive(h.actor('/matter-new 文档整理'));
   const scope = { owner: ownerKey(initial.request.message), project: h.admission.project };
   const selected = h.admission.store.matters.focus(scope)!;

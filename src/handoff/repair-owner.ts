@@ -81,9 +81,12 @@ export class RepairOwner {
         if (this.goal().stop || Date.now() >= this.goal().deadline) void this.stop().catch(() => {});
       }, 25);
       const goal = this.goal(), profile = this.profiles[goal.profile];
-      if (!profile || profileDigest(profile) !== goal.digest || !this.outerDeadline || goal.cleanupDeadline >= this.outerDeadline ||
-        Date.now() >= goal.deadline || goal.stop) {
-        this.gateway.store.repairs.finish(this.permit, goal.stop ? 'stopped' : 'incomplete', 'Policy unavailable, work expired or actual Worker budget is insufficient');
+      if (goal.stop || !profile || profileDigest(profile) !== goal.digest || Date.now() >= goal.deadline) {
+        this.gateway.store.repairs.finish(this.permit, goal.stop ? 'stopped' : 'incomplete', goal.stop ? goal.reason : 'Policy unavailable or work expired');
+      } else if (!this.outerDeadline) {
+        this.gateway.store.repairs.finish(this.permit, 'incomplete', 'Actual Worker deadline is unavailable');
+      } else if (goal.cleanupDeadline >= this.outerDeadline) {
+        this.gateway.store.repairs.finish(this.permit, 'incomplete', 'Actual Worker budget is insufficient for cleanup');
       } else {
         for (let round = 1; round <= 2; round++) {
           if (this.abort.signal.aborted || this.goal().stop || Date.now() >= this.goal().deadline) break;

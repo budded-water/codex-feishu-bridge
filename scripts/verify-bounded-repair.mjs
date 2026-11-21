@@ -25,6 +25,9 @@ const runtimeFingerprint = () => fingerprint(JSON.stringify(readdirSync(join(roo
 const bridgeCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), bridgeRuntimeHash = runtimeFingerprint();
 const engine = realpathSync(arg('--engine')), revision = arg('--revision'), upstream = pinnedSource(arg('--autoloop'));
 const candidate = join(output, 'candidate'), state = join(output, 'state'), home = join(output, 'home');
+const workerLaunches = join(output, 'worker-launches');
+const budgetCase = join(output, 'worker-budget-case.json');
+mkdirSync(workerLaunches, { mode: 0o700 });
 const native = process.argv.includes('--native'), audit = join(output, 'native-audit.jsonl');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(label, read, timeout = 480_000) {
@@ -50,21 +53,30 @@ const pkg = JSON.parse(readFileSync(join(engine, 'package.json'), 'utf8'));
 writeFileSync(join(candidate, 'ui-eval/engine.json'), JSON.stringify({ repository: pkg.repository.url, revision, bunVersion: pkg.packageManager.slice(4) }));
 for (const argv of [['init', '-q'], ['add', '.'], ['-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', 'isolated bounded repair fixture']]) execFileSync('git', ['-C', candidate, ...argv], { stdio: 'pipe' });
 const policyPaths = execFileSync('git', ['-C', candidate, 'ls-files', '-z', 'ui-eval', 'prepare.mjs', 'server.mjs'], { encoding: 'utf8' }).split('\0').filter(Boolean);
-const profiles = verificationProfiles({ fixture: { ...build, projectRoot: candidate, projectId: 'prepared-web', suite: 'smoke', timeoutMs: 60_000,
-  policyFiles: Object.fromEntries(policyPaths.map(p => [p, fingerprint(readFileSync(join(candidate, p)))])), repair: { scenarios: ['home'], timeoutMs: 300_000 } } });
+const workerTimeoutMinutes = 10;
+const fixture = { ...build, projectRoot: candidate, projectId: 'prepared-web', suite: 'smoke', timeoutMs: 60_000,
+  policyFiles: Object.fromEntries(policyPaths.map(p => [p, fingerprint(readFileSync(join(candidate, p)))])),
+  repair: { scenarios: ['home'], timeoutMs: 300_000 } };
+const profiles = verificationProfiles({
+  fixture,
+  'over-budget': { ...fixture, repair: { ...fixture.repair, timeoutMs: workerTimeoutMinutes * 60_000 - 100_000 } },
+});
 mkdirSync(home, { mode: 0o700 }); writeFileSync(audit, '');
 const url = 'http://127.0.0.1:' + await port();
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(AGENT_AUTOLOOP_|HANDOFF_|BRIDGE_PROBE_|FEISHU_)/.test(name) && name !== 'NODE_TEST_CONTEXT'));
-Object.assign(env, { AGENT_AUTOLOOP_HOME: home, SHELL: '/bin/sh', HANDOFF_RUNNER: join(root, 'dist/handoff/run-assignment.js') });
+Object.assign(env, { AGENT_AUTOLOOP_HOME: home, SHELL: '/bin/sh',
+  HANDOFF_RUNNER: join(root, 'test/fixtures/record-worker-launch.mjs'),
+  BRIDGE_PROBE_REPAIR_RUNNER: join(root, 'dist/handoff/run-assignment.js'),
+  BRIDGE_PROBE_WORKER_LAUNCHES: workerLaunches, BRIDGE_PROBE_WORKER_BUDGET_CASE: budgetCase });
 const cli = ['--disable-warning=ExperimentalWarning', join(upstream, 'bin/agent-autoloop.ts')];
 writeFileSync(join(home, 'rules.json'), JSON.stringify({ sources: { fixture: { name: 'Fixture' } },
-  agents: { native: { name: 'Fixture native', worker: 'fixture-worker', use: 'bridge-native', access: 'read', timeout: 10 } }, channels: { fixture: { name: 'Synthetic destination' } },
+  agents: { native: { name: 'Fixture native', worker: 'fixture-worker', use: 'bridge-native', access: 'read', timeout: workerTimeoutMinutes } }, channels: { fixture: { name: 'Synthetic destination' } },
   rules: [{ name: 'pilot', to: 'native', cwd: candidate, group: 'fixture', parallel: 1, resume: false,
     when: { source: 'fixture', types: [REQUEST_EVENT] }, prompt: 'Task authority belongs to immutable admission state.', tell: 'always' }] }));
 const key = (kind, name) => { const r = spawnSync(process.execPath, [...cli, 'key', 'new', kind, name], { env, encoding: 'utf8' }); assert.equal(r.status, 0); return r.stdout.trim().split('\n').at(-1); };
 key('owner', 'fixture-owner'); const workerKey = key('worker', 'fixture-worker'), sourceKey = key('source', 'fixture');
 writeFileSync(join(home, 'config.json'), JSON.stringify({ url, hub: { listen: url.slice('http://'.length) }, worker: { name: 'fixture-worker', key: workerKey, capacity: 1 }, channels: {} }));
-mkdirSync(join(home, 'plugins/bridge-native'), { recursive: true }); copyFileSync(join(root, 'experiments/autoloop/native-agent.ts'), join(home, 'plugins/bridge-native/agent.ts'));
+mkdirSync(join(home, 'plugins/bridge-native'), { recursive: true }); copyFileSync(join(root, 'integrations/autoloop/bridge-native/agent.ts'), join(home, 'plugins/bridge-native/agent.ts'));
 const scope = { installation: 'repair-fixture', tenant: 'fixture', operator: 'ou_fixture_owner', chat: 'oc_fixture_chat', projects: { pilot: candidate },
   pilot: 'pilot', hubInstance: 'fixture-hub', source: 'fixture', rule: 'pilot', agent: 'native', agentUse: 'bridge-native' };
 const configPath = join(output, 'bridge.config.json'), handoffPath = join(output, 'handoff.config.json');
@@ -74,7 +86,8 @@ writeFileSync(handoffPath, JSON.stringify({ scope, stateDirectory: state, bridge
 Object.assign(env, { HANDOFF_CONFIG: handoffPath, HANDOFF_SOURCE_KEY: sourceKey,
   HANDOFF_CODEX_PREFIX: native ? '[]' : JSON.stringify([join(root, 'test/fixtures/codex-repair-probe.mjs'), audit, join(candidate, 'page.html')]) });
 const admission = new PilotAdmission(state, scope, 'workspace'), runtime = new NativeExecutions(admission, loadConfig(configPath), undefined, profiles);
-const source = new SourceOutbox(admission, new AutoloopSource(url, sourceKey)), deliveries = [];
+const sourceClient = new AutoloopSource(url, sourceKey);
+const source = new SourceOutbox(admission, sourceClient), deliveries = [];
 const reactions = { addReaction: async () => 'fixture-reaction', findReaction: async () => undefined, removeReaction: async () => {} };
 let interactions = new PilotInteractions(admission, loadConfig(configPath), source, runtime, { send: async (_chat, text, id, options) => { deliveries.push({ text, id, options }); return id; } }, reactions, [sourceKey], undefined, profiles);
 let up;
@@ -82,6 +95,41 @@ try {
   up = spawn(process.execPath, [...cli, 'up'], { env, stdio: ['ignore', 'ignore', 'ignore'] });
   await until('Hub', () => fetch(url + '/healthz').then(x => x.ok).catch(() => false), 30_000);
   const actor = text => ({ tenant: scope.tenant, user: scope.operator, chat: scope.chat, chatType: 'p2p', id: randomUUID(), text });
+  const overBudget = interactions.receive(actor('/verify-repair over-budget Isolated budget preflight'));
+  assert.ok('request' in overBudget);
+  const rejectedExecution = overBudget.request.execution;
+  const { deadline, cleanupDeadline } = admission.store.repairs.get(rejectedExecution);
+  writeFileSync(budgetCase, JSON.stringify({ request: overBudget.request.id, deadline, cleanupDeadline }), { flag: 'wx' });
+  const rejected = await until('Worker settlement with insufficient budget', async () => {
+    await interactions.flush();
+    const event = admission.store.submission(overBudget.request.id)?.event;
+    if (!event) return;
+    const { runs } = await sourceClient.inspect(event);
+    const run = runs[0];
+    if (!run) return;
+    const launchFile = join(workerLaunches, run.run + '.json');
+    const launch = existsSync(launchFile) ? JSON.parse(readFileSync(launchFile, 'utf8')) : undefined;
+    assert.ok(!launch?.invalidTiming, 'Invalid deadline fixture setup: Worker launch missed the required timing window');
+    if (run.state === 'queued' || run.state === 'claimed') return;
+    assert.equal(run.state, 'nothing');
+    assert.ok(launch, 'Expected a recorded Worker launch for the denied request');
+    const goal = admission.store.repairs.get(rejectedExecution);
+    assert.equal(goal?.status, 'incomplete');
+    assert.equal(goal.reason, 'Actual Worker budget is insufficient for cleanup');
+    assert.equal(launch.run, run.run);
+    assert.equal(launch.rule, run.rule);
+    const workerDeadline = launch.launchedAt + launch.timeoutMinutes * 60_000;
+    const deadlineIfRestarted = launch.runnerStartedAt + launch.timeoutMinutes * 60_000;
+    assert.ok(goal.deadline < workerDeadline, 'The work window fits the actual Worker deadline');
+    assert.ok(workerDeadline < goal.cleanupDeadline, 'The actual Worker deadline leaves insufficient cleanup time');
+    assert.ok(goal.cleanupDeadline < deadlineIfRestarted, 'A fresh timer at runner start would incorrectly allow dispatch');
+    assert.equal(goal.attempts.length, 0);
+    assert.equal(readFileSync(audit, 'utf8'), '');
+    assert.equal(admission.store.unsettled().length, 0);
+    return { execution: rejectedExecution, run: run.run, status: goal.status, attempts: goal.attempts.length,
+      workerDeadline, workDeadline: goal.deadline, cleanupDeadline: goal.cleanupDeadline, deadlineIfRestarted };
+  }, 60_000);
+  console.log('PASS: the work window fits the Worker timeout, but cleanup does not; no native or verifier launch.');
   const trigger = actor('/verify-repair fixture 隔离验收：目标是让 page.html 的 h1 为 REPAIRED_TITLE。首轮请仅回复 REPAIR_PROBE_FIRST，不使用工具、不修改文件；待系统验证后，在唯一修复续接轮读取报告并修复 page.html，保持所有 ui-eval 策略、脚本和断言不变。只修改这个隔离目录。');
   const result = interactions.receive(trigger); assert.ok('request' in result); const execution = result.request.execution;
   await interactions.flush();
@@ -103,7 +151,7 @@ try {
   assert.equal(admission.store.unsettled().length, 0);
   assert.equal(runtimeFingerprint(), bridgeRuntimeHash, 'Captured bridge runtime must remain unchanged');
   writeFileSync(join(output, 'acceptance.json'), JSON.stringify({ status: 'passed', nativeInference: native, scope: 'isolated actual Hub/Worker and UI-eval; synthetic human transport; no Feishu connection or business acceptance',
-    bridgeCommit, bridgeRuntimeHash, execution, attempts: goal.attempts.map(a => ({ id: a.id, native: a.native, observation: a.observation })), checkpoint: report.checkpoint, manifestHash: before }, null, 2));
+    bridgeCommit, bridgeRuntimeHash, budgetRejection: rejected, execution, attempts: goal.attempts.map(a => ({ id: a.id, native: a.native, observation: a.observation })), checkpoint: report.checkpoint, manifestHash: before }, null, 2));
   console.log('PASS: isolated fail → same-conversation repair → fresh pass; immutable attempt evidence and lookup-only restart.');
   console.log(native ? 'Actual Codex inference was used; real Feishu owner acceptance remains separate.' : 'Native protocol was scripted; actual pinned Hub/Worker, UI-eval and Chrome executed. No model inference.');
   console.log('Private evidence: ' + output);

@@ -57,7 +57,7 @@ try {
   };
   const ownerKey = key('owner', 'fixture-owner'), workerKey = key('worker', 'fixture-worker'), sourceKey = key('source', 'fixture');
   const plugin = join(home, 'plugins/bridge-native'); mkdirSync(plugin, { recursive: true });
-  copyFileSync(join(root, 'experiments/autoloop/native-agent.ts'), join(plugin, 'agent.ts'));
+  copyFileSync(join(root, 'integrations/autoloop/bridge-native/agent.ts'), join(plugin, 'agent.ts'));
   reservation = createServer();
   await new Promise((done, fail) => { reservation.once('error', fail); reservation.listen(0, '127.0.0.1', done); });
   const port = reservation.address().port;

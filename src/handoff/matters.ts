@@ -5,7 +5,7 @@ import type { CardResult } from '../approval.js';
 import { NEW_MATTER_CHOICE, type MatterClick, type MatterPresentation } from '../matter-card.js';
 import { naturalControl } from '../ux.js';
 import type { Admission, PilotAdmission } from './gateway.js';
-import { DEFAULT_MATTER, DEFAULT_MATTER_TITLE, type HeldMatter, type MatterNotice } from './matter-store.js';
+import { DEFAULT_MATTER, DEFAULT_MATTER_TITLE, type HeldMatter, type Matter, type MatterNotice } from './matter-store.js';
 
 const PAGE_SIZE = 6;
 const USAGE = '发送 /matter-new 事项名称 新建并切换。发送 /matters 查看事项和默认对话。已选中事项可用 /matter-bind GitHub PR 链接 绑定对象。';
@@ -18,6 +18,19 @@ const prShortAddress = /(?<![\w./-])([a-z0-9_.-]+\/[a-z0-9_.-]+)(?:\s*的\s*|\s+
 const urlBoundary = /^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"'*，。？！、；：…—]|\p{Script=Han}|[,;!](?=$|[\s\p{Pe}\p{Script=Han}]))/u;
 const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|审核状态|改动|差异|检查结果|CI(?:\s*(?:状态|结果|为什么(?:没|没有|未)(?:跑|运行)))?)|(?:为什么|怎么)(?:没|没有|未)(?:跑|运行)\s*CI|(?:latest\s+)?(?:status|checks?|diff|CI(?:\s+status)?|merge status|review status)|why\s+CI\s+(?:didn['’]t\s+run|isn['’]t\s+running))$/iu;
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
+const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
+const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
+const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘(?:[^’\n]|’(?=[\p{Script=Latin}\p{N}_]))*’(?![\p{Script=Latin}\p{N}_])|"[^"\n]*"|(?<![\p{Script=Latin}\p{N}_])'(?:[^'\n]|'(?=[\p{Script=Latin}\p{N}_]))*'(?![\p{Script=Latin}\p{N}_])|《[^》]*》/gu;
+const referenceUrlStart = /https?:\/\//giu;
+const bareUrlEnd = /[\s<>"\x60]/u;
+const bareUrlProsePunctuation = /[，。；：！？、）》】」』”]/u;
+const markdownLinkTitle = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*(?=\))/u;
+const urlQueryBrackets: Readonly<Record<string, string>> = {
+  '(': ')', '（': '）', '[': ']', '【': '】', '〔': '〕', '《': '》', '〈': '〉',
+};
+const wrappedUrlEnds: Readonly<Record<string, string>> = {
+  ...urlQueryBrackets, '<': '>', '「': '」', '『': '』', '“': '”', '‘': '’', '"': '"', "'": "'", '\x60': '\x60',
+};
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -80,11 +93,156 @@ function topicTitle(input: string, ref?: string): string {
 }
 
 const words = new Intl.Segmenter('zh', { granularity: 'word' });
+const latinWordChar = /[\p{Script=Latin}\p{N}\p{M}_]/u.source;
+const startsLatinWord = new RegExp('^' + latinWordChar, 'u');
+const endsLatinWord = new RegExp(latinWordChar + '$', 'u');
+
+function titleTerms(title: string): string[] {
+  const terms = [...title.split(/\s+/), ...Array.from(words.segment(title), item => item.isWordLike ? item.segment : '')];
+  return terms.filter(term => term.length >= (/^[\x00-\x7f]+$/.test(term) ? 3 : 2)).map(term => term.toLowerCase());
+}
 
 function matchingTitleTerms(title: string, text: string): boolean {
   // Terms can trigger a choice. Only confirmed references select a matter.
-  const terms = [...title.split(/\s+/), ...Array.from(words.segment(title), item => item.isWordLike ? item.segment : '')];
-  return terms.some(term => term.length >= (/^[\x00-\x7f]+$/.test(term) ? 3 : 2) && text.includes(term.toLowerCase()));
+  return titleTerms(title).some(term => text.includes(term));
+}
+
+function referenceUrlEnd(text: string, start: number, closer?: string, allowPadding = false): number {
+  const nested: string[] = [];
+  let queryOrFragment = false;
+  let possibleQuoteEnd: number | undefined;
+  let end = start;
+  while (end < text.length) {
+    const char = text[end]!;
+    if (char === '\\') {
+      const next = text[end + 1] ?? '';
+      if ((closer === ')' && /[()\\]/u.test(next)) || (allowPadding && /[<>\\]/u.test(next))) {
+        end += 2;
+        continue;
+      }
+    }
+    if (/\s/u.test(char) && !(allowPadding && /[ \t]/u.test(char))) break;
+    if (closer === '>' && char === '<') break;
+    if (possibleQuoteEnd !== undefined && (/[，。；：！？、,.;:!?]/u.test(char) || urlQueryBrackets[char])) {
+      const opener = closer === '’' ? '‘' : "'";
+      if (text.slice(end + 1).trimStart().startsWith(opener)) break;
+    }
+    if (char === nested.at(-1)) {
+      nested.pop();
+      end++;
+      continue;
+    }
+    if (char === closer) {
+      const singleQuote = char === "'" || char === '’';
+      const after = text.slice(end + 1);
+      const insideWord = endsLatinWord.test(text[end - 1] ?? '') && startsLatinWord.test(after);
+      const beforeParameter = queryOrFragment && /^[&;][\w.%~-]+=/u.test(after);
+      if (!singleQuote || (!insideWord && !beforeParameter)) return end;
+      // It may close the wrapper before adjacent prose. Use it if there is no later closing quote.
+      possibleQuoteEnd ??= end;
+    }
+    if (!closer && !queryOrFragment && char === ')') break;
+    if (char === '?' || char === '#') queryOrFragment = true;
+    if (!closer) {
+      const prosePunctuation = !queryOrFragment && (bareUrlProsePunctuation.test(char) ||
+        (!nested.length && ',;!'.includes(char) && /^\p{Script=Han}/u.test(text.slice(end + 1))));
+      if (bareUrlEnd.test(char) || prosePunctuation) break;
+    }
+    const pair = urlQueryBrackets[char];
+    if (pair && (pair === closer || (!closer && (queryOrFragment || char === '(')))) nested.push(pair);
+    end++;
+  }
+  return possibleQuoteEnd ?? end;
+}
+
+function withoutReferenceUrls(text: string): string {
+  const parts: string[] = [];
+  let consumed = 0;
+  for (const { index, 0: scheme } of text.matchAll(referenceUrlStart)) {
+    if (index < consumed) continue;
+    const prefix = text.slice(consumed, index);
+    const before = prefix.trimEnd();
+    const closer = wrappedUrlEnds[before.at(-1) ?? ''];
+    const start = index + scheme.length;
+    if (closer) {
+      const markdown = /\]\(\s*<?$/u.test(before);
+      const end = referenceUrlEnd(text, start, closer, markdown && closer === '>');
+      const suffix = text.slice(end);
+      const closing = suffix.trimStart();
+      const titleStart = closer === '>' && closing.startsWith('>') ? end + suffix.length - closing.length + 1 : end;
+      const title = markdown && (closer !== '>' || closing.startsWith('>'))
+        ? markdownLinkTitle.exec(text.slice(titleStart)) : null;
+      if (title || closing.startsWith(closer)) {
+        // Keep link delimiters out of the prose matcher and preserve text after the link.
+        parts.push(before.slice(0, -1), ' ');
+        consumed = title ? titleStart + title[0].length + 1 : end + suffix.length - closing.length + 1;
+        continue;
+      }
+    }
+    parts.push(prefix, ' ');
+    consumed = referenceUrlEnd(text, start);
+  }
+  return parts.join('') + text.slice(consumed);
+}
+
+function separateTitleMentions(titles: Iterable<string>, normalized: string, eligible: (name: string, index: number) => boolean): string[] {
+  const folded = normalized.toLowerCase();
+  const spans: { index: number; name: string }[] = [];
+  for (const title of titles) {
+    if (!folded.includes(title.toLowerCase())) continue;
+    const literal = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const before = startsLatinWord.test(title) ? '(?<!' + latinWordChar + ')' : '';
+    const after = endsLatinWord.test(title) ? '(?!' + latinWordChar + ')' : '';
+    for (const { index, 1: name } of normalized.matchAll(new RegExp('(?=' + before + '(' + literal + ')' + after + ')', 'giu'))) {
+      if (name && eligible(name, index)) spans.push({ index, name });
+    }
+  }
+
+  // Take longer matches first even when a shorter match starts earlier.
+  const reserved = new Uint8Array(normalized.length);
+  const mentions: string[] = [];
+  for (const { index, name } of spans.sort((a, b) => b.name.length - a.name.length || a.index - b.index)) {
+    const end = index + name.length;
+    if (reserved.subarray(index, end).includes(1)) continue;
+    reserved.fill(1, index, end);
+    mentions.push(name);
+  }
+  return mentions;
+}
+
+function editMatterChoices(candidates: Matter[], text: string): Matter[] {
+  if (candidates.length < 2) return [];
+  const exact = new Map<string, Matter>();
+  const foldedTitles = new Map<string, Matter | null>();
+  const terms = new Map<string, Matter | null>();
+  for (const matter of candidates) {
+    const title = matter.title.normalize('NFC');
+    const folded = title.toLowerCase();
+    exact.set(title, matter);
+    foldedTitles.set(folded, foldedTitles.has(folded) ? null : matter);
+    for (const term of new Set(titleTerms(matter.title))) {
+      terms.set(term, terms.has(term) ? null : matter);
+    }
+  }
+
+  const normalized = text.normalize('NFC');
+  const quoted = new Uint8Array(normalized.length);
+  for (const { index, 0: literal } of normalized.matchAll(editLiteral)) {
+    quoted.fill(1, index, index + literal.length);
+  }
+  const options = new Set([...exact.keys(), ...terms.keys()]);
+  const eligible = (name: string, index: number) =>
+    foldedTitles.has(name.toLowerCase()) || !quoted.subarray(index, index + name.length).includes(1);
+
+  const mentioned = new Set<Matter>();
+  for (const name of separateTitleMentions(options, normalized, eligible)) {
+    const folded = name.toLowerCase();
+    const complete = exact.get(name) ?? foldedTitles.get(folded);
+    // A complete title takes priority at the same span. Shared terms cannot identify a matter.
+    const matter = complete ?? (!foldedTitles.has(folded) ? terms.get(folded) : undefined);
+    if (matter) mentioned.add(matter);
+  }
+  return candidates.filter(matter => mentioned.has(matter));
 }
 
 export class OwnerMatters {
@@ -325,10 +483,18 @@ export class OwnerMatters {
 
     const candidates = store.list(scope, -1, 0, false);
     const normalized = text.toLowerCase().normalize('NFC');
-    const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
     const followup = text.replace(/[\s。？！.!?…]+$/u, '');
     const additive = !/^(?:这|那|上面|之前|刚才|剩下)/u.test(followup) &&
       /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(followup);
+    const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
+    if (focus && !additive && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
+      const choices = editMatterChoices(candidates, withoutReferenceUrls(text));
+      if (choices.length > 1) return this.holdConflict(message, choices.map(matter => matter.id));
+      const alternate = store.alternateFocusForFollowup(scope);
+      return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
+    }
+
+    const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
     // A reference to the preceding message is stronger than shared title words.
     if (focus && !message.parentId && !additive && priorMessage.test(normalized) &&
         !related.some(m => m.id !== focus && normalized.includes(m.title.toLowerCase().normalize('NFC')))) {
