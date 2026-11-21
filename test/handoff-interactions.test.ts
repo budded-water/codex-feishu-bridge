@@ -1583,7 +1583,7 @@ test('a long titled request gets one complete receipt with progress and a separa
   assert.equal(h.sent.filter(row => row.options?.replyTo === original.id && row.text === 'Done').length, 1);
 });
 
-test('colons in time and file references do not become explicit topic separators', async t => {
+test('topic headings retain their wording and ignore colons in time and file references', async t => {
   const h = setup(t);
   const subjects = [
     { input: '检查 10:30 的退款批次。请整理异常', title: '10 30 的退款批次' },
@@ -1593,6 +1593,8 @@ test('colons in time and file references do not become explicit topic separators
     { input: 'Release checks: verify the candidate commit', title: 'Release checks' },
     { input: '10:30 批次复核：请整理所有异常。', title: '10 30 批次复核' },
     { input: 'src/layout.ts：20 核对: verify the heading', title: 'src/layout.ts 20 核对' },
+    { input: '检查：请核对今晚的出库记录。', title: '检查' },
+    { input: '研究: 请核对本地报告。', title: '研究' },
   ];
   for (const { input, title } of subjects) {
     const original = h.actor('换个话题。' + input);
