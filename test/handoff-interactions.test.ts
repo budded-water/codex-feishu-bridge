@@ -1588,6 +1588,8 @@ test('colons in time and file references do not become explicit topic separators
   const subjects = [
     { input: '检查 10:30 的退款批次。请整理异常', title: '10 30 的退款批次' },
     { input: '请比较 src/config.ts:120 和 src/config.ts:145', title: '请比较 src/config.ts 120 和 src/config.ts 145' },
+    { input: '检查 10：30 的出库批次', title: '10 30 的出库批次' },
+    { input: '请比较 src/layout.ts：20 和 src/layout.ts：45', title: '请比较 src/layout.ts 20 和 src/layout.ts 45' },
     { input: 'Release checks: verify the candidate commit', title: 'Release checks' },
   ];
   for (const { input, title } of subjects) {
@@ -1596,7 +1598,7 @@ test('colons in time and file references do not become explicit topic separators
     assert.ok('request' in accepted);
     assert.equal(accepted.request.input, input);
     await drain(h);
-    assert.ok(h.sent.some(row => row.options?.replyTo === original.id && row.text.includes('**新事项** · ' + title + '\n')));
+    assert.ok(h.sent.some(row => row.options?.replyTo === original.id && row.text.includes('**新事项** · ' + title + '\n')), input);
   }
 });
 
