@@ -2098,6 +2098,8 @@ test('an edit stays in focus when recent work agrees and replacement terms match
     '刚才那个改成周五，参考 https://example.com/docs?from=QA&to=CI',
     '刚才那个改成周五，参考 https://example.com/docs?from=(QA)&to=CI',
     '刚才那个改成周五，参考 https://example.com/docs?names=QA,CI',
+    '刚才那个改成周五，参考 https://example.com/?names=all,中文,QA,CI&mode=preview',
+    '刚才那个改成周五，参考 https://example.com/?names=all,周五复盘,周五值班&mode=preview',
     '刚才那个改成周五，参考 [网页](https://example.com/docs?from=((QA))&to=CI)。',
     '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all,中文,QA,CI)',
     '刚才那个改成周五，参考 [议题](https://example.com/docs?names=all，中文,QA,CI)',
@@ -2156,6 +2158,11 @@ test('an edit counts overlapping matter names only when they have separate menti
   checkChoices('刚才那个改成 Alpha 的排班', ['旧日程', '新日程']);
   checkChoices('刚才那个改成 Alpha 和 ALPHA 的共同计划', ['Alpha', 'ALPHA']);
   checkChoices('刚才那个改成 alpha 和 Beta 的共同计划', ['旧日程', '新日程']);
+  h.interactions.receive(h.actor('/matter-new 程序'));
+  h.interactions.receive(h.actor('/matter-new 程序员 招聘'));
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  checkChoices('刚才那个改成周五，程序员和发版都要同步', ['程序员 招聘', 'Solura 发版']);
+  checkChoices('刚才那个改成周五，程序、程序员和发版都要同步', ['程序', '程序员 招聘', 'Solura 发版']);
   const addressed = h.interactions.receive(h.actor('退款调查：刚才那个改成退款和退款调查的共同计划'));
   assert.ok('request' in addressed);
   const scope = { owner: ownerKey(addressed.request.message), project: h.admission.project };
@@ -2211,6 +2218,7 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成退款的周五时段或发版的周六时段');
   checkCandidates('刚才那个改成退款的周五时段，或改成发版的周六时段');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details,退款和发版会否受影响');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/details?v=2 退款和发版会否受影响');
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');

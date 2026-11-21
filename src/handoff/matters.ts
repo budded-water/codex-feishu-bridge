@@ -106,6 +106,7 @@ function matchingTitleTerms(title: string, text: string): boolean {
 function referenceUrlEnd(text: string, start: number, closer?: string): number {
   const countParentheses = !closer || closer === ')';
   let depth = 0;
+  let queryOrFragment = false;
   let end = start;
   while (end < text.length) {
     const char = text[end]!;
@@ -114,8 +115,9 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
       continue;
     }
     if (/\s/u.test(char) || (char === closer && (!countParentheses || !depth))) break;
+    if (char === '?' || char === '#') queryOrFragment = true;
     if (!closer && (bareUrlEnd.test(char) ||
-        (!depth && ',;!'.includes(char) && /^\p{Script=Han}/u.test(text.slice(end + 1))))) break;
+        (!depth && !queryOrFragment && ',;!'.includes(char) && /^\p{Script=Han}/u.test(text.slice(end + 1))))) break;
     if (countParentheses && char === '(') depth++;
     if (countParentheses && char === ')') {
       if (!depth) break;
@@ -164,42 +166,41 @@ function separateTitleMentions(titles: Iterable<string>, normalized: string): Re
   return [...normalized.matchAll(new RegExp(pattern, 'giu'))];
 }
 
-function mattersWithDistinctTerms(candidates: Matter[], text: string): Matter[] {
-  const owners = new Map<string, Matter | null>();
+function editMatterChoices(candidates: Matter[], text: string): Matter[] {
+  if (candidates.length < 2) return [];
+  const exact = new Map<string, Matter>();
+  const foldedTitles = new Map<string, Matter | null>();
+  const terms = new Map<string, Matter | null>();
   for (const matter of candidates) {
+    const title = matter.title.normalize('NFC');
+    const folded = title.toLowerCase();
+    exact.set(title, matter);
+    foldedTitles.set(folded, foldedTitles.has(folded) ? null : matter);
     for (const term of new Set(titleTerms(matter.title))) {
-      owners.set(term, owners.has(term) ? null : matter);
+      terms.set(term, terms.has(term) ? null : matter);
     }
   }
 
-  // A term shared by several titles cannot independently identify a matter.
-  // Still include shared terms in the matcher so their spans cannot count again.
-  const mentioned = new Set(separateTitleMentions(owners.keys(), text).map(([term]) => owners.get(term!.toLowerCase())));
-  return candidates.filter(matter => mentioned.has(matter));
-}
-
-function editMatterChoices(candidates: Matter[], text: string): Matter[] {
-  if (candidates.length < 2) return [];
-  const byTitle = new Map<string, Matter[]>();
-  const exact = new Map<string, Matter>();
-  for (const matter of candidates) {
-    const title = matter.title.normalize('NFC');
-    exact.set(title, matter);
-    const folded = title.toLowerCase();
-    const matches = byTitle.get(folded) ?? [];
-    matches.push(matter);
-    byTitle.set(folded, matches);
-  }
+  const titleChoices = [...exact.keys()];
+  const proseChoices = [...new Set([...titleChoices, ...terms.keys()])];
   const mentioned = new Set<Matter>();
+  const collect = (value: string, quoted: boolean) => {
+    for (const { 0: name } of separateTitleMentions(quoted ? titleChoices : proseChoices, value)) {
+      const folded = name.toLowerCase();
+      const complete = exact.get(name) ?? foldedTitles.get(folded);
+      // A complete title takes priority at the same span. Shared terms cannot identify a matter.
+      const matter = complete ?? (!quoted && !foldedTitles.has(folded) ? terms.get(folded) : undefined);
+      if (matter) mentioned.add(matter);
+    }
+  };
   const normalized = text.normalize('NFC');
-  const visible = normalized.replace(editLiteral, literal => ' '.repeat(literal.length)).split('');
-  for (const { index, 0: title } of separateTitleMentions(exact.keys(), normalized)) {
-    const matches = byTitle.get(title.toLowerCase());
-    const matter = exact.get(title) ?? (matches?.length === 1 ? matches[0] : undefined);
-    if (matter) mentioned.add(matter);
-    visible.fill(' ', index, index + title.length);
+  let offset = 0;
+  for (const { index, 0: literal } of normalized.matchAll(editLiteral)) {
+    collect(normalized.slice(offset, index), false);
+    collect(literal, true);
+    offset = index + literal.length;
   }
-  for (const matter of mattersWithDistinctTerms(candidates, visible.join(''))) mentioned.add(matter);
+  collect(normalized.slice(offset), false);
   return candidates.filter(matter => mentioned.has(matter));
 }
 
