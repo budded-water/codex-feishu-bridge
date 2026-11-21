@@ -2100,6 +2100,18 @@ test('an edit stays in focus when recent work agrees and replacement terms match
   }
 });
 
+test('a description in an additive request preserves the option to start a new matter', t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 小程序底栏'));
+  const initial = h.interactions.receive(h.actor('核对底栏布局'));
+  assert.ok('request' in initial);
+  const additive = h.actor('刚刚那个改成蓝色的登录页也看看');
+  assert.equal(h.interactions.receive(additive).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(additive), undefined);
+  assert.deepEqual(h.admission.store.matters.held(additive, h.admission.project)?.choices,
+    [initial.request.conversation, NEW_MATTER_CHOICE]);
+});
+
 test('an edit counts overlapping matter names only when they have separate mentions', t => {
   const h = setup(t);
   h.interactions.receive(h.actor('/matter-new 退款'));
@@ -2150,6 +2162,7 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五的改动为什么影响退款和发版');
   checkCandidates('刚才那个改成周五的改动对退款和发版各有什么影响');
   checkCandidates('刚才那个改成周五的改动对退款和发版各有何影响');
+  checkCandidates('刚才那个改成周五后，退款和发版分别由谁跟进');
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');

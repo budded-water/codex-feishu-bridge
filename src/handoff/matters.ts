@@ -20,7 +20,7 @@ const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
 const editCommand = /^(?:修改|调整|改)(?=成|为|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
-const editQuestion = /[?？]|是否|什么|什麼|为何|為何|有何|何[时時处處种種]|怎么|怎麼|怎样|怎樣|如何|哪[个個里裡儿种種]|多[少久]|[能可应應]否|([\p{Script=Han}])(?:不|没|沒)\1|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
+const editQuestion = /[?？谁誰]|是否|什么|什麼|为何|為何|有何|何[时時处處种種]|怎么|怎麼|怎样|怎樣|如何|哪[个個里裡儿种種]|多[少久]|[能可应應]否|([\p{Script=Han}])(?:不|没|沒)\1|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
 const editUrl = /https?:\/\/[^\s<>"'\x60，。；！？、）》】」』”]+/giu;
 const vagueFollowup = [
@@ -361,8 +361,11 @@ export class OwnerMatters {
 
     const candidates = store.list(scope, -1, 0, false);
     const normalized = text.toLowerCase().normalize('NFC');
+    const followup = text.replace(/[\s。？！.!?…]+$/u, '');
+    const additive = !/^(?:这|那|上面|之前|刚才|剩下)/u.test(followup) &&
+      /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(followup);
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
-    if (focus && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
+    if (focus && !additive && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
       const editText = withoutReferenceUrls(text);
       if (!editQuestion.test(editText.replace(editLiteral, ' '))) {
         const named = mentionedMatters(candidates, editText.toLowerCase().normalize('NFC'));
@@ -373,9 +376,6 @@ export class OwnerMatters {
     }
 
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
-    const followup = text.replace(/[\s。？！.!?…]+$/u, '');
-    const additive = !/^(?:这|那|上面|之前|刚才|剩下)/u.test(followup) &&
-      /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(followup);
     // A reference to the preceding message is stronger than shared title words.
     if (focus && !message.parentId && !additive && priorMessage.test(normalized) &&
         !related.some(m => m.id !== focus && normalized.includes(m.title.toLowerCase().normalize('NFC')))) {
