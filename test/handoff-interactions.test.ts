@@ -134,12 +134,22 @@ test('an operator-selected Web screenshot reaches the original task with only th
   await assert.rejects(queue, /differs from its plan/);
   const truncated = png.subarray(0, 33);
   const duplicateHeader = Buffer.concat([truncated, png.subarray(8)]);
-  const wrongType = Buffer.from(png);
-  wrongType[wrongType.length - 8] = wrongType[wrongType.length - 8]! | 0x80;
-  wrongType.writeUInt32BE(crc32(wrongType.subarray(-8, -4)), wrongType.length - 4);
+  const chunk = (type: string, data: Buffer) => {
+    const frame = Buffer.alloc(data.length + 12);
+    frame.writeUInt32BE(data.length);
+    frame.write(type, 4, 4, 'latin1');
+    data.copy(frame, 8);
+    frame.writeUInt32BE(crc32(frame.subarray(4, -4)), frame.length - 4);
+    return frame;
+  };
+  const textData = Buffer.from('Label\0Value');
+  const wrongType = Buffer.concat([png.subarray(0, -12), chunk('ôEXt', textData), png.subarray(-12)]);
+  const imageData = png.subarray(41, -16);
+  const splitData = Buffer.concat([truncated, chunk('IDAT', imageData.subarray(0, 6)), chunk('tEXt', textData),
+    chunk('IDAT', imageData.subarray(6)), png.subarray(-12)]);
   const wrongCrc = Buffer.from(png);
   wrongCrc[wrongCrc.length - 1] = wrongCrc[wrongCrc.length - 1]! ^ 1;
-  for (const invalid of [truncated, duplicateHeader, wrongType, wrongCrc]) {
+  for (const invalid of [truncated, duplicateHeader, wrongType, splitData, wrongCrc]) {
     writeFileSync(join(folder, file), invalid);
     planFor({ ...entry, sha256: fingerprint(invalid) });
     await assert.rejects(queue, /differs from its plan/);
