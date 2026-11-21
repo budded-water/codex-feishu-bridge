@@ -2087,6 +2087,7 @@ test('an edit stays in focus when recent work agrees and replacement terms match
   assert.ok('request' in current);
   for (const text of [
     '刚才那个改成周五，时间不变',
+    '刚才那个改成周五，任何时间都可以',
     '刚才那个改成「周五是否值班」，时间不变',
     '刚才那个改成周五，参考 https://example.com/docs?version=2',
     '刚才那个改成周五，参考 https://example.com/docs?from=QA&to=CI',
@@ -2163,6 +2164,8 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五的改动对退款和发版各有什么影响');
   checkCandidates('刚才那个改成周五的改动对退款和发版各有何影响');
   checkCandidates('刚才那个改成周五后，退款和发版分别由谁跟进');
+  checkCandidates('刚才那个改成周五后，退款和发版分别受哪些影响');
+  checkCandidates('刚才那个改成周五后，退款和发版分别受何影响');
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');
