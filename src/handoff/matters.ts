@@ -22,8 +22,8 @@ const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:�
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘(?:[^’\n]|’(?=[\p{Script=Latin}\p{N}_]))*’(?![\p{Script=Latin}\p{N}_])|"[^"\n]*"|(?<![\p{Script=Latin}\p{N}_])'(?:[^'\n]|'(?=[\p{Script=Latin}\p{N}_]))*'(?![\p{Script=Latin}\p{N}_])|《[^》]*》/gu;
 const referenceUrlStart = /https?:\/\//giu;
-const bareUrlEnd = /[\s<>"\x60）》】」』”]/u;
-const bareUrlProsePunctuation = /[，。；：！？、]/u;
+const bareUrlEnd = /[\s<>"\x60]/u;
+const bareUrlProsePunctuation = /[，。；：！？、）》】」』”]/u;
 const markdownLinkTitle = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*(?=\))/u;
 const urlQueryBrackets: Readonly<Record<string, string>> = {
   '(': ')', '（': '）', '[': ']', '【': '】', '〔': '〕', '《': '》', '〈': '〉',
@@ -107,19 +107,23 @@ function matchingTitleTerms(title: string, text: string): boolean {
   return titleTerms(title).some(term => text.includes(term));
 }
 
-function referenceUrlEnd(text: string, start: number, closer?: string): number {
+function referenceUrlEnd(text: string, start: number, closer?: string, allowPadding = false): number {
   const nested: string[] = [];
   let queryOrFragment = false;
   let possibleQuoteEnd: number | undefined;
   let end = start;
   while (end < text.length) {
     const char = text[end]!;
-    if (closer === ')' && char === '\\' && /[()\\]/u.test(text[end + 1] ?? '')) {
-      end += 2;
-      continue;
+    if (char === '\\') {
+      const next = text[end + 1] ?? '';
+      if ((closer === ')' && /[()\\]/u.test(next)) || (allowPadding && /[<>\\]/u.test(next))) {
+        end += 2;
+        continue;
+      }
     }
-    if (/\s/u.test(char)) break;
-    if (possibleQuoteEnd !== undefined && /[，。；：！？、,.;:!?]/u.test(char)) {
+    if (/\s/u.test(char) && !(allowPadding && /[ \t]/u.test(char))) break;
+    if (closer === '>' && char === '<') break;
+    if (possibleQuoteEnd !== undefined && (/[，。；：！？、,.;:!?]/u.test(char) || urlQueryBrackets[char])) {
       const opener = closer === '’' ? '‘' : "'";
       if (text.slice(end + 1).trimStart().startsWith(opener)) break;
     }
@@ -137,7 +141,7 @@ function referenceUrlEnd(text: string, start: number, closer?: string): number {
       // It may close the wrapper before adjacent prose. Use it if there is no later closing quote.
       possibleQuoteEnd ??= end;
     }
-    if (!closer && char === ')') break;
+    if (!closer && !queryOrFragment && char === ')') break;
     if (char === '?' || char === '#') queryOrFragment = true;
     if (!closer) {
       const prosePunctuation = !queryOrFragment && (bareUrlProsePunctuation.test(char) ||
@@ -156,20 +160,27 @@ function withoutReferenceUrls(text: string): string {
   let consumed = 0;
   for (const { index, 0: scheme } of text.matchAll(referenceUrlStart)) {
     if (index < consumed) continue;
-    const before = text.slice(consumed, index).trimEnd();
+    const prefix = text.slice(consumed, index);
+    const before = prefix.trimEnd();
     const closer = wrappedUrlEnds[before.at(-1) ?? ''];
     const start = index + scheme.length;
-    const end = closer ? referenceUrlEnd(text, start, closer) : undefined;
-    parts.push(text.slice(consumed, index), ' ');
-    if (end === undefined) {
-      consumed = referenceUrlEnd(text, start);
-      continue;
+    if (closer) {
+      const markdown = /\]\(\s*<?$/u.test(before);
+      const end = referenceUrlEnd(text, start, closer, markdown && closer === '>');
+      const suffix = text.slice(end);
+      const closing = suffix.trimStart();
+      const titleStart = closer === '>' && closing.startsWith('>') ? end + suffix.length - closing.length + 1 : end;
+      const title = markdown && (closer !== '>' || closing.startsWith('>'))
+        ? markdownLinkTitle.exec(text.slice(titleStart)) : null;
+      if (title || closing.startsWith(closer)) {
+        // Keep link delimiters out of the prose matcher and preserve text after the link.
+        parts.push(before.slice(0, -1), ' ');
+        consumed = title ? titleStart + title[0].length + 1 : end + suffix.length - closing.length + 1;
+        continue;
+      }
     }
-    const titleStart = closer === '>' && text[end] === '>' ? end + 1 : end;
-    const title = (closer !== '>' || text[end] === '>') && /\]\(\s*<?$/u.test(before)
-      ? markdownLinkTitle.exec(text.slice(titleStart)) : null;
-    if (title) consumed = titleStart + title[0].length;
-    else consumed = text.slice(end).trimStart()[0] === closer ? end : referenceUrlEnd(text, start);
+    parts.push(prefix, ' ');
+    consumed = referenceUrlEnd(text, start);
   }
   return parts.join('') + text.slice(consumed);
 }

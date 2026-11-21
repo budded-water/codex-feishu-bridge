@@ -2118,11 +2118,32 @@ test('an edit stays in focus when recent work agrees and replacement terms match
     '刚才那个改成周五，参考 [网页]( https://example.com/docs?names=all，中文,QA,CI )',
     '刚才那个改成周五，参考 [网页](https://example.com/docs?names=all，中文,QA,CI "链接标题")',
     '刚才那个改成周五，参考 [网页](<https://example.com/docs?names=all，中文,QA,CI> "QA 和 CI")',
+    '刚才那个改成周五，参考 [网页](<https://example.com/?q=x QA,CI&mode=preview>)',
+    '刚才那个改成周五，参考 [网页](<https://example.com/?q=x\\>QA,CI&mode=preview>)',
     '刚才那个改成“周五为什么值班？”，时间不变',
   ]) {
     const edit = h.interactions.receive(h.actor(text));
     assert.ok('request' in edit);
     assert.equal(edit.request.conversation, current.request.conversation);
+  }
+});
+
+test('removing a quoted reference preserves adjacent partial matter names as prose', t => {
+  const h = setup(t);
+  for (const title of ['Alpha work', 'Beta work', '文档整理']) h.interactions.receive(h.actor('/matter-new ' + title));
+  assert.ok('request' in h.interactions.receive(h.actor('整理当前说明')));
+  for (const text of [
+    "参考 'https://example.com/?q=x'Alpha和Beta都要同步,'备注'",
+    "参考 'https://example.com/?q=x'Alpha和Beta都要同步（'备注'）",
+    "参考 'https://example.com/?q=x'Alpha和Beta都要同步、'备注'",
+    '参考‘https://example.com/?q=x’Alpha和Beta都要同步（‘备注’）',
+  ]) {
+    const edit = h.actor('刚才那个改成周五，' + text);
+    assert.equal(h.interactions.receive(edit).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(edit), undefined);
+    const scope = { owner: ownerKey(edit), project: h.admission.project };
+    const held = h.admission.store.matters.held(edit, scope.project)!;
+    assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(), ['Alpha work', 'Beta work']);
   }
 });
 
@@ -2246,6 +2267,7 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五，参考 https://example.com/details,退款和发版会否受影响');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details?v=2 退款和发版会否受影响');
   checkCandidates('刚才那个改成周五，参考 https://example.com/?names=all（说明）QA,CI&mode=preview 退款和发版都要同步');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/?names=one）QA,CI&mode=preview 退款和发版都要同步');
   checkCandidates("刚才那个改成周五，参考 https://example.com/?name=O'Reilly&teams=QA,CI 退款和发版都要同步");
   checkCandidates("刚才那个改成周五，参考 'https://example.com/?name=O%27Reilly&teams=QA,CI' 退款和发版都要同步");
   checkCandidates("刚才那个改成周五，参考 'https://example.com/?name=O'Reilly&teams=QA,CI' 退款和发版都要同步");
