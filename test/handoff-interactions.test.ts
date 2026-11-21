@@ -1870,7 +1870,13 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   const other = h.interactions.receive(h.actor('退款调查：继续核对退款资料'));
   assert.ok('request' in other);
   assert.equal(other.request.conversation, a.request.conversation);
-  const vague = h.actor('就按刚才那个方案改吧。');
+  for (const text of ['刚才那个改一下', '就按刚才那个方案改吧。']) {
+    const correction = h.actor(text);
+    assert.equal(h.interactions.receive(correction).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(correction), undefined);
+    assert.deepEqual(h.admission.store.matters.held(correction, h.admission.project)?.choices, [release, a.request.conversation]);
+  }
+  const vague = h.actor('刚才那个改成周五');
   assert.equal(h.interactions.receive(vague).status, 'matter-choice');
   assert.equal(h.admission.store.requestForMessage(vague), undefined);
   await h.restart();
@@ -1887,6 +1893,7 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   assert.equal(h.interactions.matterAction(click), 'accepted');
   assert.equal(h.interactions.matterAction(click), 'accepted');
   assert.equal(h.admission.store.requestForMessage(vague)?.conversation, a.request.conversation);
+  assert.equal(h.admission.store.requestForMessage(vague)?.input, vague.text);
   assert.equal(h.admission.store.requests().length, count + 1);
   assert.equal(h.interactions.receive(vague).status, 'duplicate');
   const keepGoing = h.interactions.receive(h.actor('继续上一步'));
