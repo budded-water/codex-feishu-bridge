@@ -25,6 +25,12 @@ canonical project admission and execution rules.
 - **THEN** the gateway SHALL admit the saved message once, without requiring it to be sent again
 - **AND** a duplicate click or restart SHALL retain its first destination
 
+#### Scenario: An unquoted question concerns the preceding message
+
+- **WHEN** the question starts by referring to the preceding message or turn, a matter is selected, and the question has no explicit destination or other complete matter title
+- **THEN** shared words in matter titles SHALL NOT take precedence over the selected matter and ordinary admission history
+- **AND** if the last eligible task and the selected matter differ, the gateway SHALL present both choices before admission
+
 #### Scenario: Routing receipt explains the result
 
 - **WHEN** a new matter is admitted or a known matter is continued

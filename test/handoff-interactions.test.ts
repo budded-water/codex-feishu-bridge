@@ -1523,6 +1523,39 @@ test('an explicit new topic admits its first request once and preserves the olde
   assert.equal(h.admission.store.matters.owned(scope, nfcTitle.request.conversation)?.title, 'Café 界面 (2)');
 });
 
+test('a prior-message question inherits focus despite shared title words and preserves explicit routing', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 验收发版 F5E2'));
+  const previous = h.interactions.receive(h.actor('给发版任务设置验收口令'));
+  assert.ok('request' in previous);
+  const pr = 'https://github.com/example/release/pull/65';
+  h.interactions.receive(h.actor('/matter-bind ' + pr));
+
+  const fresh = h.interactions.receive(h.actor('换个话题，话题路由验收 A65\n请记住验收口令'));
+  assert.ok('request' in fresh);
+  const question = '上一条的验收口令是什么？只回复口令，不调用工具。';
+  const continued = h.interactions.receive(h.actor(question));
+  assert.ok('request' in continued);
+  assert.equal(continued.request.conversation, fresh.request.conversation);
+
+  const scope = { owner: ownerKey(fresh.request.message), project: h.admission.project };
+  const comparison = h.actor('上一条里提到验收发版 F5E2和话题路由验收 A65，分别看下');
+  assert.equal(h.interactions.receive(comparison).status, 'matter-choice');
+  assert.deepEqual(h.admission.store.matters.held(comparison, scope.project)?.choices,
+    [fresh.request.conversation, previous.request.conversation]);
+
+  const explicit = h.interactions.receive(h.actor('上一条里请核对 ' + pr));
+  assert.ok('request' in explicit);
+  assert.equal(explicit.request.conversation, previous.request.conversation);
+  assert.equal(h.admission.store.matters.focus(scope), fresh.request.conversation);
+
+  const followup = h.actor(question);
+  assert.equal(h.interactions.receive(followup).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(followup), undefined);
+  assert.deepEqual(h.admission.store.matters.held(followup, scope.project)?.choices,
+    [fresh.request.conversation, previous.request.conversation]);
+});
+
 test('a direct read of one known-address PR only opens and binds the first request', async t => {
   const h = setup(t);
   h.interactions.receive(h.actor('/matter-new 退款调查'));
