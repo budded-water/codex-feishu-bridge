@@ -36,6 +36,9 @@ export interface Delivery {
   visualExpires?: number;
 }
 
+// Keep automatic retries inside Feishu's one-hour message UUID window.
+const visualDeliveryWindowMs = 55 * 60_000;
+
 type VisualReceiptFailure = 'target-unavailable' | 'content-rejected' | 'delivery-unconfirmed';
 
 export interface FeedbackRecord {
@@ -286,9 +289,7 @@ export class State {
       this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run(origin, 'observed', id);
       this.db.prepare('INSERT INTO projected_deliveries VALUES (?,?,0)').run(id, request.execution);
       if (receipt.binding) this.visualReviews.register(id, request.message, this.redact(receipt.body), receipt.binding);
-      // Feishu only deduplicates message UUIDs for one hour. Cut off all
-      // retries within that window, even if a gateway has restarted.
-      const deadline = Date.now() + 55 * 60_000;
+      const deadline = Date.now() + visualDeliveryWindowMs;
       this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to,response_task,ordinary_answer,visual_images,visual_expires) VALUES (?,?,?,?,?,1,?,?)')
         .run(id, request.message.chat, this.redact(receipt.body), request.message.id, request.execution, JSON.stringify(images), deadline);
       return { delivery: id, status: 'registered' };
@@ -316,10 +317,11 @@ export class State {
     const notice = this.visualReviews.registerMergeNotice(card, id);
     if (!notice) return;
     this.db.prepare('INSERT INTO projected_deliveries VALUES (?,?,0)').run(id, source.execution);
-    this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to,response_task,ordinary_answer) VALUES (?,?,?,?,?,1)')
+    this.db.prepare('INSERT INTO projected_control_notices VALUES (?,?,?)').run('visual-merge-notice/' + card, 'observed', id);
+    this.db.prepare('INSERT INTO outbox(id,chat,body,reply_to,response_task,ordinary_answer,visual_expires) VALUES (?,?,?,?,?,1,?)')
       .run(id, notice.chat, `已合并 · ${notice.repository} PR #${notice.pullRequest} · ${notice.mergeCommit.slice(0, 12)}
 接下来要部署或发版吗？`,
-        notice.message, source.execution);
+        notice.message, source.execution, Date.now() + visualDeliveryWindowMs);
   }
 
   saveVisualImages(delivery: string, images: VisualImage[]): void {
@@ -335,8 +337,8 @@ export class State {
     });
   }
 
-  private expireVisualReceipts(now: number): void {
-    const expired = 'SELECT id FROM outbox WHERE visual_images IS NOT NULL AND COALESCE(visual_expires,0)<=?';
+  private expireVisualDeliveries(now: number): void {
+    const expired = 'SELECT id FROM outbox WHERE (visual_images IS NOT NULL OR visual_expires IS NOT NULL) AND COALESCE(visual_expires,0)<=?';
     if (!this.db.prepare(expired + ' LIMIT 1').get(now)) return;
     this.db.exec('PRAGMA secure_delete=ON');
     this.transaction(() => {
@@ -741,19 +743,20 @@ export class State {
   }
 
   pending(now = Date.now(), visual = false): Delivery[] {
-    if (visual) this.expireVisualReceipts(now);
+    if (visual) this.expireVisualDeliveries(now);
     this.queueCardUpdates(Date.now());
     // A delayed status must never appear after its task has finished.
     this.db.prepare(`DELETE FROM outbox WHERE task IS NOT NULL AND task IN
       (SELECT id FROM tasks WHERE status NOT IN ('queued','running'))`).run();
     this.db.prepare(`DELETE FROM outbox WHERE prompt_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM approvals WHERE approvals.id=outbox.prompt_id AND status='pending' AND (expires IS NULL OR expires>?))`).run(Date.now());
-    // Ordinary delivery ignores supplemental images. Images wait for earlier
-    // ordinary messages and never delay native prompts while uploading.
+    // Visual supplements wait for earlier ordinary messages. Retrying a
+    // supplement cannot delay an ordinary reply or native prompt.
     const rows = this.db.prepare(`SELECT id, chat, body, attempts, next, reply_to AS replyTo, mentions, response_task AS taskId, final, approval,
       update_message AS updateMessage,approval_view AS approvalView,task_view AS taskView, review_card AS reviewCard, matter_card AS matterCard,
-      visual_images AS visualImages, visual_expires AS visualExpires FROM outbox AS current WHERE next<=? AND (current.visual_images IS NOT NULL)=?
+      visual_images AS visualImages, visual_expires AS visualExpires FROM outbox AS current WHERE next<=?
+      AND (current.visual_images IS NOT NULL OR current.visual_expires IS NOT NULL)=?
       AND NOT EXISTS (SELECT 1 FROM outbox AS previous WHERE previous.chat=current.chat AND previous.sequence<current.sequence
-        AND (previous.visual_images IS NULL OR (? AND previous.next<=?)))
+        AND ((previous.visual_images IS NULL AND previous.visual_expires IS NULL) OR (? AND previous.next<=?)))
       ORDER BY sequence LIMIT 20`).all(now, Number(visual), Number(visual), now) as unknown as (Omit<Delivery, 'approval' | 'taskView' | 'visualImages'> & { approval: string | null; taskView: string | null; visualImages: string | null })[];
     return rows.map(row => ({ ...row, approval: row.approval ? parseApproval(JSON.parse(row.approval)) : undefined,
       reviewCard: row.reviewCard ? parseReviewPresentation(JSON.parse(row.reviewCard as unknown as string)) : undefined, taskView: row.taskView ? parseTaskPresentation(JSON.parse(row.taskView)) : undefined,
@@ -764,8 +767,13 @@ export class State {
   deliveryReady(id: string): boolean {
     // Recheck each selected status just before HTTP; another chat may have
     // blocked delivery while this task finished. In-flight requests cannot be recalled.
-    const current = this.db.prepare(`SELECT 1 FROM outbox WHERE id=? AND (task IS NULL OR EXISTS
-      (SELECT 1 FROM tasks WHERE tasks.id=outbox.task AND tasks.status IN ('queued','running'))) AND (prompt_id IS NULL OR EXISTS (SELECT 1 FROM approvals WHERE approvals.id=outbox.prompt_id AND status='pending' AND (expires IS NULL OR expires>?)))`).get(id,Date.now());
+    const now = Date.now();
+    const current = this.db.prepare(`SELECT visual_expires FROM outbox WHERE id=? AND (task IS NULL OR EXISTS
+      (SELECT 1 FROM tasks WHERE tasks.id=outbox.task AND tasks.status IN ('queued','running'))) AND (prompt_id IS NULL OR EXISTS (SELECT 1 FROM approvals WHERE approvals.id=outbox.prompt_id AND status='pending' AND (expires IS NULL OR expires>?)))`).get(id,now) as { visual_expires: number | null } | undefined;
+    if (current?.visual_expires != null && current.visual_expires <= now) {
+      this.visualReceiptFailed(id, 'delivery-unconfirmed');
+      return false;
+    }
     if (!current) this.db.prepare('DELETE FROM outbox WHERE id=?').run(id);
     return Boolean(current);
   }

@@ -139,8 +139,10 @@ accepts and authorizes the displayed candidate. A conflict is shown on the
 same card. Candidate changes require fresh evidence and a new receipt.
 After a provider-confirmed merge, the gateway updates the card and queues one
 reply asking about deployment or release. Quoting the card or that reply
-continues the original task. A reply asking to release is a new request under
-the project's existing publication rules.
+continues the original task. The question retries within the same 55-minute
+Feishu UUID window as visual receipts. On expiry the gateway retains the
+unconfirmed delivery separately from the verified merge. A reply asking to
+release is a new request under the project's existing publication rules.
 
 Legacy WeChat workflows can offer a separate acceptance choice and a separate
 post-merge upload for a configured developer target. Duplicate clicks consult

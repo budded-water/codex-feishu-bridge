@@ -543,9 +543,10 @@ test('single-action review reports a conflict and asks about release only for a 
   const body = 'Web UI 验收 · 1 张截图\n浏览器截图 · 候选\n核对侧栏';
   const register = (pullRequest: number) => {
     const binding = { repository, commit, pullRequest, workflow };
-    const { delivery: id } = state.projectVisualReceipt(active.request, { evidence: String(pullRequest), body, images: [], binding });
+    const transport = h.interactions.transport.state;
+    const { delivery: id } = transport.projectVisualReceipt(active.request, { evidence: String(pullRequest), body, images: [], binding });
     const message = 'om_card_' + pullRequest;
-    state.delivered(id, message, images);
+    transport.delivered(id, message, images);
     return { ...active.message, message, id, decision: 'merge' as const };
   };
   const buttons = (id: string) => visualReceiptCard(body, images, state.visualReviews.view(id)).body.elements
@@ -556,7 +557,7 @@ test('single-action review reports a conflict and asks about release only for a 
   assert.equal(h.interactions.visualReviewAction(conflict), 'accepted');
   const waitFor = async (id: string, phase: string) => {
     await h.interactions.flush();
-    await until(() => state.visualReviews.view(id)?.phase === phase);
+    await until(() => h.interactions.transport.state.visualReviews.view(id)?.phase === phase);
   };
   await waitFor(conflict.id, 'merge-blocked');
   assert.match(JSON.stringify(visualReceiptCard(body, images, state.visualReviews.view(conflict.id))), /PR 与目标分支有冲突/);
@@ -606,6 +607,47 @@ test('single-action review reports a conflict and asks about release only for a 
   await h.restart(true);
   await drain(h);
   assert.deepEqual(notices().map(notice => notice.options?.replyTo), [success.message, uncertain.message]);
+
+  const retained = h.interactions.transport.state;
+  const attempts: string[] = [];
+  h.setSend(async (chat, text, id, options) => {
+    if (text.includes('接下来要部署或发版吗')) {
+      attempts.push(id);
+      throw Error('Feishu accepted the message but its acknowledgment was lost');
+    }
+    h.sent.push({ chat, text, id, options });
+    return 'delivered-' + id;
+  });
+  const lost = register(35);
+  assert.equal(h.interactions.visualReviewAction(lost), 'accepted');
+  await waitFor(lost.id, 'merged');
+  await drain(h);
+  await until(() => attempts.length === 1);
+  retained.send(active.message.chat, '后续普通消息');
+  await drain(h);
+  assert.ok(h.sent.some(item => item.text === '后续普通消息'));
+  const recordedEffects = readFileSync(writes, 'utf8');
+  let now = Date.now() + 5_000;
+  const clock = t.mock.method(Date, 'now', () => now);
+  try {
+    await h.restart(true);
+    await drain(h);
+    await until(() => attempts.length === 2);
+    assert.equal(attempts[0], attempts[1]);
+    now += 56 * 60_000;
+    await drain(h);
+    assert.equal(attempts.length, 2);
+    const final = h.interactions.transport.state;
+    assert.equal(final.visualReviews.view(lost.id)?.phase, 'merged');
+    assert.equal(final.visualReviews.take(), undefined);
+    assert.equal(final.pending(Date.now(), true).length, 0);
+    assert.equal(readFileSync(writes, 'utf8'), recordedEffects);
+    const database = new DatabaseSync(join(h.admission.stateDirectory, 'transport', 'bridge.db'), { readOnly: true });
+    try {
+      assert.equal(database.prepare('SELECT status FROM projected_control_notices WHERE id=?').get(attempts[0]!)?.status,
+        'delivery-unconfirmed');
+    } finally { database.close(); }
+  } finally { clock.mock.restore(); }
 });
 
 for (const [name, reference] of [

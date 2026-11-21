@@ -19,6 +19,11 @@ repository, PR, target branch and exact reviewed head.
 - **AND** quoting the question continues the original task with its merge identity
 - **AND** the original click grants only merge authority
 
+#### Scenario: The release question delivery is unconfirmed
+- **WHEN** the question cannot be confirmed before the Feishu deduplication deadline
+- **THEN** the gateway records the unconfirmed delivery and stops retrying it
+- **AND** ordinary replies and native prompts remain independently deliverable
+
 #### Scenario: Provider effect is uncertain
 - **WHEN** a started attempt loses its provider result
 - **THEN** the gateway retains uncertainty, posts no release question and performs no replay
