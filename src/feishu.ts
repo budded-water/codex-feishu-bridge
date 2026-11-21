@@ -148,9 +148,13 @@ export class Feishu implements ContextPort, ReactionPort {
     const sdkHttp = lark.defaultHttpInstance as unknown as SdkHttpInstance;
     const httpInstance: SdkHttpInstance = Object.create(sdkHttp);
     httpInstance.request = request => {
-      // The SDK can await tenant authentication before invoking its HTTP client.
-      assertDeliveryWindow(this.deliveryWindow.getStore());
-      return sdkHttp.request(request);
+      const deliverBefore = this.deliveryWindow.getStore();
+      if (deliverBefore === undefined) return sdkHttp.request(request);
+      // The SDK awaits tenant authentication before dispatch. Redirects would
+      // allow the HTTP client to issue a second POST after this check.
+      assertDeliveryWindow(deliverBefore);
+      const bounded = { ...request, maxRedirects: 0 };
+      return sdkHttp.request(bounded);
     };
     this.client = new lark.Client({ ...credentials, domain: lark.Domain.Feishu, logger: silentLogger, httpInstance });
     this.socket = new lark.WSClient({
