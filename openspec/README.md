@@ -46,6 +46,9 @@ Source and actual Feishu owner acceptance have separate
 
 [Visual review actions](changes/add-visual-review-actions/proposal.md) add an
 owner decision and optional project delivery steps on the same card.
+The [M6 desktop acceptance](../docs/live-acceptance.md#2026-11-21-m6-screenshot-review-action)
+verified the owner decision and quotation. The actual project adapter stays
+open in the [change tasks](changes/add-visual-review-actions/tasks.md).
 
 [add-project-verification-handoff](changes/add-project-verification-handoff/proposal.md) stays active. Its optional runtime is merged/deployed, and real owner-private fixture `/verify` plus historical `/verification` are accepted. Native execution, project validation, review and publication remain separate.
 
