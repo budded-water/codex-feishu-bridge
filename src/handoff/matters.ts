@@ -20,7 +20,7 @@ const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
-const editQuestion = /[?？谁誰哪几幾]|(?<![任奈])何|是否|什么|什麼|怎么|怎麼|怎样|怎樣|多[少久长長远遠深高大快宽寬厚重]|[能可应應会會该該要愿願肯需当當宜]否|有[无無]|(\p{Script=Han})(?:不|没|沒)\1|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
+const editQuestion = /[?？谁誰]|是否|难道|難道|莫非|岂|豈|什么|什麼|怎么|怎麼|怎样|怎樣|多[少久长長远遠深高大快宽寬厚重]|[能可应應会會该該要愿願肯需当當宜]否|有[无無]|(\p{Script=Han})(?:不|没|沒)\1|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
 const editUrl = /https?:\/\/[^\s<>"'\x60，。；！？、）》】」』”]+/giu;
 const vagueFollowup = [
@@ -95,6 +95,16 @@ function matchingTitleTerms(title: string, text: string): boolean {
   return terms.some(term => term.length >= (/^[\x00-\x7f]+$/.test(term) ? 3 : 2) && text.includes(term.toLowerCase()));
 }
 
+function asksAboutEdit(text: string): boolean {
+  const prose = text.replace(editLiteral, ' ');
+  if (editQuestion.test(prose)) return true;
+  // Segment ambiguous interrogatives so a word like 几何 does not turn an edit into a question.
+  for (const { segment } of words.segment(prose)) {
+    if (/^(?:几|幾|何|哪(?:些|[个個里裡儿種种])?)$/u.test(segment)) return true;
+  }
+  return false;
+}
+
 function withoutReferenceUrls(text: string): string {
   return text.replace(editUrl, link => {
     // Parentheses may appear inside the URL or close a surrounding prose or Markdown link.
@@ -110,17 +120,31 @@ function withoutReferenceUrls(text: string): string {
 }
 
 function mentionedMatters(candidates: Matter[], text: string): Matter[] {
-  const titles = candidates.map(matter => matter.title.toLowerCase().normalize('NFC'));
-  if (titles.length < 2) return [];
+  if (candidates.length < 2) return [];
+  const byTitle = new Map<string, Matter[]>();
+  const exact = new Map<string, Matter>();
+  for (const matter of candidates) {
+    const title = matter.title.normalize('NFC');
+    exact.set(title, matter);
+    const folded = title.toLowerCase();
+    const matches = byTitle.get(folded) ?? [];
+    matches.push(matter);
+    byTitle.set(folded, matches);
+  }
   // Consume whole mentions from left to right, preferring the longest title at each position.
-  const pattern = [...new Set(titles)].sort((a, b) => b.length - a.length).map(title => {
+  const pattern = [...exact.keys()].sort((a, b) => b.length - a.length).map(title => {
     const literal = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const before = startsLatinWord.test(title) ? '(?<!' + latinWordChar + ')' : '';
     const after = endsLatinWord.test(title) ? '(?!' + latinWordChar + ')' : '';
     return before + literal + after;
   }).join('|');
-  const mentioned = new Set(text.match(new RegExp(pattern, 'gu')));
-  return candidates.filter((_, index) => mentioned.has(titles[index]!));
+  const mentioned = new Set<Matter>();
+  for (const title of text.normalize('NFC').match(new RegExp(pattern, 'giu')) ?? []) {
+    const matches = byTitle.get(title.toLowerCase());
+    const matter = exact.get(title) ?? (matches?.length === 1 ? matches[0] : undefined);
+    if (matter) mentioned.add(matter);
+  }
+  return candidates.filter(matter => mentioned.has(matter));
 }
 
 export class OwnerMatters {
@@ -367,8 +391,8 @@ export class OwnerMatters {
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
     if (focus && !additive && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
       const editText = withoutReferenceUrls(text);
-      if (!editQuestion.test(editText.replace(editLiteral, ' '))) {
-        const named = mentionedMatters(candidates, editText.toLowerCase().normalize('NFC'));
+      if (!asksAboutEdit(editText)) {
+        const named = mentionedMatters(candidates, editText);
         if (named.length > 1) return this.holdConflict(message, named.map(m => m.id));
         const alternate = store.alternateFocusForFollowup(scope);
         return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
