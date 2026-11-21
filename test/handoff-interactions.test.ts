@@ -2036,6 +2036,7 @@ test('the first vague follow-up after a switch waits for the prior or current ma
     '刚才那个改一下', '刚才那个改成周五，时间不变', '刚才那个修改成周五',
     '刚才那个改到周五', '刚才那个改回周五', '刚才那个改在周五',
     '刚才那个改成几何图标，颜色不变',
+    '刚才那个改成多重验证，其他不变',
     '就按刚才那个方案改吧。', '就按刚才那个方案改吧，时间改成周五', '就按刚才那个方案改成周五',
   ]) {
     const correction = h.actor(text);
@@ -2136,6 +2137,7 @@ test('an edit counts overlapping matter names only when they have separate menti
   checkChoices('刚才那个改成退款调查和退款的共同计划', ['退款', '退款调查']);
   checkChoices('刚才那个改成 Alpha2 和 Beta2 的共同计划', ['旧日程', '新日程']);
   checkChoices('刚才那个改成Alpha和Beta的共同计划', ['Alpha', 'Beta']);
+  checkChoices('刚才那个改成 Alpha 和 Beta 的多重验证计划', ['Alpha', 'Beta']);
   checkChoices('刚才那个改成 Alpha 的排班', ['旧日程', '新日程']);
   checkChoices('刚才那个改成 Alpha 和 ALPHA 的共同计划', ['Alpha', 'ALPHA']);
   checkChoices('刚才那个改成 alpha 和 Beta 的共同计划', ['旧日程', '新日程']);
@@ -2175,6 +2177,9 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五后，退款和发版会否受影响');
   checkCandidates('刚才那个改成周五后，退款和发版有无影响');
   checkCandidates('刚才那个改成周五后，退款和发版难道都要推迟');
+  checkCandidates('刚才那个改成周五后，退款和发版得推迟几天');
+  checkCandidates('刚才那个改成周五后，退款和发版的安排如何');
+  checkCandidates('刚才那个改成周五，参考 https://example.com/details：退款和发版会否受影响');
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');

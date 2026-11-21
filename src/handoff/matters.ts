@@ -20,9 +20,9 @@ const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
-const editQuestion = /[?？谁誰]|是否|难道|難道|莫非|岂|豈|什么|什麼|怎么|怎麼|怎样|怎樣|多[少久长長远遠深高大快宽寬厚重]|[能可应應会會该該要愿願肯需当當宜]否|有[无無]|(\p{Script=Han})(?:不|没|沒)\1|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
+const editQuestion = /[?？谁誰]|是否|难道|難道|莫非|岂|豈|什么|什麼|怎么|怎麼|怎样|怎樣|多[少久]|(?:多[长長远遠深高大快宽寬厚重])(?=[。！？?!，,\s]|$)|[能可应應会會该該要愿願肯需当當宜]否|有[无無]|(\p{Script=Han})(?:不|没|沒)\1|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
-const editUrl = /https?:\/\/[^\s<>"'\x60，。；！？、）》】」』”]+/giu;
+const editUrl = /https?:\/\/[^\s<>"'\x60，。；：！？、）》】」』”]+/giu;
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -100,7 +100,7 @@ function asksAboutEdit(text: string): boolean {
   if (editQuestion.test(prose)) return true;
   // Segment ambiguous interrogatives so a word like 几何 does not turn an edit into a question.
   for (const { segment } of words.segment(prose)) {
-    if (/^(?:几|幾|何|哪(?:些|[个個里裡儿種种])?)$/u.test(segment)) return true;
+    if (/^(?:[几幾][天日周年月小次点點时時钟鐘個个種种處处项項分秒份家组組步轮輪度号號]?|何|如何|哪(?:些|[个個里裡儿種种])?)$/u.test(segment)) return true;
   }
   return false;
 }
