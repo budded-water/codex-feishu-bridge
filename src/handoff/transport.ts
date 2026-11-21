@@ -99,14 +99,17 @@ export class HandoffTransport {
       WHERE p.execution IS NULL OR t.status IS NOT ${projectedStatus}
         OR (s.status='blocked' AND r.blocked IS NOT ? AND p.notified=0)
         OR (e.id IS NOT NULL AND p.checkpoint IS NULL)
-        OR (e.status IN ('completed','interrupted') AND EXISTS(
+        OR ((e.status IN ('completed','interrupted') OR (e.id IS NULL AND (r.blocked IS NOT NULL OR s.status='blocked'))) AND EXISTS(
           SELECT 1 FROM reference_context ref WHERE ref.execution=r.execution AND ref.body IS NOT NULL))
       ORDER BY r.rowid`).all(OWNER_WITHDRAWN, OWNER_WITHDRAWN) as { id: string }[];
     for (const { id } of candidates) {
       const request = this.gateway.store.request(id)!;
       this.admit(request);
       const execution = this.gateway.store.execution(request.execution);
-      if (!execution) continue;
+      if (!execution) {
+        if (request.blocked || this.gateway.store.submission(request.id)?.status === 'blocked') this.gateway.store.retireReferences(request.execution);
+        continue;
+      }
       if (this.state.projectedFinal(request.execution)) {
         if (['completed', 'interrupted'].includes(execution.status)) this.gateway.store.retireReferences(request.execution);
         continue;

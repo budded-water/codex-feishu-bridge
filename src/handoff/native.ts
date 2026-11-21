@@ -190,7 +190,8 @@ export class NativeExecutions {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         this.gateway.store.startableRequest(permit);
         if (request.message.chatType === 'group' && !this.config.enableGroups) throw new Error('Native configuration does not admit the pilot chat');
-        if (request.message.chatType === 'group' && !this.gateway.store.reference(request.execution, request.message)?.context) throw new Error('Missing retained group references');
+        if ((request.message.chatType === 'group' || request.message.imageKeys?.length) &&
+          !this.gateway.store.reference(request.execution, request.message)?.context) throw new Error('Missing retained message references');
         const factory = () => this.createCodex?.() ?? new CodexClient(this.config.codexExecutable, [], 30_000, this.config.codexReasoningEffort);
         const retry = this.gateway.store.permissionRetry(request.execution);
         if (retry) {
@@ -508,14 +509,14 @@ class NativeOwner {
       this.bridge = new Bridge(config, this.state, this.codex, {
         context: async (session, source) => {
           const saved = this.gateway.store.reference(this.permit.execution, { tenant: session.tenant, id: source.id });
-          if (!saved?.context) throw new Error('Missing retained group references');
+          if (!saved?.context) throw new Error('Missing retained message references');
           return saved.context;
         },
       }, this.permissions, checkStart);
       this.state.transaction(() => {
         if (!this.state!.remember(this.request.message)) throw new Error('Assigned request already exists');
-        const { id, chatType, createTime, parentId } = this.request.message;
-        this.state!.enqueue(session.id, this.request.input, { id, chatType, createTime, parentId }, undefined, undefined, true);
+        const { id, chatType, createTime, parentId, imageKeys } = this.request.message;
+        this.state!.enqueue(session.id, this.request.input, { id, chatType, createTime, parentId, imageCount: imageKeys?.length }, undefined, undefined, true);
       });
       const settled = new Promise<void>(resolve => {
         this.timer = setInterval(() => {

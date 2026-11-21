@@ -52,7 +52,8 @@ export function contextText(item: Record<string, unknown>, imageDescription?: (k
   return (text || '[消息正文不可用]').slice(0, 1200);
 }
 
-export async function attachImages(context: ChatContext, items: Record<string, unknown>[], limit: number, fetch: FetchImage): Promise<ChatContext> {
+export async function attachImages(context: ChatContext, items: Record<string, unknown>[], limit: number, fetch: FetchImage,
+  labelPrefix = '群聊参考图片'): Promise<ChatContext> {
   if (!limit) return context;
   const refs: Reference[] = [];
   const descriptions = new Map<string, string>();
@@ -72,10 +73,10 @@ export async function attachImages(context: ChatContext, items: Record<string, u
   const deadline = Date.now() + IMAGE_FETCH_BUDGET_MS;
   // Explicit quotes precede history; quote presentation orders latest clarification first.
   // Unquoted records retain newest-first selection independently of presentation order.
-  const prioritized = refs.reverse().sort((a, b) => {
+  const prioritized = refs.sort((a, b) => {
     const aQuote = Boolean(context.messages[a.message]?.quoted), bQuote = Boolean(context.messages[b.message]?.quoted);
     if (aQuote !== bQuote) return Number(bQuote) - Number(aQuote);
-    return aQuote ? a.message - b.message : 0;
+    return aQuote ? a.message - b.message : b.message - a.message;
   });
   for (const ref of prioritized) {
     const token = identity(ref.message, ref.key);
@@ -101,7 +102,7 @@ export async function attachImages(context: ChatContext, items: Record<string, u
       const mime = imageMime(buffer);
       if (!mime) throw new Error('Unsupported image content');
       total += size;
-      const label = `群聊参考图片 ${images.length + 1}`;
+      const label = labelPrefix + ' ' + (images.length + 1);
       images.push({ messageIndex: ref.message, label, url: `data:${mime};base64,${buffer.toString('base64')}` });
       descriptions.set(token, `[${label}：已附为图片输入，请根据图像内容判断]`);
     } catch { descriptions.set(token, '[图片：下载失败、格式不支持或超过大小限制，尚未读取]'); }

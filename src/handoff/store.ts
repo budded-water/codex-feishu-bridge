@@ -250,6 +250,8 @@ export class AdmissionStore {
         save('rejected', '当前任务无法接收补充。请查看原任务状态后再发送新消息。');
       } else if (this.hasDedicatedContinuation(request.execution)) {
         save('rejected', '这条任务使用专用验证、修复或续接流程。请使用原任务的操作入口，或发送新的普通任务。');
+      } else if (!fromAnswer && message.imageKeys?.length && (!execution || execution.status === 'active')) {
+        save('rejected', '排队或执行中的任务支持文字补充。若要提供截图，请把图文作为新任务发送，或等原任务结束后再回复。');
       } else if (!fromAnswer && !execution) {
         if (combined.length > 30_000) save('rejected', '合并后的任务过长。这条补充未加入，请缩短后再回复。');
         else {
@@ -475,10 +477,11 @@ export class AdmissionStore {
     return (this.db.prepare('SELECT id FROM requests ORDER BY rowid').all() as { id: string }[]).map(row => this.request(row.id)!);
   }
 
-  unpreparedGroupReferences(): RequestRecord[] {
+  unpreparedReferences(): RequestRecord[] {
     // Older gateways could schedule a group request before persisting its reference.
     const rows = this.db.prepare(`SELECT r.id FROM submissions s JOIN requests r ON r.id=s.request
-      WHERE s.status IN ('pending','scheduled') AND r.blocked IS NULL AND json_extract(r.message,'$.chatType')='group'
+      WHERE s.status IN ('pending','scheduled') AND r.blocked IS NULL
+        AND (json_extract(r.message,'$.chatType')='group' OR json_array_length(r.message,'$.imageKeys') > 0)
         AND NOT EXISTS(SELECT 1 FROM executions e WHERE e.request=r.id)
         AND NOT EXISTS(SELECT 1 FROM reference_context ref WHERE ref.origin=r.origin AND ref.execution=r.execution)
       ORDER BY r.rowid`).all() as { id: string }[];

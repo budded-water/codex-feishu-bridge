@@ -39,6 +39,8 @@ The active [refund diagnosis supplement](changes/add-refund-diagnostic-companion
 
 ## Active P3 change
 
+[Owner-private screenshot tasks](changes/add-owner-private-image-tasks/proposal.md) add direct image input to ordinary P1 tasks with separate simulated and live acceptance.
+
 [WeChat visual receipts](changes/add-wechat-visual-receipts/proposal.md) associate
 selected original screenshot evidence with an existing owner-private task.
 Source and actual Feishu owner acceptance have separate

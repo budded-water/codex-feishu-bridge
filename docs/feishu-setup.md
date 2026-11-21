@@ -19,7 +19,7 @@
 | 机器人发送最终答案 | `im:message:send_as_bot`（或发送接口接受的等效 grant） |
 | 添加、删除接收表情 | `im:message.reactions:write_only`，或接口接受的 `im:message` |
 | 表情重试 / 重启时查本应用记录 | `im:message.reactions:read`，或接口接受的 message-read grant |
-| 可选群历史 / 引用 / 图片资源 | `im:message:readonly` 或接口支持的等效读取 grant；群前文还要求 `im:message.group_msg` 及群成员身份 |
+| 可选群历史 / 引用 / 图片资源（含 P1 本人私聊同消息附图） | `im:message:readonly` 或接口支持的等效读取 grant；群前文还要求 `im:message.group_msg` 及群成员身份 |
 
 群模式启动时通过 bot-info API 验证机器人的 open ID。bridge 只接受核对后的真实 @mention，不依赖机器人名字，也不需要开启其他机器人发来的 @消息。
 

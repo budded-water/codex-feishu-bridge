@@ -16,7 +16,7 @@ The P1 gateway SHALL expose `/tasks [page]` and `/task <execution UUID>` only to
 #### Scenario: Copied progress command becomes rich text
 - **WHEN** a private user sends a title-free text-only rich post containing exactly one supported progress query
 - **THEN** the ingress preserves its real actor/message identity and handles it as the same read-only query
-- **AND** mixed content, other rich-post commands and general task prose gain no execution authority; unsupported owner posts receive a bounded format reply
+- **AND** mixed content and other controls do not enter this read-only query route; unsupported owner posts receive a bounded format reply
 
 ### Requirement: Truthful read-only progress
 Live progress SHALL come from the authenticated current owner and attempt without snapshot cleanup, model calls or writes to native/admission evidence. Missing liveness or evidence SHALL remain unverified. Native completion, verifier results, stop/withdrawal, uncertainty and delivery SHALL remain separate facts. Missing legacy timing SHALL NOT be invented.

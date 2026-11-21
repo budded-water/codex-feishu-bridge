@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { Readable } from 'node:stream';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { Feishu, normalizeMessage } from '../src/feishu.js';
 import { record } from '../src/types.js';
@@ -14,7 +15,7 @@ import { PilotInteractions } from '../src/handoff/interactions.js';
 import { OwnerTasks } from '../src/handoff/tasks.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from '../src/task-card.js';
 import type { Config } from '../src/config.js';
-import type { DeliveryOptions } from '../src/types.js';
+import type { ContextPort, DeliveryOptions } from '../src/types.js';
 import { FakeCodex, message, until } from './helpers.js';
 
 class ManagedFake extends FakeCodex implements ManagedCodex {
@@ -23,7 +24,7 @@ class ManagedFake extends FakeCodex implements ManagedCodex {
   async close() { this.exit(); }
 }
 
-function setup(t: TestContext, secrets: string[] = []) {
+function setup(t: TestContext, secrets: string[] = [], context?: ContextPort) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'owner-tasks-'))), workspace = join(root, 'workspace'); mkdirSync(workspace);
   const scope: PilotScope = { installation: 'fixture', tenant: 'tenant', operator: 'ou_owner', chat: 'chat', projects: { pilot: workspace },
     pilot: 'pilot', hubInstance: 'hub', source: 'fixture', rule: 'pilot', agent: 'native', agentUse: 'bridge-native' };
@@ -37,7 +38,7 @@ function setup(t: TestContext, secrets: string[] = []) {
   const sender = { send: async (_chat: string, body: string, id: string, options?: DeliveryOptions) => { sent.push({ body, id, options }); return 'om_' + id; },
     updateTask: async (message: string, p: TaskPresentation) => { updates.push({ message, p }); if (failUpdate) throw Error('Uncertain patch acknowledgement'); } };
   const reactions = { addReaction: async () => 'reaction', findReaction: async () => undefined, removeReaction: async () => {} };
-  let interactions = new PilotInteractions(admission, config, { flush: async () => {}, diagnose: async () => ({ status: 'missing' }) }, native, sender, reactions, secrets);
+  let interactions = new PilotInteractions(admission, config, { flush: async () => {}, diagnose: async () => ({ status: 'missing' }) }, native, sender, reactions, secrets, context);
   const views = () => new OwnerTasks(admission, config, native, interactions.transport.state, {});
   const pending: Promise<unknown>[] = []; let run = 0;
   const admit = (text = 'Inspect the project') => { const r = interactions.receive(message(text, { chatType: 'p2p' })); assert.ok('request' in r); return r.request; };
@@ -52,7 +53,7 @@ function setup(t: TestContext, secrets: string[] = []) {
   };
   const drain = async () => { for (let i = 0; i < 5; i++) await interactions.flush(); };
   const restart = async () => { await interactions.close(); interactions = new PilotInteractions(admission, config,
-    { flush: async () => {}, diagnose: async () => ({ status: 'missing' }) }, native, sender, reactions, secrets); await interactions.start(); };
+    { flush: async () => {}, diagnose: async () => ({ status: 'missing' }) }, native, sender, reactions, secrets, context); await interactions.start(); };
   t.after(async () => { await native.stop(); await Promise.allSettled(pending); await interactions.close(); admission.close(); rmSync(root, { recursive: true, force: true }); });
   return { root, config, admission, native, codexes, sent, updates, views, admit, start, drain, restart,
     fail: (value: boolean) => { failUpdate = value; }, get interactions() { return interactions; } };
@@ -232,15 +233,92 @@ test('copied text-only rich-post progress commands enter read-only query exactly
   assert.equal(h.sent.filter(s => s.options?.taskView).length, 3); assert.equal(h.admission.store.requests().length, 1); assert.equal(h.codexes.length, 0);
 });
 
-test('mixed rich posts and write controls stay unsupported with one useful private-owner reply', async t => {
+test('rich controls, image-only posts and unsupported resources do not admit owner tasks', async t => {
   const h = setup(t), command = '/task ' + randomUUID();
   for (const content of [{ title: '', content: [[{ tag: 'text', text: '/stop' }]] }, { title: '', content: [[{ tag: 'text', text: command }, { tag: 'img', image_key: 'img_fixture' }]] },
-    { title: 'Additional instructions', content: [[{ tag: 'text', text: command }]] }, { title: '', content: [[{ tag: 'a', text: command, href: 'https://example.invalid' }]] }]) {
+    { title: 'Additional instructions', content: [[{ tag: 'text', text: command }]] }, { title: '', content: [[{ tag: 'a', text: command, href: 'https://example.invalid' }]] },
+    { content: [[{ tag: 'img', image_key: 'img_fixture' }]] },
+    { content: [[{ tag: 'text', text: '检查截图' }, { tag: 'img', image_key: 'img_../outside' }]] },
+    { content: [[{ tag: 'text', text: '停一下' }, { tag: 'img', image_key: 'img_fixture' }]] }]) {
     const incoming = normalizeMessage({ tenant_key: 'tenant', sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } },
-      message: { message_id: randomUUID(), chat_id: 'chat', chat_type: 'p2p', message_type: 'post', content: JSON.stringify(content) } })!;
+      message: { message_id: 'om_' + randomUUID(), chat_id: 'chat', chat_type: 'p2p', message_type: 'post', content: JSON.stringify(content) } })!;
     assert.equal(incoming.unsupported, 'post'); h.interactions.receive(incoming); h.interactions.receive(incoming); await h.drain();
   }
-  assert.equal(h.sent.filter(s => s.body.includes('暂不支持这类消息')).length, 4); assert.equal(h.admission.store.requests().length, 0); assert.equal(h.codexes.length, 0);
+  assert.equal(h.sent.filter(s => s.body.includes('暂不支持这类消息')).length, 7); assert.equal(h.admission.store.requests().length, 0); assert.equal(h.codexes.length, 0);
+});
+
+function imagePost(text: string, overrides: { chat?: string; parent?: string } = {}) {
+  const images = ['img_first', 'img_second'].map(image_key => ({ tag: 'img', image_key }));
+  return normalizeMessage({ tenant_key: 'tenant', sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } },
+    message: { message_id: 'om_' + randomUUID(), chat_id: overrides.chat ?? 'chat', chat_type: 'p2p',
+      message_type: 'post', parent_id: overrides.parent, content: JSON.stringify({ content: [[{ tag: 'text', text }], images] }) } })!;
+}
+
+test('a private screenshot post opens a topic, downloads only its own resources and passes real images to Codex', async t => {
+  const adapter = new Feishu({ appId: 'test-app', appSecret: 'test-secret' });
+  t.after(() => adapter.close());
+  const downloads: { path: { message_id: string; file_key: string }; params: unknown }[] = [];
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAO+a6YkAAAAASUVORK5CYII=';
+  Object.assign(adapter, { client: { im: { v1: { messageResource: { get: async (request: typeof downloads[number]) => {
+    downloads.push(request);
+    return { getReadableStream: () => Readable.from([Buffer.from(png, 'base64')]) };
+  } } } } } });
+  const h = setup(t, [], adapter);
+  const original = h.admit();
+  const text = '把帮助入口放到设置下面。';
+  assert.equal(h.interactions.receive(imagePost(text, { chat: 'unregistered' })).status, 'ignored');
+  const incoming = imagePost('换个话题。' + text);
+  const result = h.interactions.receive(incoming);
+  assert.ok('request' in result);
+  assert.equal(result.request.input, text);
+  assert.notEqual(result.request.conversation, original.conversation);
+  assert.equal(h.interactions.receive(incoming).status, 'duplicate');
+  await h.drain();
+  await until(() => Boolean(h.admission.store.reference(result.request.execution, incoming)));
+  assert.deepEqual(downloads, ['img_first', 'img_second'].map(file_key =>
+    ({ path: { message_id: incoming.id, file_key }, params: { type: 'image' } })));
+  const running = await h.start(result.request);
+  const input = running.c.calls.find(call => call.method === 'turn/start')!.params.input as { type: string; text?: string; url?: string }[];
+  assert.match(input[0]!.text!, /把帮助入口放到设置下面/);
+  assert.doesNotMatch(input[0]!.text!, /img_first|base64/);
+  assert.deepEqual(input.filter(part => part.type === 'image').map(part => part.url), Array(2).fill('data:image/png;base64,' + Buffer.from(png, 'base64').toString('base64')));
+  running.complete();
+  await running.running;
+  await h.drain();
+  assert.equal(h.admission.store.reference(result.request.execution, incoming)?.context, null);
+
+  const followup = imagePost('请核对这两张新的截图。', { parent: incoming.id });
+  assert.equal(h.interactions.receive(followup).status, 'task-reply');
+  await h.drain();
+  const next = h.admission.store.requestForMessage(followup)!;
+  await until(() => Boolean(h.admission.store.reference(next.execution, followup)));
+  assert.equal(next.conversation, result.request.conversation);
+  assert.deepEqual(downloads.slice(2).map(download => download.path.message_id), [followup.id, followup.id]);
+  h.admission.store.withdraw(message('/withdraw ' + next.execution, { chatType: 'p2p' }), next.execution, h.admission.project);
+  await h.drain();
+  assert.equal(h.admission.store.reference(next.execution, followup)?.context, null);
+});
+
+test('an unread screenshot stops before thread or turn start and a quoted queued task keeps its original input', async t => {
+  const h = setup(t);
+  const queued = h.admit('Original task');
+  const reply = imagePost('补充：请按图片检查侧栏。', { parent: queued.message.id });
+  assert.equal(h.interactions.receive(reply).status, 'task-reply');
+  assert.equal(h.admission.store.request(queued.id)?.input, 'Original task');
+  const incoming = imagePost('按照截图修改导航。');
+  const task = h.interactions.receive(incoming);
+  assert.ok('request' in task);
+  await h.drain();
+  await until(() => Boolean(h.admission.store.reference(task.request.execution, incoming)));
+  const grant = h.admission.store.reserve(task.request.id, 1);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('missing grant');
+  const report = await h.native.run(grant.permit);
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(h.codexes[0]!.calls.filter(call => /^(?:thread|turn)\//.test(call.method)).length, 0);
+  await h.drain();
+  assert.ok(h.sent.some(sent => sent.options?.replyTo === incoming.id && sent.body.includes('截图未能全部读取')));
+  assert.ok(h.sent.some(sent => sent.options?.replyTo === reply.id && sent.body.includes('支持文字补充')));
 });
 
 test('default task overview separates current work from at most three recent historical records', async t => {

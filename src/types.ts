@@ -18,6 +18,7 @@ export interface IncomingMessage {
   createTime?: string;
   parentId?: string;
   mentions?: Mention[];
+  imageKeys?: string[];
   unsupported?: string;
 }
 
@@ -38,7 +39,7 @@ export interface Task {
   input: string;
   status: string;
   turn: string | null;
-  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string; clarification?: { id: string; createTime?: string; parentId: string } };
+  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string; imageCount?: number; clarification?: { id: string; createTime?: string; parentId: string } };
   routed?: boolean;
   routingOrigin?: string | null;
   routingRevision?: number | null;
@@ -86,6 +87,7 @@ export interface ChatContext {
 export interface ContextPort {
   actor?(session: Session, message: string): Promise<{ name?: string; link?: string }>;
   context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext>;
+  attachedImages?(message: IncomingMessage): Promise<ChatContext>;
 }
 
 export interface NativeControlTarget { generation: string; thread: string; turn: string }

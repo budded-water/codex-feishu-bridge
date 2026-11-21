@@ -74,7 +74,9 @@ export class PilotAdmission {
     if (!message || this.store.retained(message)) return { status: 'ignored' };
     const prior = this.store.requestForMessage(message);
     if (prior) return { status: 'duplicate', request: prior };
-    if (message.unsupported || message.text.length > 30_000) return { status: 'rejected', reason: 'unsupported_input' };
+    if (message.unsupported || message.text.length > 30_000 || (message.imageKeys?.length && message.chatType !== 'p2p')) {
+      return { status: 'rejected', reason: 'unsupported_input' };
+    }
     const text = message.text.trim();
     if (/^pair\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) return { status: 'ignored' };
     if (text.startsWith('/')) return { status: 'rejected', reason: 'control_requires_live_gateway' };
