@@ -19,7 +19,8 @@ const urlBoundary = /^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"'*，。？！、�
 const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|审核状态|改动|差异|检查结果|CI(?:\s*(?:状态|结果|为什么(?:没|没有|未)(?:跑|运行)))?)|(?:为什么|怎么)(?:没|没有|未)(?:跑|运行)\s*CI|(?:latest\s+)?(?:status|checks?|diff|CI(?:\s+status)?|merge status|review status)|why\s+CI\s+(?:didn['’]t\s+run|isn['’]t\s+running))$/iu;
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
-const editCommand = /^(?:改|调整)(?=成|为|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
+const editCommand = /^(?:修改|调整|改)(?=成|为|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
+const questionEnd = /(?:[?？]|[吗嗎么麼呢])[…。.！!]*$/u;
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -82,6 +83,9 @@ function topicTitle(input: string, ref?: string): string {
 }
 
 const words = new Intl.Segmenter('zh', { granularity: 'word' });
+const latinWordChar = /[\p{Script=Latin}\p{N}\p{M}_]/u.source;
+const startsLatinWord = new RegExp('^' + latinWordChar, 'u');
+const endsLatinWord = new RegExp(latinWordChar + '$', 'u');
 
 function matchingTitleTerms(title: string, text: string): boolean {
   // Terms can trigger a choice. Only confirmed references select a matter.
@@ -93,8 +97,12 @@ function mentionedMatters(candidates: Matter[], text: string): Matter[] {
   const titles = candidates.map(matter => matter.title.toLowerCase().normalize('NFC'));
   if (titles.length < 2) return [];
   // Consume whole mentions from left to right, preferring the longest title at each position.
-  const pattern = [...new Set(titles)].sort((a, b) => b.length - a.length)
-    .map(title => title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const pattern = [...new Set(titles)].sort((a, b) => b.length - a.length).map(title => {
+    const literal = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const before = startsLatinWord.test(title) ? '(?<!' + latinWordChar + ')' : '';
+    const after = endsLatinWord.test(title) ? '(?!' + latinWordChar + ')' : '';
+    return before + literal + after;
+  }).join('|');
   const mentioned = new Set(text.match(new RegExp(pattern, 'gu')));
   return candidates.filter((_, index) => mentioned.has(titles[index]!));
 }
@@ -338,7 +346,7 @@ export class OwnerMatters {
     const candidates = store.list(scope, -1, 0, false);
     const normalized = text.toLowerCase().normalize('NFC');
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
-    if (focus && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
+    if (focus && editSubject && editCommand.test(text.slice(editSubject[0].length)) && !questionEnd.test(text)) {
       const named = mentionedMatters(candidates, normalized);
       if (named.length > 1) return this.holdConflict(message, named.map(m => m.id));
       const alternate = store.alternateFocusForFollowup(scope);
