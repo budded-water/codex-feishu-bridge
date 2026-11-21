@@ -2109,6 +2109,8 @@ test('an edit stays in focus when recent work agrees and replacement terms match
     '刚才那个改成周五，还是周五的时间',
     '刚才那个改成周五，参考【https://example.com/docs?names=all，中文,QA,CI】',
     '刚才那个改成周五，参考 [网页]( https://example.com/docs?names=all，中文,QA,CI )',
+    '刚才那个改成周五，参考 [网页](https://example.com/docs?names=all，中文,QA,CI "链接标题")',
+    '刚才那个改成周五，参考 [网页](<https://example.com/docs?names=all，中文,QA,CI> "QA 和 CI")',
     '刚才那个改成“周五为什么值班？”，时间不变',
   ]) {
     const edit = h.interactions.receive(h.actor(text));
@@ -2204,6 +2206,8 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五还是周六更适合退款和发版');
   checkCandidates('刚才那个改成退款的周五时段还是发版的周六时段');
   checkCandidates('刚才那个改成周五，分别更新退款和发版的日程');
+  checkCandidates('刚才那个改成周五，发版和「退款调查」都要同步');
+  checkCandidates('刚才那个改成周五，参考 [网页](https://example.com/docs?mode=2 "说明")，发版和「退款调查」都要同步');
   checkCandidates('刚才那个改成退款的周五时段或发版的周六时段');
   checkCandidates('刚才那个改成退款的周五时段，或改成发版的周六时段');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details,退款和发版会否受影响');
@@ -2213,6 +2217,13 @@ test('a question about a previous change can still match two named matters', t =
   assert.ok('request' in h.interactions.receive(h.actor('消息通知：核对一下回执')));
   checkCandidates('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
   checkCandidates('刚才那个改成周五的改动会同时影响退款调查和 Solura 发版吗？');
+  const three = h.actor('刚才那个改成周五，退款调查、Solura 发版和通知都要同步');
+  assert.equal(h.interactions.receive(three).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(three), undefined);
+  const scope = { owner: ownerKey(three), project: h.admission.project };
+  const held = h.admission.store.matters.held(three, scope.project)!;
+  assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(),
+    ['退款调查', 'Solura 发版', '消息通知'].sort());
 });
 
 test('short continuation follows ordinary admission history through empty switches and specialized work', t => {

@@ -23,6 +23,7 @@ const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
 const referenceUrlStart = /https?:\/\//giu;
 const bareUrlEnd = /[\s<>"'\x60，。；：！？、）》】」』”]/u;
+const markdownLinkTitle = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*(?=\))/u;
 const wrappedUrlEnds: Readonly<Record<string, string>> = {
   '(': ')', '（': '）', '[': ']', '【': '】', '〔': '〕', '《': '》', '〈': '〉', '<': '>', '「': '」', '『': '』', '“': '”', '"': '"', "'": "'", '\x60': '\x60',
 };
@@ -135,13 +136,20 @@ function withoutReferenceUrls(text: string): string {
     const start = index + scheme.length;
     const end = closer ? referenceUrlEnd(text, start, closer) : undefined;
     parts.push(text.slice(consumed, index), ' ');
-    consumed = end !== undefined && text.slice(end).trimStart()[0] === closer ? end : referenceUrlEnd(text, start);
+    if (end === undefined) {
+      consumed = referenceUrlEnd(text, start);
+      continue;
+    }
+    const titleStart = closer === '>' && text[end] === '>' ? end + 1 : end;
+    const title = (closer !== '>' || text[end] === '>') && /\]\(\s*<?$/u.test(before)
+      ? markdownLinkTitle.exec(text.slice(titleStart)) : null;
+    if (title) consumed = titleStart + title[0].length;
+    else consumed = text.slice(end).trimStart()[0] === closer ? end : referenceUrlEnd(text, start);
   }
   return parts.join('') + text.slice(consumed);
 }
 
-function separateTitleMentions(titles: Iterable<string>, text: string): string[] {
-  const normalized = text.normalize('NFC');
+function separateTitleMentions(titles: Iterable<string>, normalized: string): RegExpExecArray[] {
   const folded = normalized.toLowerCase();
   const matching = [...titles].filter(title => folded.includes(title.toLowerCase())).sort((a, b) => b.length - a.length);
   if (!matching.length) return [];
@@ -153,7 +161,7 @@ function separateTitleMentions(titles: Iterable<string>, text: string): string[]
     const after = endsLatinWord.test(title) ? '(?!' + latinWordChar + ')' : '';
     return before + literal + after;
   }).join('|');
-  return normalized.match(new RegExp(pattern, 'giu')) ?? [];
+  return [...normalized.matchAll(new RegExp(pattern, 'giu'))];
 }
 
 function mattersWithDistinctTerms(candidates: Matter[], text: string): Matter[] {
@@ -166,11 +174,11 @@ function mattersWithDistinctTerms(candidates: Matter[], text: string): Matter[] 
 
   // A term shared by several titles cannot independently identify a matter.
   // Still include shared terms in the matcher so their spans cannot count again.
-  const mentioned = new Set(separateTitleMentions(owners.keys(), text).map(term => owners.get(term.toLowerCase())));
+  const mentioned = new Set(separateTitleMentions(owners.keys(), text).map(([term]) => owners.get(term!.toLowerCase())));
   return candidates.filter(matter => mentioned.has(matter));
 }
 
-function mentionedMatters(candidates: Matter[], text: string): Matter[] {
+function editMatterChoices(candidates: Matter[], text: string): Matter[] {
   if (candidates.length < 2) return [];
   const byTitle = new Map<string, Matter[]>();
   const exact = new Map<string, Matter>();
@@ -183,11 +191,15 @@ function mentionedMatters(candidates: Matter[], text: string): Matter[] {
     byTitle.set(folded, matches);
   }
   const mentioned = new Set<Matter>();
-  for (const title of separateTitleMentions(exact.keys(), text)) {
+  const normalized = text.normalize('NFC');
+  const visible = normalized.replace(editLiteral, literal => ' '.repeat(literal.length)).split('');
+  for (const { index, 0: title } of separateTitleMentions(exact.keys(), normalized)) {
     const matches = byTitle.get(title.toLowerCase());
     const matter = exact.get(title) ?? (matches?.length === 1 ? matches[0] : undefined);
     if (matter) mentioned.add(matter);
+    visible.fill(' ', index, index + title.length);
   }
+  for (const matter of mattersWithDistinctTerms(candidates, visible.join(''))) mentioned.add(matter);
   return candidates.filter(matter => mentioned.has(matter));
 }
 
@@ -434,11 +446,8 @@ export class OwnerMatters {
       /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(followup);
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
     if (focus && !additive && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
-      const editText = withoutReferenceUrls(text);
-      const named = mentionedMatters(candidates, editText);
-      if (named.length > 1) return this.holdConflict(message, named.map(matter => matter.id));
-      const hinted = mattersWithDistinctTerms(candidates, editText.replace(editLiteral, ' '));
-      if (hinted.length > 1) return this.holdConflict(message, hinted.map(matter => matter.id));
+      const choices = editMatterChoices(candidates, withoutReferenceUrls(text));
+      if (choices.length > 1) return this.holdConflict(message, choices.map(matter => matter.id));
       const alternate = store.alternateFocusForFollowup(scope);
       return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
     }
