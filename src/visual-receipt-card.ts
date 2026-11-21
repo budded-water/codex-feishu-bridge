@@ -75,7 +75,8 @@ function visualReviewStatus(review: VisualReviewView): string {
   if (result?.status === 'uploaded') return captions[review.phase] + ' · ' + result.version + ' · 回执 ' + result.receipt;
   if (result?.status === 'blocked') {
     const reasons = { 'stale-source': 'PR 候选已更新，请看新版验收卡',
-      conflict: 'PR 与目标分支有冲突。可引用卡片继续处理。', checks: '项目交付检查未通过',
+      conflict: 'PR 与目标分支有冲突。可引用卡片继续处理。',
+      'release-policy': '当前合并流程无法与发布分开', checks: '项目交付检查未通过',
       authorization: '项目授权未就绪', 'target-unavailable': '项目目标不可用',
       'workflow-unavailable': '登记的交付程序不可用或已变化', 'effect-absent': '人工核对确认本次操作未发生' };
     return captions[review.phase] + ' · ' + reasons[result.reason];

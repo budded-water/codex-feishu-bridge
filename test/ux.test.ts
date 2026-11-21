@@ -25,6 +25,17 @@ test('reply transport keeps UUID and only falls back after explicit deletion, ne
  code=230011;assert.equal(await f.send('chat','Result','fallback-uuid',{replyTo:'om_deleted'}),'om_fallback');assert.equal(calls.length,3);
  Object.assign(f,{client:{im:{v1:{message:{reply:async()=>{throw new Error('uncertain');},create:async()=>{throw new Error('must never send elsewhere');}}}}}});
  await assert.rejects(f.send('chat','Result','stable',{replyTo:'om_original'}),/uncertain/);
+
+ let now = Date.now();
+ const deliverBefore = now + 100;
+ t.mock.method(Date, 'now', () => now);
+ let standalone = false;
+ Object.assign(f,{client:{im:{v1:{message:{
+   reply:async()=>{now = deliverBefore;return {code:230011};},
+   create:async()=>{standalone = true;return {code:0,data:{message_id:'om_late'}};},
+ }}}}});
+ await assert.rejects(f.send('chat','Release question','bounded',{replyTo:'om_deleted',deliverBefore}),/delivery window expired/);
+ assert.equal(standalone,false);
 });
 
 test('natural supplement steers one owned running task without enqueueing or duplicating inference', async t => {

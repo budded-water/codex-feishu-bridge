@@ -25,7 +25,7 @@ export interface VisualOperation {
   mergeCommit?: string;
 }
 export type VisualOperationResult =
-  | { status: 'blocked'; reason: 'stale-source' | 'conflict' | 'checks' | 'authorization' | 'target-unavailable' | 'workflow-unavailable' | 'effect-absent' }
+  | { status: 'blocked'; reason: 'stale-source' | 'conflict' | 'release-policy' | 'checks' | 'authorization' | 'target-unavailable' | 'workflow-unavailable' | 'effect-absent' }
   | { status: 'merged'; mergeCommit: string }
   | { status: 'uploaded'; version: string; receipt: string };
 
@@ -120,7 +120,9 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
   }
   const reason = result.reason;
   if (result.status === 'blocked' &&
-    (reason === 'stale-source' || (action === 'merge' && reason === 'conflict') || reason === 'checks' || reason === 'authorization' || reason === 'target-unavailable')) {
+    (reason === 'stale-source' || (action === 'merge' && reason === 'conflict') ||
+      (workflow.manualRelease && action === 'merge' && reason === 'release-policy') ||
+      reason === 'checks' || reason === 'authorization' || reason === 'target-unavailable')) {
     return { status: 'blocked', reason };
   }
   const confirmed = confirmedVisualResult(action, result);

@@ -82,6 +82,7 @@ export class Outbox {
         if (delivery.visualImages && (!visualImages || this.visualReceiptExpired(delivery))) continue;
         const message = await this.sender.send(delivery.chat, text, delivery.id, { replyTo: delivery.replyTo || undefined, visualImages,
           visualReview: visualImages ? this.state.visualReviews.view(delivery.id) : undefined,
+          ...(delivery.visualExpires != null && { deliverBefore: delivery.visualExpires }),
           mentions: delivery.mentions ? JSON.parse(delivery.mentions) : undefined, approval: delivery.approval, taskView, reviewCard: delivery.reviewCard,
           matterCard: delivery.matterCard && redactMatterPresentation(delivery.matterCard, value => {
             for (const secret of this.secrets) if (secret) value = value.split(secret).join('[redacted]');
@@ -92,6 +93,10 @@ export class Outbox {
         if (delivery.visualImages && (error instanceof ReplyTargetUnavailable || error instanceof VisualReplyRejected)) {
           this.state.visualReceiptFailed(delivery.id, error instanceof ReplyTargetUnavailable ? 'target-unavailable' : 'content-rejected');
           console.error('Feishu rejected the visual receipt; the delivery will not be retried');
+          continue;
+        }
+        if (delivery.visualExpires != null && Date.now() >= delivery.visualExpires) {
+          this.state.visualReceiptFailed(delivery.id, 'delivery-unconfirmed');
           continue;
         }
         this.state.retry(delivery);

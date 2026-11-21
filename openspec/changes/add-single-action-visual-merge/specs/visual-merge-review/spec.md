@@ -6,7 +6,10 @@ A Web screenshot receipt with explicit merge intent SHALL require a bound PR
 and a registered workflow with independently authorized release. Eligible
 WeChat receipts MAY use the same workflow. The enrolled approver SHALL see
 one merge button. Its authorization SHALL bind the confirmed Feishu message,
-repository, PR, target branch and exact reviewed head.
+repository, PR, target branch and exact reviewed head. Before writing, the
+adapter SHALL confirm that applying that head to the current target through
+the selected merge path cannot release it. If the separation cannot be
+established for the current automation, the adapter SHALL block the merge.
 
 #### Scenario: Conflict or changed candidate
 - **WHEN** the workflow confirms a conflicting PR or a candidate head change

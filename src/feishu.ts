@@ -231,7 +231,11 @@ export class Feishu implements ContextPort, ReactionPort {
       : options.visualImages ? visualReceiptCard(text, options.visualImages, options.visualReview) : undefined;
     const content = JSON.stringify(card ?? notificationPost(styled, options.mentions ?? []));
     const msg_type = card ? 'interactive' : 'post';
+    const assertDeliveryWindow = () => {
+      if (options.deliverBefore !== undefined && Date.now() >= options.deliverBefore) throw Error('Feishu delivery window expired');
+    };
     if (options.replyTo) {
+      assertDeliveryWindow();
       const response = await this.client.im.v1.message.reply({ path: { message_id: options.replyTo }, data: { msg_type, content, uuid: idempotencyKey } }).catch(error => {
         const code = Number(record(record(record(error).response).data).code ?? record(error).code);
         if ([230011,230110].includes(code) || (options.visualImages && code === 230028)) return {code,data:undefined};
@@ -243,6 +247,7 @@ export class Feishu implements ContextPort, ReactionPort {
       if (![230011,230110].includes(response.code ?? -1)) throw new Error('Feishu rejected message delivery');
       if (options.visualImages) throw new ReplyTargetUnavailable('Original visual receipt message is unavailable');
     }
+    assertDeliveryWindow();
     const response = await this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: { receive_id: chat, msg_type, content, uuid: idempotencyKey } });
     if (response.code !== 0) throw new Error('Feishu rejected message delivery');
     return response.data?.message_id;

@@ -524,6 +524,7 @@ test('single-action review reports a conflict and asks about release only for a 
     'if (input.pullRequest === 31) console.log(JSON.stringify({...input,status:"blocked",reason:"conflict"}));',
     'else if (input.pullRequest === 33) process.exit(1);',
     'else if (input.pullRequest === 34) console.log(JSON.stringify({...input,status:"blocked",reason:"stale-source"}));',
+    'else if (input.pullRequest === 36) console.log(JSON.stringify({...input,status:"blocked",reason:"release-policy"}));',
     'else {',
     '  require("node:fs").appendFileSync(' + JSON.stringify(writes) + ', JSON.stringify(input) + "\\n");',
     '  console.log(JSON.stringify({...input,status:"merged",mergeCommit:"' + mergeCommit + '"}));',
@@ -575,6 +576,10 @@ test('single-action review reports a conflict and asks about release only for a 
   assert.equal(h.interactions.visualReviewAction(stale), 'accepted');
   await waitFor(stale.id, 'merge-blocked');
   assert.match(JSON.stringify(visualReceiptCard(body, images, state.visualReviews.view(stale.id))), /PR 候选已更新/);
+  const releasePolicy = register(36);
+  assert.equal(h.interactions.visualReviewAction(releasePolicy), 'accepted');
+  await waitFor(releasePolicy.id, 'merge-blocked');
+  assert.match(JSON.stringify(visualReceiptCard(body, images, state.visualReviews.view(releasePolicy.id))), /无法与发布分开/);
   assert.equal(notices().length, 0);
 
   const success = register(32);
@@ -612,6 +617,7 @@ test('single-action review reports a conflict and asks about release only for a 
   const attempts: string[] = [];
   h.setSend(async (chat, text, id, options) => {
     if (text.includes('接下来要部署或发版吗')) {
+      assert.ok(options?.deliverBefore && options.deliverBefore > Date.now());
       attempts.push(id);
       throw Error('Feishu accepted the message but its acknowledgment was lost');
     }

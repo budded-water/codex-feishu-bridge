@@ -187,8 +187,12 @@ and `target`. The program returns one JSON result. Standard output is reserved f
 the pair of `id` and `action` to correlate provider effects and evidence.
 
 The workflow owns repository checks and authorization, exact-head and base
-checks, and provider verification. For GitHub, enforce the expected head at
-the merge write and read back the actual merge commit. For upload, verify
+checks, and provider verification. Before each single-button merge, verify that
+merging the exact candidate into the current target cannot trigger release.
+Account for the resulting workflows and current provider-side automation.
+Use a merge mechanism that keeps this guarantee through the write. Return
+`blocked/release-policy` if separation cannot be established. For GitHub,
+enforce the expected head at the merge write and read back the actual merge commit. For upload, verify
 the source and release artifact, developer app, version and applicable
 checks using the project's release tooling. Keep any provider-specific
 observations and uncertain effects in that tool's own ledger. Stdout must
@@ -196,7 +200,7 @@ echo the request identity and report one of these outcomes:
 
 | Status | Additional fields and meaning |
 | --- | --- |
-| `blocked` | `reason` is one of `stale-source`, `conflict` (merge only), `checks`, `authorization`, `target-unavailable`. Use only when the requested effect is confirmed absent. |
+| `blocked` | `reason` is one of `stale-source`, `conflict` (merge only), `release-policy` (single-button merge only), `checks`, `authorization`, `target-unavailable`. Use only when the requested effect is confirmed absent. |
 | `merged` | `mergeCommit` is the provider-confirmed full merge SHA. |
 | `uploaded` | `version` and `receipt` are the verified developer version and receipt identifier. Echo the exact `mergeCommit` and `target`. |
 
