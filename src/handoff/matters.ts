@@ -25,7 +25,7 @@ const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|
 const referenceUrlStart = /https?:\/\//giu;
 const bareUrlEnd = /[\s<>"'\x60，。；：！？、）》】」』”]/u;
 const wrappedUrlEnds: Readonly<Record<string, string>> = {
-  '(': ')', '（': '）', '<': '>', '「': '」', '『': '』', '“': '”', '"': '"', "'": "'", '\x60': '\x60',
+  '(': ')', '（': '）', '[': ']', '【': '】', '〔': '〕', '《': '》', '〈': '〉', '<': '>', '「': '」', '『': '』', '“': '”', '"': '"', "'": "'", '\x60': '\x60',
 };
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
@@ -93,10 +93,14 @@ const latinWordChar = /[\p{Script=Latin}\p{N}\p{M}_]/u.source;
 const startsLatinWord = new RegExp('^' + latinWordChar, 'u');
 const endsLatinWord = new RegExp(latinWordChar + '$', 'u');
 
+function titleTerms(title: string): string[] {
+  const terms = [...title.split(/\s+/), ...Array.from(words.segment(title), item => item.isWordLike ? item.segment : '')];
+  return terms.filter(term => term.length >= (/^[\x00-\x7f]+$/.test(term) ? 3 : 2)).map(term => term.toLowerCase());
+}
+
 function matchingTitleTerms(title: string, text: string): boolean {
   // Terms can trigger a choice. Only confirmed references select a matter.
-  const terms = [...title.split(/\s+/), ...Array.from(words.segment(title), item => item.isWordLike ? item.segment : '')];
-  return terms.some(term => term.length >= (/^[\x00-\x7f]+$/.test(term) ? 3 : 2) && text.includes(term.toLowerCase()));
+  return titleTerms(title).some(term => text.includes(term));
 }
 
 function asksAboutEdit(prose: string): boolean {
@@ -146,10 +150,19 @@ function withoutReferenceUrls(text: string): string {
 }
 
 function refersToMatterWorkAfterEdit(candidates: Matter[], prose: string): boolean {
-  const clause = /(?:[后後][，,]?|[还還]是|的(?:改[动動]|修改|[调調]整))([\s\S]+)/u.exec(prose)?.[1];
-  if (!clause) return false;
-  const tail = clause.toLowerCase().normalize('NFC');
-  return candidates.filter(matter => matchingTitleTerms(matter.title, tail)).length > 1;
+  const followup = /(?:[，,。；;\n]|[后後]|的(?:改[动動]|修改|[调調]整))([\s\S]+)/u.exec(prose)?.[1];
+  const routingText = (/[还還]是|或者|抑或|或是/u.test(prose) ? prose : followup)?.toLowerCase().normalize('NFC');
+  if (!routingText) return false;
+
+  // A term shared by several titles does not independently identify any of those matters.
+  const owners = new Map<string, string | null>();
+  for (const matter of candidates) {
+    for (const term of new Set(titleTerms(matter.title))) {
+      if (routingText.includes(term)) owners.set(term, owners.has(term) ? null : matter.id);
+    }
+  }
+  const independent = new Set([...owners.values()].filter(owner => owner !== null));
+  return independent.size > 1;
 }
 
 function mentionedMatters(candidates: Matter[], text: string): Matter[] {
