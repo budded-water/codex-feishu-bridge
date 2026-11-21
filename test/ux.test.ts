@@ -1,3 +1,4 @@
+import { defaultHttpInstance } from '@larksuiteoapi/node-sdk';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { message, setup, until } from './helpers.js';
@@ -36,6 +37,33 @@ test('reply transport keeps UUID and only falls back after explicit deletion, ne
  }}}}});
  await assert.rejects(f.send('chat','Release question','bounded',{replyTo:'om_deleted',deliverBefore}),/delivery window expired/);
  assert.equal(standalone,false);
+});
+
+test('bounded Feishu sends recheck the deadline after the SDK refreshes its token', async t => {
+  const feishu = new Feishu({ appId: 'fixture', appSecret: 'fixture' });
+  t.after(() => feishu.close());
+  const tokenManager = Reflect.get(Reflect.get(feishu, 'client'), 'tokenManager') as {
+    getTenantAccessToken(): Promise<string>;
+  };
+  let now = Date.now();
+  const deliverBefore = now + 100;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.method(tokenManager, 'getTenantAccessToken', async () => {
+    await Promise.resolve();
+    now = deliverBefore;
+    return 'fixture-token';
+  });
+  const request = t.mock.method(defaultHttpInstance, 'request', async () => ({
+    code: 0, data: { message_id: 'om_expected' },
+  }));
+
+  for (const replyTo of ['om_parent', undefined]) {
+    now = deliverBefore - 1;
+    await assert.rejects(feishu.send('chat', 'Release question', 'bounded', { replyTo, deliverBefore }), /delivery window expired/);
+  }
+  assert.equal(request.mock.callCount(), 0);
+  assert.equal(await feishu.send('chat', 'Ordinary result', 'ordinary'), 'om_expected');
+  assert.equal(request.mock.callCount(), 1);
 });
 
 test('natural supplement steers one owned running task without enqueueing or duplicating inference', async t => {
