@@ -315,10 +315,13 @@ export class OwnerMatters {
     if (targets.length === 1) return submit(targets[0], address?.input);
 
     const candidates = store.list(scope, -1, 0, false);
-    const normalized = message.text.toLowerCase().normalize('NFC');
+    const normalized = text.toLowerCase().normalize('NFC');
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
+    const followup = text.replace(/[\s。？！.!?…]+$/u, '');
+    const additive = !/^(?:这|那|上面|之前|刚才|剩下)/u.test(followup) &&
+      /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(followup);
     // A reference to the preceding message is stronger than shared title words.
-    if (focus && !message.parentId && priorMessage.test(normalized) &&
+    if (focus && !message.parentId && !additive && priorMessage.test(normalized) &&
         !related.some(m => m.id !== focus && normalized.includes(m.title.toLowerCase().normalize('NFC')))) {
       const alternate = store.alternateFocusForFollowup(scope);
       return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
@@ -332,13 +335,11 @@ export class OwnerMatters {
 
     const selected = focus;
     if (selected && !message.parentId) {
-      const text = message.text.trim().replace(/[\s。？！.!?…]+$/u, '');
-      if (vagueFollowup.some(pattern => pattern.test(text))) {
+      if (vagueFollowup.some(pattern => pattern.test(followup))) {
         const alternate = store.alternateFocusForFollowup(scope);
         if (alternate) return this.clarify(store.hold(scope, message, [selected, alternate]));
       }
-      if (!/^(?:这|那|上面|之前|刚才|剩下)/u.test(text) &&
-          /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(text)) {
+      if (additive) {
         const choices = [...new Set([selected, ...related.map(m => m.id), NEW_MATTER_CHOICE])];
         return this.clarify(store.hold(scope, message, choices));
       }

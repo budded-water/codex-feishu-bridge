@@ -1534,11 +1534,18 @@ test('a prior-message question inherits focus despite shared title words and pre
   const fresh = h.interactions.receive(h.actor('换个话题，话题路由验收 A65\n请记住验收口令'));
   assert.ok('request' in fresh);
   const question = '上一条的验收口令是什么？只回复口令，不调用工具。';
-  const continued = h.interactions.receive(h.actor(question));
-  assert.ok('request' in continued);
-  assert.equal(continued.request.conversation, fresh.request.conversation);
+  for (const input of [question, '　' + question]) {
+    const continued = h.interactions.receive(h.actor(input));
+    assert.ok('request' in continued);
+    assert.equal(continued.request.conversation, fresh.request.conversation);
+  }
 
   const scope = { owner: ownerKey(fresh.request.message), project: h.admission.project };
+  const additive = h.actor('上一条里的登录页也看看');
+  assert.equal(h.interactions.receive(additive).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(additive), undefined);
+  assert.equal(h.admission.store.matters.held(additive, scope.project)?.choices[0], fresh.request.conversation);
+
   const comparison = h.actor('上一条里提到验收发版 F5E2和话题路由验收 A65，分别看下');
   assert.equal(h.interactions.receive(comparison).status, 'matter-choice');
   assert.deepEqual(h.admission.store.matters.held(comparison, scope.project)?.choices,
