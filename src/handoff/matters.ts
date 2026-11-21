@@ -15,7 +15,7 @@ const conversation = (id: string) => id === DEFAULT_MATTER ? undefined : id;
 const newTopic = /^(?:请\s*)?(?:换(?:个|一个)?话题|(?:另|再)?开(?:个|一个)?新(?:话题|对话)|新(?:话题|对话|任务))(?:(?:[，,：:。；;]\s*|\s+)([\s\S]*))?$/u;
 const prReadLead = /^(?:(?:请|麻烦|帮我)\s*){0,3}(?:看(?:看|一下|下)|查(?:查|一下|下)?|检查|核对|审查|评估|分析|review\b|check\b|inspect\b)\s*(?:这个\s*PR\s*)?[（(「『]?\s*/iu;
 const prShortAddress = /(?<![\w./-])([a-z0-9_.-]+\/[a-z0-9_.-]+)(?:\s*的\s*|\s+)PR\s*[#＃]([1-9][0-9]{0,11})(?![a-z0-9_-])/gi;
-const urlBoundary = /^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"'*，。？！、；：…—]|\p{Script=Han}|[,;!](?=$|[\s\p{Pe}\p{Script=Han}]|https:\/\/))/iu;
+const urlBoundary = /^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"'*，。？！、；：…—]|\p{Script=Han}|[,;!](?=$|[\s\p{Pe}\p{Script=Han}]))/u;
 const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|审核状态|改动|差异|检查结果|CI(?:\s*(?:状态|结果|为什么(?:没|没有|未)(?:跑|运行)))?)|(?:为什么|怎么)(?:没|没有|未)(?:跑|运行)\s*CI|(?:latest\s+)?(?:status|checks?|diff|CI(?:\s+status)?|merge status|review status)|why\s+CI\s+(?:didn['’]t\s+run|isn['’]t\s+running))$/iu;
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
@@ -35,8 +35,8 @@ function pullRequestAddresses(text: string): { ref: string; index: number; end: 
   const refs: { ref: string; index: number; end: number }[] = [];
   // A slash before an unrecognized character may introduce another path
   // segment. Only treat a trailing slash as complete at a prose boundary.
-  // Query and fragment punctuation belongs to the URL without extending the PR path.
-  for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%&=@~+-]+(?:[?#](?:(?![,;!]https:\/\/)[a-z0-9./_:%?&#=@~+,$;!-])*)?/gi)) {
+  // Query text can contain other URLs. Spaces or wrapping punctuation separate links.
+  for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%&=@~+-]+(?:[?#][a-z0-9./_:%?&#=@~+,$;!-]*)?/gi)) {
     const value = match[0];
     const end = match.index + value.length;
     if (!urlBoundary.test(text.slice(end))) continue;
