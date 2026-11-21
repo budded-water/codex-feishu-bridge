@@ -19,7 +19,7 @@ import { Outbox } from '../src/outbox.js';
 import { queueVisualReceipt } from '../src/handoff/visual-receipt.js';
 import { fingerprint } from '../src/handoff/verification-profile.js';
 import { acquireRoot, fenceFile, manageRuntime, openRuntimeControl, writePrivate } from '../src/handoff/ownership.js';
-import { matterCard, normalizeMatterClick } from '../src/matter-card.js';
+import { matterCard, normalizeMatterClick, NEW_MATTER_CHOICE } from '../src/matter-card.js';
 import type { ApprovalClick, ApprovalView, ApprovalPresentation } from '../src/approval.js';
 
 import { ManagedRefundObserver, projectRefundNotices } from '../src/handoff/refund-monitor.js';
@@ -1434,7 +1434,7 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.equal((await completeRequest(h, answerFollowup.id, 104)).threadId, threadA);
   assert.equal(h.interactions.receive(answerQuote).status, 'ignored');
   await drain(h);
-  assert.equal(h.sent.filter(row => row.options?.replyTo === answerQuote.id && row.text.includes('事项 · 退款调查')).length, 1);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === answerQuote.id && row.text === '已续接 · 退款调查｜本轮已排队').length, 1);
   const receipt = h.sent.find(row => row.options?.replyTo === initial.id && row.text === '已收到 · 退款调查')!;
   assert.equal(h.interactions.transport.state.confirmedAnswer(h.actor('再看看', { parentId: 'delivered-' + receipt.id })), undefined);
   const plain = h.actor('继续刚才的处理');
@@ -1451,6 +1451,135 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.ok('request' in next);
   assert.equal(next.request.conversation, b.request.conversation);
   assert.equal(h.codex.calls.filter(call => call.method === 'thread/start').length, 2);
+});
+
+test('an explicit new topic admits its first request once and preserves the older quote and PR binding', async t => {
+  const h = setup(t, undefined, undefined, ['other']);
+  h.interactions.receive(h.actor('/matter-new 小程序底栏'));
+  const oldMessage = h.actor('验收旧底栏');
+  const old = h.interactions.receive(oldMessage);
+  assert.ok('request' in old);
+  const oldThread = (await completeRequest(h, old.request.id, 110)).threadId;
+  const pr = 'https://github.com/example/weapp/pull/201';
+  h.interactions.receive(h.actor('/matter-bind ' + pr));
+  await drain(h);
+  const oldAnswer = h.sent.find(row => row.options?.replyTo === oldMessage.id && row.text === 'Done')!;
+  const parentId = 'delivered-' + oldAnswer.id;
+  const fresh = h.actor('换个话题，帮我看看小程序登录页。当前 PR：' + pr, { parentId });
+  const result = h.interactions.receive(fresh);
+  assert.ok('request' in result && result.status === 'accepted');
+  assert.notEqual(result.request.conversation, old.request.conversation);
+  assert.equal(result.request.project, old.request.project);
+  assert.equal(result.request.input, '帮我看看小程序登录页。当前 PR：' + pr);
+  assert.equal(result.request.message.parentId, parentId);
+  assert.equal(h.admission.store.taskReply(JSON.stringify([fresh.tenant, fresh.id])), undefined);
+  const scope = { owner: ownerKey(fresh), project: h.admission.project };
+  assert.equal(h.admission.store.matters.bound(scope, 'example/weapp/pull/201'), old.request.conversation);
+  assert.equal(h.admission.store.matters.focus(scope), result.request.conversation);
+  const newThread = (await completeRequest(h, result.request.id, 111)).threadId;
+  assert.notEqual(newThread, oldThread);
+  await h.restart(true);
+  assert.equal(h.interactions.receive(fresh).status, 'duplicate');
+  const plain = h.interactions.receive(h.actor('游客模式呢？'));
+  assert.ok('request' in plain);
+  assert.equal(plain.request.conversation, result.request.conversation);
+  const oldQuote = h.actor('接着检查底栏', { parentId: oldMessage.id });
+  assert.equal(h.interactions.receive(oldQuote).status, 'task-reply');
+  assert.equal(h.admission.store.requestForMessage(oldQuote)?.conversation, old.request.conversation);
+  const foreign = h.actor('新对话：other：查看发布');
+  assert.deepEqual(h.interactions.receive(foreign), { status: 'rejected', reason: 'outside_pilot' });
+  assert.equal(h.admission.store.requestForMessage(foreign), undefined);
+  for (const body of ['换个话题', '开个新话题，/stop']) {
+    const empty = h.actor(body);
+    assert.equal(h.interactions.receive(empty).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(empty), undefined);
+  }
+  assert.equal(h.admission.store.matters.focus(scope), result.request.conversation);
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === fresh.id && row.text.startsWith('已新建 · 小程序登录页')).length, 1);
+  const sameTitle = h.interactions.receive(h.actor(fresh.text));
+  assert.ok('request' in sameTitle);
+  assert.notEqual(sameTitle.request.conversation, result.request.conversation);
+  const title = h.admission.store.matters.owned(scope, result.request.conversation)!.title;
+  assert.equal(h.admission.store.matters.owned(scope, sameTitle.request.conversation)?.title, title + ' (2)');
+});
+
+test('a direct read of one known-address PR only opens and binds the first request', async t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  const start = h.actor('帮我查一下 https://github.com/Org/solura-app/pull/42 的 CI 为什么没跑');
+  const first = h.interactions.receive(start);
+  assert.ok('request' in first && first.status === 'accepted');
+  const scope = { owner: ownerKey(start), project: h.admission.project };
+  assert.equal(h.admission.store.matters.bound(scope, 'org/solura-app/pull/42'), first.request.conversation);
+  assert.equal(h.admission.store.matters.owned(scope, first.request.conversation)?.title, 'solura-app PR #42');
+  assert.equal(h.interactions.receive(start).status, 'duplicate');
+  const thread = (await completeRequest(h, first.request.id, 112)).threadId;
+  h.interactions.receive(h.actor('/matter-new 小程序登录'));
+  const current = h.admission.store.matters.focus(scope);
+  const same = h.actor('检查 Org/solura-app 的 PR #42 的最近状态');
+  const resumed = h.interactions.receive(same);
+  assert.ok('request' in resumed);
+  assert.equal(resumed.request.conversation, first.request.conversation);
+  assert.equal(h.admission.store.matters.focus(scope), current);
+  assert.equal((await completeRequest(h, resumed.request.id, 113)).threadId, thread);
+  for (const text of ['这个问题的背景见 https://github.com/Org/solura-app/pull/41',
+    '检查 https://github.com/Org/solura-app/pull/41，顺手合并']) {
+    const ordinary = h.interactions.receive(h.actor(text));
+    assert.ok('request' in ordinary);
+    assert.equal(ordinary.request.conversation, current);
+  }
+  assert.equal(h.admission.store.matters.bound(scope, 'org/solura-app/pull/41'), undefined);
+  const multiple = h.actor('查一下 https://github.com/Org/solura-app/pull/41 和 https://github.com/Org/solura-app/pull/42 的 CI');
+  assert.equal(h.interactions.receive(multiple).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(multiple), undefined);
+  await drain(h);
+  assert.ok(h.sent.some(row => row.options?.replyTo === start.id && row.text === '已新建 · solura-app PR #42'));
+  assert.ok(h.sent.some(row => row.options?.replyTo === same.id && row.text === '已续接 · solura-app PR #42'));
+});
+
+test('an additive subject offers the current topic or a fresh start with the same held input', async t => {
+  const h = setup(t);
+  const create = h.actor('/matter-new 小程序底栏');
+  h.interactions.receive(create);
+  const scope = { owner: ownerKey(create), project: h.admission.project };
+  const previous = h.admission.store.matters.focus(scope)!;
+  const message = h.actor('登录页也看看');
+  assert.equal(h.interactions.receive(message).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(message), undefined);
+  await h.restart(true);
+  await drain(h);
+  const delivery = h.sent.find(row => row.options?.replyTo === message.id)!;
+  const card = delivery.options!.matterCard!;
+  assert.deepEqual(card.choices.map(choice => choice.id), [previous, NEW_MATTER_CHOICE]);
+  assert.deepEqual(card.choices.map(choice => choice.label), ['本条发给 · 小程序底栏', '用这条消息开新话题']);
+  const click = { id: card.id, event: randomUUID(), chat: card.chat, tenant: card.tenant, user: card.user,
+    message: 'delivered-' + delivery.id, choice: NEW_MATTER_CHOICE };
+  assert.equal(h.interactions.matterAction({ ...click, user: 'ou_admin' }), 'rejected');
+  assert.equal(h.interactions.matterAction({ ...click, event: randomUUID(), message: 'wrong-card' }), 'rejected');
+  assert.equal(h.interactions.matterAction(click), 'accepted');
+  const request = h.admission.store.requestForMessage(message)!;
+  assert.equal(request.message.id, message.id);
+  assert.equal(request.input, message.text);
+  assert.notEqual(request.conversation, previous);
+  assert.equal(h.admission.store.matters.focus(scope), request.conversation);
+  await h.restart(true);
+  assert.equal(h.interactions.matterAction({ ...click, event: randomUUID() }), 'rejected');
+  assert.equal(h.interactions.receive(message).status, 'duplicate');
+  assert.equal(h.admission.store.requests().length, 1);
+  await drain(h);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === message.id && row.text.startsWith('已新建 ·')).length, 1);
+  const other = h.actor('搜索页也看看');
+  assert.equal(h.interactions.receive(other).status, 'matter-choice');
+  await drain(h);
+  const otherDelivery = h.sent.find(row => row.options?.replyTo === other.id)!;
+  const otherCard = otherDelivery.options!.matterCard!;
+  h.interactions.receive(h.actor('/matter-new 新的当前事项'));
+  const latest = h.admission.store.matters.focus(scope);
+  assert.equal(h.interactions.matterAction({ ...click, id: otherCard.id, message: 'delivered-' + otherDelivery.id,
+    event: randomUUID(), choice: request.conversation }), 'accepted');
+  assert.equal(h.admission.store.requestForMessage(other)?.conversation, request.conversation);
+  assert.equal(h.admission.store.matters.focus(scope), latest);
 });
 
 test('the first vague follow-up after a switch waits for the prior or current matter', async t => {
@@ -1667,7 +1796,7 @@ test('an ordinary answer becomes a reply anchor only when its Feishu delivery is
     assert.equal(failedReaction, true);
     const notices = h.sent.filter(row => row.options?.replyTo === fresh.id);
     assert.equal(notices.length, 1);
-    assert.match(notices[0]!.text, /事项 · 退款调查/);
+    assert.match(notices[0]!.text, /已续接 · 退款调查/);
   } finally { transport.close(); }
 });
 
