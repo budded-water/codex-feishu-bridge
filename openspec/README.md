@@ -41,6 +41,8 @@ The active [refund diagnosis supplement](changes/add-refund-diagnostic-companion
 
 ## Active P3 change
 
+[Web screenshot review receipts](changes/add-web-visual-receipts/proposal.md) extend the existing owner-private visual acceptance card to operator-selected candidate screenshots.
+
 [WeChat visual receipts](changes/add-wechat-visual-receipts/proposal.md) associate
 selected original screenshot evidence with an existing owner-private task.
 Source and actual Feishu owner acceptance have separate

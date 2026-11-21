@@ -98,6 +98,86 @@ function setup(t: TestContext, publish: () => Promise<void> = async () => {}, co
 
 async function drain(h: ReturnType<typeof setup>) { for (let i = 0; i < 12; i++) await h.interactions.flush(); }
 
+test('an operator-selected Web screenshot reaches the original task with only the visual acceptance action', async t => {
+  const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
+  const active = await h.launch();
+  h.codex.complete(active.thread, active.turn);
+  await active.running;
+  await drain(h);
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'visual-web-candidate-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+  writeFileSync(join(root, '.gitignore'), '.ui-eval/\n');
+  git('add', '.gitignore');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
+  const commit = git('rev-parse', 'HEAD');
+  git('remote', 'add', 'origin', 'https://github.com/example/web.git');
+  const folder = join(root, '.ui-eval', 'visual-review');
+  mkdirSync(folder, { recursive: true });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB9sAAAAASUVORK5CYII=', 'base64');
+  const file = 'sidebar.png';
+  writeFileSync(join(folder, file), png);
+  const plan = join(root, '.ui-eval', 'review.json');
+  const entry = { file, sha256: fingerprint(png), label: '订单侧栏' };
+  const planFor = (screenshot = entry) => writeFileSync(plan, JSON.stringify({ format: 'web-screenshot', projectRoot: root,
+    projectId: 'fixture', commit, pullRequest: 193, reviewFocus: '核对服务订单的位置', screenshots: [screenshot] }), { mode: 0o600 });
+  const state = h.interactions.transport.state;
+  const workflows = { 'example/web': { executable: '/fixture-workflow', sha256: 'f'.repeat(64), base: 'main' } };
+  const queue = () => queueVisualReceipt(h.admission, state, active.request.execution, plan, () => {}, workflows);
+  planFor({ ...entry, file: '../sidebar.png' });
+  await assert.rejects(queue, /Invalid Web visual receipt screenshot/);
+  planFor({ ...entry, sha256: '0'.repeat(64) });
+  await assert.rejects(queue, /differs from its plan/);
+  planFor();
+  const receipt = await queue();
+  assert.deepEqual(await queue(), receipt);
+  const sdk = new Feishu({ appId: 'fixture', appSecret: 'fixture' });
+  t.after(() => sdk.close());
+  const requests: { path: { message_id: string }; data: { msg_type: string; content: string; uuid: string } }[] = [];
+  const patches: { path: { message_id: string }; data: { content: string } }[] = [];
+  Object.assign(sdk, { client: { im: { v1: {
+    image: { create: async ({ data }: { data: { image_type: string; image: ReadStream } }) => {
+      assert.equal(data.image_type, 'message');
+      const bytes = [];
+      for await (const chunk of data.image) bytes.push(Buffer.from(chunk));
+      assert.deepEqual(Buffer.concat(bytes), png);
+      return { image_key: 'img_web_fixture' };
+    } },
+    message: { reply: async (value: typeof requests[number]) => {
+      requests.push(value);
+      return { code: 0, data: { message_id: 'web-card' } };
+    }, patch: async (value: typeof patches[number]) => { patches.push(value); return { code: 0 }; } },
+  } } } });
+  await new Outbox(state, sdk).flushVisual();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]!.path.message_id, active.message.id);
+  assert.equal(requests[0]!.data.msg_type, 'interactive');
+  const card = JSON.parse(requests[0]!.data.content);
+  assert.equal(card.header.title.content, 'Web UI 验收 · 1 张截图');
+  const picture = card.body.elements.find((element: { tag: string }) => element.tag === 'img');
+  assert.equal(picture.img_key, 'img_web_fixture');
+  assert.equal(picture.preview, true);
+  assert.deepEqual(card.body.elements.filter((element: { tag: string }) => element.tag === 'button')
+    .map((element: { text: { content: string } }) => element.text.content), ['仅确认验收']);
+  assert.doesNotMatch(requests[0]!.data.content, /sidebar\.png|自动化检查通过/);
+  const { tenant, user, chat } = active.message;
+  const click = { tenant, user, chat, message: 'web-card', id: receipt.delivery, decision: 'accept' as const };
+  h.setVisualUpdate((...args) => sdk.updateVisualReview(...args));
+  assert.equal(h.interactions.visualReviewAction({ ...click, decision: 'merge' }), 'rejected');
+  assert.equal(h.interactions.visualReviewAction({ ...click, user: 'ou_other' }), 'rejected');
+  assert.equal(h.interactions.visualReviewAction(click), 'accepted');
+  assert.equal(h.interactions.visualReviewAction(click), 'duplicate');
+  await until(() => patches.length === 1);
+  assert.equal(patches[0]!.path.message_id, 'web-card');
+  assert.match(patches[0]!.data.content, /人工验收通过/);
+  assert.equal(state.visualReviews.take(), undefined);
+  assert.equal(h.admission.store.requests().length, 1);
+  assert.equal(state.confirmedAnswer(h.actor('继续', { parentId: 'web-card' })), active.request.execution);
+});
+
 test('owner visual evidence is paired by scenario, sent once after retry and binds the quote to its task', async t => {
   const h = setup(t);
   h.config.approvalUsers = ['ou_owner'];

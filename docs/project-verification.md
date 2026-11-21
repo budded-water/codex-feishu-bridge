@@ -104,6 +104,25 @@ The receipt uses Card JSON 2.0 and needs Feishu client 7.20 or later.
 Check the reviewing device's version during mobile acceptance.
 See [Feishu client compatibility](https://open.feishu.cn/document/feishu-cards/card-json-v2-breaking-changes-release-notes).
 
+## Web screenshot review receipts
+
+The local operator can use the same private `visual-receipt` command to
+send candidate screenshots from a completed ordinary task as native Feishu
+images. Use the clean candidate worktree, verify that the displayed PR still
+points to its recorded commit, and review the screenshots before sending.
+Place one to three PNGs (up to 2 MiB each) in the worktree's ignored
+`.ui-eval/visual-review/` directory. The `0600` plan keeps the same candidate,
+project, review focus and optional PR fields. Set `format` to `web-screenshot`
+and replace `scenes` with `screenshots` entries containing a bare PNG `file`,
+its exact lowercase hex `sha256`, and a short `label`.
+
+The gateway verifies the candidate and screenshot bytes, then sends the images
+through the existing persistent card outbox. This format records visual
+acceptance only and offers **仅确认验收**. Automation checks remain in the
+project report. The operator binds this plan to the original task and verifies
+its scope before queueing. To continue from the review, quote the delivered
+card in the registered owner-private chat.
+
 ### Review actions on new receipts
 
 The enrolled private owner and approver can record visual acceptance in the
@@ -111,7 +130,7 @@ card. This updates the original message without starting Codex. A quoted reply
 continues the original task and includes the card's observed review state.
 Existing delivered cards retain their original display and quotation behavior.
 
-With passing selected scenes, a bound PR and an operator-configured workflow,
+With passing selected WeChat scenes, a bound PR and an operator-configured workflow,
 the card offers **通过并合并 PR** or **合并 PR** after acceptance. An upload
 button appears after confirmed merge only for a workflow with a developer
 target. Each button authorizes exactly the displayed action. Changes in
