@@ -22,7 +22,7 @@ const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:�
 const editCommand = /^(?:修改|调整|改)(?=成|为|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
 const editQuestion = /[?？]|是否|什么|什麼|为何|為何|有何|何[时時处處种種]|怎么|怎麼|怎样|怎樣|如何|哪[个個里裡儿种種]|多[少久]|[能可应應]否|([\p{Script=Han}])(?:不|没|沒)\1|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
-const editUrl = /https?:\/\/[^\s<>()"'\x60，。；！？、）》】」』”]+/giu;
+const editUrl = /https?:\/\/[^\s<>"'\x60，。；！？、）》】」』”]+/giu;
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -93,6 +93,20 @@ function matchingTitleTerms(title: string, text: string): boolean {
   // Terms can trigger a choice. Only confirmed references select a matter.
   const terms = [...title.split(/\s+/), ...Array.from(words.segment(title), item => item.isWordLike ? item.segment : '')];
   return terms.some(term => term.length >= (/^[\x00-\x7f]+$/.test(term) ? 3 : 2) && text.includes(term.toLowerCase()));
+}
+
+function withoutReferenceUrls(text: string): string {
+  return text.replace(editUrl, link => {
+    // Parentheses may appear inside the URL or close a surrounding prose or Markdown link.
+    let depth = 0;
+    for (let index = 0; index < link.length; index++) {
+      if (link[index] === '(') depth++;
+      if (link[index] !== ')') continue;
+      if (!depth) return ' ' + link.slice(index);
+      depth--;
+    }
+    return ' ';
+  });
 }
 
 function mentionedMatters(candidates: Matter[], text: string): Matter[] {
@@ -349,7 +363,7 @@ export class OwnerMatters {
     const normalized = text.toLowerCase().normalize('NFC');
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
     if (focus && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
-      const editText = text.replace(editUrl, ' ');
+      const editText = withoutReferenceUrls(text);
       if (!editQuestion.test(editText.replace(editLiteral, ' '))) {
         const named = mentionedMatters(candidates, editText.toLowerCase().normalize('NFC'));
         if (named.length > 1) return this.holdConflict(message, named.map(m => m.id));
