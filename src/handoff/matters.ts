@@ -2,14 +2,22 @@ import { randomUUID } from 'node:crypto';
 import { ownerKey, type IncomingMessage } from '../types.js';
 import type { State } from '../state.js';
 import type { CardResult } from '../approval.js';
-import type { MatterClick, MatterPresentation } from '../matter-card.js';
+import { NEW_MATTER_CHOICE, type MatterClick, type MatterPresentation } from '../matter-card.js';
+import { naturalControl } from '../ux.js';
 import type { Admission, PilotAdmission } from './gateway.js';
 import { DEFAULT_MATTER, DEFAULT_MATTER_TITLE, type HeldMatter, type MatterNotice } from './matter-store.js';
 
 const PAGE_SIZE = 6;
 const USAGE = '发送 /matter-new 事项名称 新建并切换。发送 /matters 查看事项和默认对话。已选中事项可用 /matter-bind GitHub PR 链接 绑定对象。';
 const defaultChoice = { id: DEFAULT_MATTER, label: DEFAULT_MATTER_TITLE };
+const newChoice = { id: NEW_MATTER_CHOICE, label: '用这条消息开新话题' };
 const conversation = (id: string) => id === DEFAULT_MATTER ? undefined : id;
+const newTopic = /^(?:请\s*)?(?:换(?:个|一个)?话题|(?:另|再)?开(?:个|一个)?新(?:话题|对话)|新(?:话题|对话|任务))(?:(?:[，,：:。；;]\s*|\s+)([\s\S]*))?$/u;
+const prReadLead = /^(?:(?:请|麻烦|帮我)\s*){0,3}(?:看(?:看|一下|下)|查(?:查|一下|下)?|检查|核对|审查|评估|分析|review\b|check\b|inspect\b)\s*(?:这个\s*PR\s*)?[（(「『]?\s*/iu;
+const prShortAddress = /(?<![\w./-])([a-z0-9_.-]+\/[a-z0-9_.-]+)(?:\s*的\s*|\s+)PR\s*[#＃]([1-9][0-9]{0,11})(?![a-z0-9_-])/gi;
+const urlBoundary = /^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"'*，。？！、；：…—]|\p{Script=Han}|[,;!](?=$|[\s\p{Pe}\p{Script=Han}]))/u;
+const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|审核状态|改动|差异|检查结果|CI(?:\s*(?:状态|结果|为什么(?:没|没有|未)(?:跑|运行)))?)|(?:为什么|怎么)(?:没|没有|未)(?:跑|运行)\s*CI|(?:latest\s+)?(?:status|checks?|diff|CI(?:\s+status)?|merge status|review status)|why\s+CI\s+(?:didn['’]t\s+run|isn['’]t\s+running))$/iu;
+const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -24,19 +32,51 @@ function pullRequest(value: string): string | undefined {
   return match?.[1]?.toLowerCase();
 }
 
-function pullRequests(text: string): string[] {
-  const refs = new Set<string>();
+function pullRequestAddresses(text: string): { ref: string; index: number; end: number }[] {
+  const refs: { ref: string; index: number; end: number }[] = [];
   // A slash before an unrecognized character may introduce another path
   // segment. Only treat a trailing slash as complete at a prose boundary.
-  for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%?&#=@~+-]+/gi)) {
+  // Query text can contain other URLs. Spaces or wrapping punctuation separate links.
+  for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%&=@~+-]+(?:[?#][a-z0-9./_:%?&#=@~+,$;!-]*)?/gi)) {
     const value = match[0];
+    const end = match.index + value.length;
+    if (!urlBoundary.test(text.slice(end))) continue;
     const address = value.replace(text[match.index - 1] === '_' ? /[.:_]+$/ : /[.:]+$/, '');
-    if (address.endsWith('/') && (address !== value ||
+    if (!/[?#]/.test(value) && address.endsWith('/') && (address !== value ||
       !/^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"',;!，。？！、；：…])/u.test(text.slice(match.index + value.length)))) continue;
     const ref = pullRequest(address);
-    if (ref) refs.add(ref);
+    if (ref) refs.push({ ref, index: match.index, end });
   }
-  return [...refs];
+  for (const match of text.matchAll(prShortAddress)) {
+    const end = match.index + match[0].length;
+    const suffix = text.slice(end);
+    if (!urlBoundary.test(suffix) && !/^\.(?:$|\s)/u.test(suffix)) continue;
+    const ref = pullRequest('https://github.com/' + match[1] + '/pull/' + match[2]);
+    if (ref) refs.push({ ref, index: match.index, end });
+  }
+  return refs;
+}
+
+function pullRequests(text: string): string[] {
+  return [...new Set(pullRequestAddresses(text).map(address => address.ref))];
+}
+
+function prReadOnlyTail(value: string): boolean {
+  const text = value.trim().replace(/^[）)」』"']+\s*/u, '').replace(/^的\s*/u, '')
+    .replace(/[。！？.!?]+$/u, '').trim();
+  return text === '' || prReadDetail.test(text);
+}
+
+function topicTitle(input: string, ref?: string): string {
+  if (ref) {
+    const [, repo, , number] = ref.split('/');
+    return repo!.slice(0, 27) + ' PR #' + number;
+  }
+  const firstLine = input.trim().split(/\r?\n/, 1)[0]!;
+  const shortened = firstLine.replace(/^(?:(?:请|帮我|麻烦)\s*){0,3}(?:看看|看一下|查一下|查查|检查|研究一下|研究)\s*/u, '');
+  return (shortened || firstLine).normalize('NFC').replace(/https:\/\/\S+/g, '链接')
+    .replace(/[\u0000-\u001f:：]+/g, ' ').replace(/\s+/g, ' ').trim()
+    .slice(0, 42).replace(/[\uD800-\uDBFF]$/, '').trimEnd() || '新话题';
 }
 
 const words = new Intl.Segmenter('zh', { granularity: 'word' });
@@ -124,10 +164,12 @@ export class OwnerMatters {
   private clarify(held: HeldMatter): { status: 'matter-choice' | 'duplicate' } {
     if (held.chosen) return { status: 'duplicate' };
     const scope = this.scope(held.message);
+    const temporary = held.choices.includes(NEW_MATTER_CHOICE);
     const choices = held.choices.flatMap(id => {
-      if (id === DEFAULT_MATTER) return [defaultChoice];
+      if (id === NEW_MATTER_CHOICE) return [newChoice];
+      if (id === DEFAULT_MATTER) return [temporary ? { ...defaultChoice, label: '本条发给 · ' + defaultChoice.label } : defaultChoice];
       const m = this.admission.store.matters.owned(scope, id);
-      return m ? [{ id, label: m.title }] : [];
+      return m ? [{ id, label: temporary ? '本条发给 · ' + m.title : m.title }] : [];
     });
     const text = held.answerExecution
       ? '引用的答案和正文指向不同事项。选定事项后才会处理这条消息。'
@@ -184,6 +226,10 @@ export class OwnerMatters {
     return this.admission.store.matters.list(this.scope(message), 1, 0, false).length > 0;
   }
 
+  opensNewTopic(message: IncomingMessage): boolean {
+    return this.owner(message) && newTopic.test(message.text.trim()) && !this.address(message);
+  }
+
   overridesNaturalSteer(message: IncomingMessage): boolean {
     if (!this.owner(message)) return false;
     const scope = this.scope(message), store = this.admission.store.matters;
@@ -204,6 +250,17 @@ export class OwnerMatters {
     return this.admission.receive(message, selected && conversation(selected), input);
   }
 
+  private startTopic(message: IncomingMessage, input: string, ref?: string): Admission {
+    const address = this.admission.projectAddress(input);
+    if (address?.outsidePilot) {
+      this.admission.store.retainRefusal(message, 'outside_pilot');
+      return { status: 'rejected', reason: 'outside_pilot' };
+    }
+    const task = address?.input ?? input;
+    return this.admission.store.matters.startTask(this.scope(message), message, topicTitle(task, ref),
+      id => this.admission.receive(message, id, task), ref);
+  }
+
   route(message: IncomingMessage): Admission | { status: 'matter-choice' | 'duplicate' } {
     const submit = (selected?: string, input?: string) => this.submit(message, selected, input);
     if (!this.owner(message) || message.unsupported || message.text.length > 30_000 || !message.text.trim() ||
@@ -222,18 +279,53 @@ export class OwnerMatters {
     if (this.admission.store.maintenance.paused) return submit();
 
     const address = this.address(message);
+    const requestedTopic = !address && newTopic.exec(message.text.trim());
+    if (requestedTopic) {
+      const input = requestedTopic[1]?.trim() ?? '';
+      if (!input || input.startsWith('/') || naturalControl(input) === 'stop') {
+        return this.requireResend(message, '把新话题和第一条需求一起发过来，例如「换个话题，帮我看看小程序登录页」。');
+      }
+      return this.startTopic(message, input);
+    }
+
     if (!address && this.admission.projectAddress(message.text)?.outsidePilot) return submit();
     const reference = this.state.matterReference(message);
     if (!reference && this.state.pendingRefundReference(message)) {
       return this.requireResend(message, '还有告警卡片在确认投递。请稍后重发这条引用，或去掉引用并写明事项。');
     }
     const targets = this.explicitTargets(message, reference?.anchor, address?.matter);
-    if (targets.length === 1) return submit(targets[0], address?.input);
     if (targets.length > 1) return this.holdConflict(message, targets, address?.input);
 
+    const focus = store.focus(scope);
+    const text = message.text.trim();
+    const lead = !message.parentId && !address && prReadLead.exec(text);
+    if (lead) {
+      const tail = text.slice(lead[0].length);
+      const addresses = pullRequestAddresses(tail);
+      const direct = addresses.find(item => item.index === 0);
+      const multiple = direct && addresses.some(item => item.ref !== direct.ref);
+      if (multiple || (!targets.length && focus && /PR\s*[#＃][1-9]/i.test(tail) && !addresses.length)) {
+        const choices = [...new Set([...targets, focus ?? DEFAULT_MATTER, NEW_MATTER_CHOICE])];
+        return this.clarify(store.hold(scope, message, choices));
+      }
+      if (!targets.length && direct && prReadOnlyTail(tail.slice(direct.end))) {
+        return this.startTopic(message, message.text, direct.ref);
+      }
+    }
+    if (targets.length === 1) return submit(targets[0], address?.input);
+
     const candidates = store.list(scope, -1, 0, false);
-    const normalized = message.text.toLowerCase().normalize('NFC');
+    const normalized = text.toLowerCase().normalize('NFC');
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
+    const followup = text.replace(/[\s。？！.!?…]+$/u, '');
+    const additive = !/^(?:这|那|上面|之前|刚才|剩下)/u.test(followup) &&
+      /^[^\n，。？！：]{2,26}也(?:看看|看一下|看下|查一下|检查一下)$/u.test(followup);
+    // A reference to the preceding message is stronger than shared title words.
+    if (focus && !message.parentId && !additive && priorMessage.test(normalized) &&
+        !related.some(m => m.id !== focus && normalized.includes(m.title.toLowerCase().normalize('NFC')))) {
+      const alternate = store.alternateFocusForFollowup(scope);
+      return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
+    }
     if (related.length > 1) {
       if (related.length > PAGE_SIZE) {
         return this.requireResend(message, '有多个可能的事项。请在 /matters 中选择，或引用事项卡片后重发。');
@@ -241,12 +333,15 @@ export class OwnerMatters {
       return this.clarify(store.hold(scope, message, related.map(m => m.id)));
     }
 
-    const selected = store.focus(scope);
+    const selected = focus;
     if (selected && !message.parentId) {
-      const text = message.text.trim().replace(/[\s。？！.!?…]+$/u, '');
-      if (vagueFollowup.some(pattern => pattern.test(text))) {
+      if (vagueFollowup.some(pattern => pattern.test(followup))) {
         const alternate = store.alternateFocusForFollowup(scope);
         if (alternate) return this.clarify(store.hold(scope, message, [selected, alternate]));
+      }
+      if (additive) {
+        const choices = [...new Set([selected, ...related.map(m => m.id), NEW_MATTER_CHOICE])];
+        return this.clarify(store.hold(scope, message, choices));
       }
     }
     // A quoted parent may be a visible card whose delivery is still unconfirmed.
@@ -266,6 +361,10 @@ export class OwnerMatters {
       if (!card) return { status: 'rejected' };
       if (card.action === 'switch') return { status: store.select(scope, click.choice) ? 'accepted' : 'rejected' };
       const consumed = store.consume(scope, card.id, click.choice, (original, input, answerExecution) => {
+        if (click.choice === NEW_MATTER_CHOICE) {
+          const result = this.startTopic(original, input ?? original.text);
+          return result.status === 'accepted' ? 'admitted' : result.status === 'blocked' || result.status === 'rejected' ? 'refused' : undefined;
+        }
         if (answerExecution) {
           if (this.admission.projectAddress(original.text)?.outsidePilot) return;
           const sourceMatter = this.answerMatter(original, answerExecution);

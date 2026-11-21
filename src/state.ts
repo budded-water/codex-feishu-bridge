@@ -155,7 +155,7 @@ export class State {
   }
 
   projectAssignedTask(request: RequestRecord, project: string, directory: string, status: string,
-    receipt?: { matter: string; followup: boolean }): void {
+    receipt?: { matter: string; followup: boolean; routing: 'opened' | 'continued' | 'accepted' }): void {
     this.transaction(() => {
       this.db.prepare('INSERT OR IGNORE INTO sessions(id,owner,tenant,user,chat,project,directory) VALUES (?,?,?,?,?,?,?)')
         .run(request.conversation, ownerKey(request.message), request.message.tenant, request.message.user, request.message.chat, project, directory);
@@ -169,7 +169,10 @@ export class State {
         else {
           this.db.prepare('INSERT INTO feedback(task,message,fallback) VALUES (?,?,?)')
             .run(request.execution, this.replyTarget(request.execution)!, receipt ? 1 : 0);
-          if (receipt && !receipt.followup) this.send(request.message.chat, '已收到 · ' + receipt.matter, { replyTo: request.message.id });
+          if (receipt && !receipt.followup) {
+            const label = { opened: '已新建', continued: '已续接', accepted: '已收到' }[receipt.routing];
+            this.send(request.message.chat, label + ' · ' + receipt.matter, { replyTo: request.message.id });
+          }
         }
       }
     });

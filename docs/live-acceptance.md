@@ -1,5 +1,13 @@
 # Live acceptance evidence
 
+## 2026-11-21 M6 natural topic routing
+
+The managed gateway and Worker adopted [PR #65](https://github.com/budded-water/codex-feishu-bridge/pull/65) and its [prior-message correction in PR #66](https://github.com/budded-water/codex-feishu-bridge/pull/66). Both merged trees matched the reviewed sources. Local checks, exact-head CI and independent review passed. The coordinated cutovers retained conversation rows, sealed originals and native command rules, and the closed backup passed integrity checks for six databases.
+
+The enrolled owner-private Feishu desktop chat submitted a first request with 「换个话题」, replied to the confirmed old answer from another selected matter, and chose 「用这条消息开新话题」 for an ambiguous message. The held message had no admitted request before the click. Its saved original input received one execution in a distinct thread. A direct GitHub PR query opened and bound a separate thread. A later message naming the same PR used that thread after the selected matter changed.
+
+The original rollout reproduced an unnecessary matter choice when a prior-message question shared words with multiple titles. After the correction, the same unquoted question directly resumed the original thread and returned its earlier context. Seven accepted runs ended with separate native turns across three verified threads and confirmed Feishu answers. Default focus was restored and admission was open with no pending work. The private operator inventory retains the scoped run, message and backup evidence.
+
 ## 2026-11-20 M6 Web verification delivery checkpoints
 
 The managed gateway and Worker assignment runner adopted [PR #60](https://github.com/budded-water/codex-feishu-bridge/pull/60). The merged source matched the tested tree with 471 passing tests, OpenSpec validation, green CI and independent review corrections. The cutover verified a closed backup of six databases and retained existing task state, sealed journals and native command rules.

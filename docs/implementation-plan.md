@@ -2,6 +2,8 @@
 
 Owner-private matter routing is merged, deployed to M6 and verified with real Feishu interaction. The [delivered specification](../openspec/specs/owner-matter-routing/spec.md) defines the contract, and the [live evidence](live-acceptance.md#2026-11-19-m6-owner-private-matter-routing) records the bounded acceptance. The follow-up refinement for short continuations and conflicting answer references is [deployed and verified in the M6 owner private chat](live-acceptance.md#2026-11-19-m6-matter-follow-up-rollout). Both choices resumed existing threads and the default selection was restored.
 
+[Natural topic creation](../openspec/changes/archive/2026-11-21-start-matters-from-chat/tasks.md) is deployed and verified in the managed M6 private chat. One-message creation, held-message selection, cross-topic quote and PR continuation and prior-message routing each have [live evidence](live-acceptance.md#2026-11-21-m6-natural-topic-routing).
+
 Owner-private Feishu quoted-task replies are deployed on the managed M6 gateway and Worker. A genuine owner chat verified merging before assignment, steering the exact running turn, and a linked follow-up in the same Codex thread. The [delivered specification](../openspec/specs/owner-task-replies/spec.md) records the contract and the [dated rollout record](live-acceptance.md#2026-11-18-m6-owner-private-quoted-task-replies) records the tested scope.
 
 ## Owner delivery checkpoints

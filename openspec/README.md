@@ -29,6 +29,8 @@ These are implemented contracts with bounded evidence, not universal live accept
 
 The delivered [matter follow-up refinement](changes/archive/2026-11-19-clarify-owner-matter-followups/tasks.md) covers short continuations and conflicting answer references. The [M6 acceptance](../docs/live-acceptance.md#2026-11-19-m6-matter-follow-up-rollout) verifies both choices and the resumed threads.
 
+[Natural topic creation](changes/archive/2026-11-21-start-matters-from-chat/tasks.md) extends the delivered [matter specification](specs/owner-matter-routing/spec.md). The [M6 acceptance](../docs/live-acceptance.md#2026-11-21-m6-natural-topic-routing) records one-message creation, held selection, quote and PR continuation and the prior-message correction.
+
 ## Delivered SLS observer and subscription
 
 The subscription, read-only observation, owner-private card delivery and quoted Codex continuation were verified on the managed M6 pilot. See the [dated acceptance record](../docs/live-acceptance.md#2026-11-19-m6-sls-refund-subscription) for the scope and observed incident disposition.

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { ownerKey, type IncomingMessage } from '../types.js';
-import type { MatterPresentation } from '../matter-card.js';
+import { NEW_MATTER_CHOICE, type MatterPresentation } from '../matter-card.js';
+import type { Admission } from './gateway.js';
 
 export const DEFAULT_MATTER = 'default';
 export const DEFAULT_MATTER_TITLE = '默认对话';
@@ -174,6 +175,37 @@ export class MatterStore {
     return true;
   }
 
+  startTask(scope: Scope, message: IncomingMessage, title: string, submit: (id: string) => Admission, ref?: string): Admission {
+    return this.transaction(() => {
+      const bound = ref && this.bound(scope, ref);
+      if (bound) return submit(bound);
+
+      let name = title;
+      for (let suffix = 2; name === DEFAULT_MATTER_TITLE || this.named(scope, name); suffix++) {
+        name = title + ' (' + suffix + ')';
+      }
+      this.db.prepare('INSERT OR IGNORE INTO conversations(id,owner,project) VALUES (?,?,?)')
+        .run(randomUUID(), scope.owner, scope.project);
+      const id = randomUUID();
+      this.db.prepare('INSERT INTO conversations(id,owner,project,title) VALUES (?,?,?,?)').run(id, scope.owner, scope.project, name);
+      const result = submit(id);
+      if (result.status === 'accepted') {
+        this.setFocus(scope, id, true);
+        if (ref) this.db.prepare('INSERT INTO matter_objects VALUES (?,?,?,?)').run(scope.owner, scope.project, ref, id);
+        this.db.prepare('INSERT INTO matter_decisions VALUES (?,?)')
+          .run(origin(message), JSON.stringify({ openedMatter: id }));
+      } else if (result.status !== 'blocked') {
+        this.db.prepare('DELETE FROM conversations WHERE id=?').run(id);
+      }
+      return result;
+    });
+  }
+
+  openedWith(message: IncomingMessage, conversation: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM matter_decisions WHERE origin=? AND json_extract(result,'$.openedMatter')=?")
+      .get(origin(message), conversation));
+  }
+
   bind(scope: Scope, message: IncomingMessage, ref: string): 'bound' | 'conflict' | 'no-matter' {
     return this.decide(message, () => {
       const current = this.focus(scope);
@@ -245,8 +277,9 @@ export class MatterStore {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT message,choices,input,chosen,answer_execution FROM matter_inputs WHERE id=? AND owner=? AND project=?')
         .get(id, scope.owner, scope.project) as { message: string; choices: string; input: string | null; chosen: string | null; answer_execution: string | null } | undefined;
-      if (!row || row.chosen || !(JSON.parse(row.choices) as string[]).includes(choice) ||
-        (choice !== DEFAULT_MATTER && !this.owned(scope, choice))) return;
+      const choices: string[] = row ? JSON.parse(row.choices) : [];
+      if (!row || row.chosen || !choices.includes(choice) ||
+        (choice !== DEFAULT_MATTER && choice !== NEW_MATTER_CHOICE && !this.owned(scope, choice))) return;
       const original = JSON.parse(row.message) as IncomingMessage;
       // Mark it consumed before admission in the same transaction. Admission
       // checks held messages so they cannot be scheduled by a duplicate ingress.
@@ -256,7 +289,7 @@ export class MatterStore {
         this.db.prepare('UPDATE matter_inputs SET chosen=NULL WHERE id=?').run(id);
         return;
       }
-      if (value === 'admitted') this.setFocus(scope, choice, true);
+      if (value === 'admitted' && !choices.includes(NEW_MATTER_CHOICE)) this.setFocus(scope, choice, true);
       return value;
     });
   }
