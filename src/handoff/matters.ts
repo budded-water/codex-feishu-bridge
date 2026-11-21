@@ -20,9 +20,9 @@ const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
-const editQuestion = /[?？谁誰]|是否|难道|難道|莫非|岂|豈|什么|什麼|怎么|怎麼|怎样|怎樣|多[少久长長远遠深高大快宽寬厚]|多重(?=[。！？?!，,\s]|$)|[能可应應会會该該要愿願肯需当當宜]否|有[无無]|(\p{Script=Han})(?:不|没|沒)\1|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
+const editQuestion = /[?？谁誰]|是否|难道|難道|莫非|岂|豈|什么|什麼|怎么|怎麼|怎样|怎樣|多(?:[少久]|[长長](?:时间|時間)|大影[响響])|多[长長远遠深高大快宽寬厚重](?=[。！？?!，,\s]|$)|[能可应應会會该該要愿願肯需当當宜]否|有[无無]|(\p{Script=Han})(?:不|没|沒)\1|(?:可行|合适|合適|合规|合規)不(?=[。！？?!，,；;\s]|$)|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
-const editUrl = /https?:\/\/(?:(?![,;!](?=\p{Script=Han}))[^\s<>"'\x60，。；：！？、）》】」』”])+/giu;
+const editUrl = /https?:\/\/[^\s<>"'\x60，。；：！？、）》】」』”]+/giu;
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -95,21 +95,22 @@ function matchingTitleTerms(title: string, text: string): boolean {
   return terms.some(term => term.length >= (/^[\x00-\x7f]+$/.test(term) ? 3 : 2) && text.includes(term.toLowerCase()));
 }
 
-function asksAboutEdit(text: string): boolean {
-  const prose = text.replace(editLiteral, ' ');
+function asksAboutEdit(prose: string): boolean {
   if (editQuestion.test(prose)) return true;
   // Segment ambiguous interrogatives so a word like 几何 does not turn an edit into a question.
   for (const { segment } of words.segment(prose)) {
-    if (/^(?:[几幾][天日周年月小次点點时時钟鐘個个種种處处项項分秒份家组組步轮輪度号號]?|何|如何|哪(?:些|[个個里裡儿種种])?)$/u.test(segment)) return true;
+    if (/^(?:[几幾][天日周年月小次点點时時钟鐘個个種种處处项項分秒份家组組步轮輪度号號]?|何|[如为為]何|哪(?:些|[个個里裡儿種种])?)$/u.test(segment)) return true;
   }
   return false;
 }
 
 function withoutReferenceUrls(text: string): string {
-  return text.replace(editUrl, link => {
+  return text.replace(editUrl, (link: string, offset: number) => {
+    const wrapped = offset > 0 && /[<(]/.test(text[offset - 1]!);
     // Parentheses may appear inside the URL or close a surrounding prose or Markdown link.
     let depth = 0;
     for (let index = 0; index < link.length; index++) {
+      if (!wrapped && !depth && ',;!'.includes(link[index]!) && /^\p{Script=Han}/u.test(link.slice(index + 1))) return ' ' + link.slice(index);
       if (link[index] === '(') depth++;
       if (link[index] !== ')') continue;
       if (!depth) return ' ' + link.slice(index);
@@ -117,6 +118,13 @@ function withoutReferenceUrls(text: string): string {
     }
     return ' ';
   });
+}
+
+function refersToMatterWorkAfterEdit(candidates: Matter[], prose: string): boolean {
+  const clause = /(?:[后後][，,]|的(?:改[动動]|修改|[调調]整))([\s\S]+)/u.exec(prose)?.[1];
+  if (!clause) return false;
+  const tail = clause.toLowerCase().normalize('NFC');
+  return candidates.filter(matter => matchingTitleTerms(matter.title, tail)).length > 1;
 }
 
 function mentionedMatters(candidates: Matter[], text: string): Matter[] {
@@ -391,7 +399,8 @@ export class OwnerMatters {
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
     if (focus && !additive && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
       const editText = withoutReferenceUrls(text);
-      if (!asksAboutEdit(editText)) {
+      const prose = editText.replace(editLiteral, ' ');
+      if (!asksAboutEdit(prose) && !refersToMatterWorkAfterEdit(candidates, prose)) {
         const named = mentionedMatters(candidates, editText);
         if (named.length > 1) return this.holdConflict(message, named.map(m => m.id));
         const alternate = store.alternateFocusForFollowup(scope);
