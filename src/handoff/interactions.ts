@@ -95,7 +95,7 @@ export class PilotInteractions {
     }
     const natural = naturalControl(message.text.trim());
     const command = /^\/(?:help|status|stop|steer|approve|approve-save|reject|answer)(?:\s|$)/.test(message.text.trim());
-    if (ordinaryOwner && message.parentId && !message.unsupported &&
+    if (ordinaryOwner && message.parentId && !message.unsupported && !this.matters.opensNewTopic(message) &&
       message.text.length <= 30_000 && message.text.trim() && !message.text.trimStart().startsWith('/') && natural !== 'stop') {
       const answer = this.transport.state.confirmedAnswer(message);
       if (answer) {
@@ -128,7 +128,8 @@ export class PilotInteractions {
       this.transport.state.send(message.chat,
         present('使用帮助',
           section('交办任务', ['直接发送普通消息；需要操作仓库时说明目标目录或项目。', '在本人私聊回复原任务消息，可补充正在等待或执行的任务，或追问已结束的任务。']),
-          section('按事项接续', ['- `/matter-new 事项名称` 新建并切换 · `/matters` 查看及切换', '- 可回复 Bot 的普通最终答案，或用「事项名：任务」、事项卡片、已绑定的 PR 直达', '- `/matter-bind PR链接` 绑定已选中的事项']),
+          section('按事项接续', ['- 「换个话题，第一条需求」一次新建并交办 · `/matters` 查看及切换',
+            '- 可回复 Bot 的普通最终答案，或用「事项名：任务」、事项卡片、精确 PR 地址直达', '- `/matter-bind PR链接` 绑定已选中的事项']),
           section('交付等待', ['- `/delivery-wait 普通任务编号 证据引用` 登记 · `/delivery 任务编号` 查看',
             '- `/delivery-wait 验证任务编号` 绑定通过的 Web 报告', '- `/delivery-confirm 任务编号 证据引用`，换行写后续任务']),
           section('查看与控制', ['- `/status` · `/status details` 查看状态', '- `/steer 内容` 补充要求 · `/stop` 停止', '- `/approve 编号` · `/reject 编号` · `/answer 编号 内容` 回应请求']),

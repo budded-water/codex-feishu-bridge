@@ -1,7 +1,9 @@
 import { record } from './types.js';
 
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
-const target = (v: unknown): v is string => typeof v === 'string' && (v === 'default' || uuid.test(v));
+// A reserved UUID keeps saved cards readable by older gateway versions.
+export const NEW_MATTER_CHOICE = '00000000-0000-0000-0000-000000000000';
+const target = (v: unknown): v is string => typeof v === 'string' && (v === 'default' || (v !== NEW_MATTER_CHOICE && uuid.test(v)));
 const bounded = (v: unknown, n: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= n;
 
 export interface MatterPresentation {
@@ -20,7 +22,10 @@ export function parseMatterPresentation(input: unknown): MatterPresentation {
   if (typeof p.id !== 'string' || !uuid.test(p.id) || ![p.tenant,p.user,p.chat].every(v => bounded(v,200)) ||
     !bounded(p.title,100) || !bounded(p.text,1000) || (p.action !== 'switch' && p.action !== 'route') ||
     !Array.isArray(p.choices) || p.choices.length < 1 || p.choices.length > 7 ||
-    p.choices.some(choice => !target(record(choice).id) || !bounded(record(choice).label,120)) ||
+    p.choices.some(choice => {
+      const { id, label } = record(choice);
+      return (!target(id) && !(p.action === 'route' && id === NEW_MATTER_CHOICE)) || !bounded(label,120);
+    }) ||
     (p.source !== undefined && (p.source !== 'sls-refund' || !p.anchor || p.anchor === 'default')) ||
     (p.anchor !== undefined && (p.action !== 'switch' || !target(p.anchor) || p.anchor !== record(p.choices[0]).id || p.choices.length !== 1))) {
     throw Error('Invalid matter card');
@@ -48,7 +53,7 @@ export function normalizeMatterClick(input: unknown, appId: string): MatterClick
   if (e.schema !== '2.0' || e.app_id !== appId || e.host !== 'im_message' || !bounded(e.event_id,200) || !/^[a-zA-Z0-9_-]+$/.test(e.event_id) ||
     !bounded(e.tenant_key,200) || actor.tenant_key !== e.tenant_key || !bounded(actor.open_id,200) || !/^ou_[\w-]+$/.test(actor.open_id) ||
     !bounded(context.open_chat_id,200) || !bounded(context.open_message_id,200) || action.tag !== 'button' || value.kind !== 'matter' ||
-    typeof value.id !== 'string' || !uuid.test(value.id) || !target(value.choice)) return;
+    typeof value.id !== 'string' || !uuid.test(value.id) || (!target(value.choice) && value.choice !== NEW_MATTER_CHOICE)) return;
   return { id: value.id, choice: value.choice, event: e.event_id, tenant: e.tenant_key, user: actor.open_id,
     chat: context.open_chat_id, message: context.open_message_id };
 }

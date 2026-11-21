@@ -16,6 +16,13 @@ The optional workspace routing mode uses one neutral execution directory and a d
 
 Named owner matters are separate native conversation records within the same canonical project. Feishu cards and registered PR links select the target before admission. Related retries and exact task replies retain the source conversation. Confirmed ordinary-answer replies retain it unless a conflicting exact matter address requires a choice. The held input retains the answer identity for source-thread validation if the owner selects that matter. Deferred choices are consumed atomically with the original input. Short unanchored continuations compare the current selection with ordinary admission history. AutoLoop dispatches requests under the canonical resource guard. See [owner matters](owner-matters.md).
 
+Owner-private topic switches and direct reads of a single unbound GitHub PR
+can create their matter with the first request. Conversation creation,
+optional PR binding, current selection and receipt provenance commit in
+the admission transaction. A held message can explicitly open a fresh
+matter from its confirmed choice card. Existing references and canonical
+resource guards retain their authority.
+
 Owner-private delivery checkpoints retain one evidence reference per completed execution in `handoff.db`. Ordinary tasks take an owner-supplied reference. A passing Web verification derives its reference from its recorded clean commit and paired report hashes. Registration and confirmation verify the source's sealed native evidence. Exact confirmation commits a single linked ordinary request and its checkpoint together. The quoted continuation's current-thread check applies at Worker reservation. The Worker also rechecks bound Web evidence before launch. Transport uses the existing task-reply receipt, and project tools own their report content and platform decisions. See [commands](usage.md#交付等待p1-网关).
 
 ## Goal and boundary
