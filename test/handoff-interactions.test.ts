@@ -1916,6 +1916,27 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   assert.equal(h.codex.calls.length, 0);
 });
 
+test('a question about a previous change can still match two named matters', t => {
+  const h = setup(t);
+  h.interactions.receive(h.actor('/matter-new 退款调查'));
+  h.interactions.receive(h.actor('/matter-new Solura 发版'));
+  h.interactions.receive(h.actor('/matter-new 文档整理'));
+  const current = h.interactions.receive(h.actor('整理当前说明'));
+  assert.ok('request' in current);
+  const checkCandidates = () => {
+    const question = h.actor('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
+    assert.equal(h.interactions.receive(question).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(question), undefined);
+    const scope = { owner: ownerKey(question), project: h.admission.project };
+    const held = h.admission.store.matters.held(question, scope.project)!;
+    assert.deepEqual(held.choices.map(id => h.admission.store.matters.owned(scope, id)?.title).sort(),
+      ['Solura 发版', '退款调查'].sort());
+  };
+  checkCandidates();
+  assert.ok('request' in h.interactions.receive(h.actor('退款调查：核对一下回执')));
+  checkCandidates();
+});
+
 test('short continuation follows ordinary admission history through empty switches and specialized work', t => {
   const h = setup(t);
   const initial = h.interactions.receive(h.actor('先查退款积压'));
