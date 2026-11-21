@@ -1,4 +1,7 @@
+import type { Readable } from 'node:stream';
+
 export interface Mention { id: string; name: string }
+export interface FileAttachment { messageId: string; key: string; name: string }
 export interface DeliveryOptions { replyTo?: string; mentions?: Mention[]; taskId?: string; final?: boolean; answer?: boolean; promptId?: string; approval?: import('./approval.js').ApprovalPresentation; taskView?: import('./task-card.js').TaskPresentation; reviewCard?: import('./review-card.js').ReviewPresentation; matterCard?: import('./matter-card.js').MatterPresentation; visualImages?: import('./visual-review.js').VisualAttachment[]; visualReview?: import('./visual-review.js').VisualReviewView }
 
 export interface NativeActivity {
@@ -19,6 +22,7 @@ export interface IncomingMessage {
   parentId?: string;
   mentions?: Mention[];
   imageKeys?: string[];
+  attachment?: FileAttachment;
   unsupported?: string;
 }
 
@@ -39,7 +43,7 @@ export interface Task {
   input: string;
   status: string;
   turn: string | null;
-  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string; imageCount?: number; clarification?: { id: string; createTime?: string; parentId: string } };
+  source?: { id: string; chatType?: 'p2p' | 'group'; createTime?: string; parentId?: string; imageCount?: number; hasAttachment?: boolean; clarification?: { id: string; createTime?: string; parentId: string } };
   routed?: boolean;
   routingOrigin?: string | null;
   routingRevision?: number | null;
@@ -83,11 +87,15 @@ export interface ChatContext {
   messages: { sender: string; type: string; text: string; quoted?: boolean }[];
   note: string;
   images?: { messageIndex: number; label: string; url: string }[];
+  file?: { name: string; path: string; bytes: number };
 }
+
+export type PreparedReference = ChatContext & { attachmentBytes?: string };
 export interface ContextPort {
   actor?(session: Session, message: string): Promise<{ name?: string; link?: string }>;
   context(session: Session, source: NonNullable<Task['source']>, limit: number): Promise<ChatContext>;
   attachedImages?(message: IncomingMessage): Promise<ChatContext>;
+  openAttachment?(attachment: FileAttachment): Promise<Readable>;
 }
 
 export interface NativeControlTarget { generation: string; thread: string; turn: string }

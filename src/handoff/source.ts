@@ -75,7 +75,7 @@ export class SourceOutbox {
   private async confirm(submission: Submission): Promise<SourceOutcome> {
     const request = this.gateway.store.request(submission.request);
     if (!request) throw new Error('Missing admitted request');
-    if ((request.message.chatType === 'group' || request.message.imageKeys?.length) &&
+    if ((request.message.chatType === 'group' || request.message.imageKeys?.length || request.message.attachment) &&
       !this.gateway.store.reference(request.execution, request.message)) throw new Error('Message references have not been prepared');
     let event = submission.event;
     if (event === null) {

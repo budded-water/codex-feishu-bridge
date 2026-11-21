@@ -19,3 +19,20 @@ The P1 gateway SHALL accept supported image attachments accompanying an ordinary
 
 - **WHEN** an owner rich post contains an image with a reserved control or attempts to attach an image to the in-place supplement of a waiting or running request
 - **THEN** the post does not apply that control or alter that request
+
+### Requirement: Explicit local file handoff
+
+The gateway SHALL retain the registered owner-private file message identity and SHALL defer download and task execution until an explicit ordinary reply selects that message. It SHALL bind the downloaded bytes to that reply, preserve a verified original task or answer anchor and limit retrieval by byte count and elapsed time. The Worker SHALL materialize a private execution-scoped copy for the model's existing filesystem tools. The Worker SHALL send only file metadata and path as input. Terminal projection SHALL remove the working copy and retire the reference payload.
+
+#### Scenario: Reply to a file that quotes a completed task
+
+- **WHEN** the owner registers a file by replying to a completed ordinary task, then replies to the file with instructions
+- **THEN** one follow-up request resumes the original thread and the Worker exposes the exact file bytes through a task-bound local path
+- **AND** an intervening topic switch, redelivery or gateway restart does not substitute another file or thread
+
+#### Scenario: Unsupported local format or failed transfer
+
+- **WHEN** the selected file has an unfamiliar extension
+- **THEN** the gateway applies the same receipt, ownership and transfer limits
+- **AND** the model may inspect it with the authorized tools available in that turn
+- **AND** an unreadable transfer or unverified original anchor never dispatches a model turn with silently missing input

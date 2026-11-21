@@ -1,3 +1,4 @@
+import { attachmentUnavailable, materializeAttachment } from './attachments.js';
 import { readBrowserAccessBlocks, parseBrowserAccessBlock, type BrowserAccessBlock } from '../browser-access.js';
 import { PermissionSession, PermissionState } from '../permission-state.js';
 import type { NativePermissions } from '../permissions.js';
@@ -190,7 +191,7 @@ export class NativeExecutions {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         this.gateway.store.startableRequest(permit);
         if (request.message.chatType === 'group' && !this.config.enableGroups) throw new Error('Native configuration does not admit the pilot chat');
-        if ((request.message.chatType === 'group' || request.message.imageKeys?.length) &&
+        if ((request.message.chatType === 'group' || request.message.imageKeys?.length || request.message.attachment) &&
           !this.gateway.store.reference(request.execution, request.message)?.context) throw new Error('Missing retained message references');
         const factory = () => this.createCodex?.() ?? new CodexClient(this.config.codexExecutable, [], 30_000, this.config.codexReasoningEffort);
         const retry = this.gateway.store.permissionRetry(request.execution);
@@ -510,13 +511,20 @@ class NativeOwner {
         context: async (session, source) => {
           const saved = this.gateway.store.reference(this.permit.execution, { tenant: session.tenant, id: source.id });
           if (!saved?.context) throw new Error('Missing retained message references');
-          return saved.context;
+          const { attachmentBytes, ...context } = saved.context;
+          if (source.hasAttachment && this.request.message.attachment && attachmentBytes !== undefined) {
+            try { context.file = materializeAttachment(this.gateway.stateDirectory, this.permit.execution, this.request.message.attachment, attachmentBytes); }
+            catch { context.note = attachmentUnavailable; }
+          }
+          return context;
         },
       }, this.permissions, checkStart);
       this.state.transaction(() => {
         if (!this.state!.remember(this.request.message)) throw new Error('Assigned request already exists');
-        const { id, chatType, createTime, parentId, imageKeys } = this.request.message;
-        this.state!.enqueue(session.id, this.request.input, { id, chatType, createTime, parentId, imageCount: imageKeys?.length }, undefined, undefined, true);
+        const { id, chatType, createTime, parentId, imageKeys, attachment } = this.request.message;
+        this.state!.enqueue(session.id, this.request.input, {
+          id, chatType, createTime, parentId, imageCount: imageKeys?.length, ...(attachment ? { hasAttachment: true } : {}),
+        }, undefined, undefined, true);
       });
       const settled = new Promise<void>(resolve => {
         this.timer = setInterval(() => {

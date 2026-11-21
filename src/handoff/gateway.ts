@@ -74,7 +74,8 @@ export class PilotAdmission {
     if (!message || this.store.retained(message)) return { status: 'ignored' };
     const prior = this.store.requestForMessage(message);
     if (prior) return { status: 'duplicate', request: prior };
-    if (message.unsupported || message.text.length > 30_000 || (message.imageKeys?.length && message.chatType !== 'p2p')) {
+    if (message.unsupported || message.text.length > 30_000 ||
+      ((message.imageKeys?.length || message.attachment) && message.chatType !== 'p2p') || message.attachment?.messageId === message.id) {
       return { status: 'rejected', reason: 'unsupported_input' };
     }
     const text = message.text.trim();

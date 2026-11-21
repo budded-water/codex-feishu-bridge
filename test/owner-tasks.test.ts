@@ -1,7 +1,7 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, realpathSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -12,6 +12,7 @@ import { record } from '../src/types.js';
 import { PilotAdmission, type PilotScope } from '../src/handoff/gateway.js';
 import { NativeExecutions, type ManagedCodex } from '../src/handoff/native.js';
 import { PilotInteractions } from '../src/handoff/interactions.js';
+import { MAX_ATTACHMENT_BYTES } from '../src/handoff/attachments.js';
 import { OwnerTasks } from '../src/handoff/tasks.js';
 import { taskCard, normalizeTaskRefresh, type TaskPresentation, type TaskRefreshClick } from '../src/task-card.js';
 import type { Config } from '../src/config.js';
@@ -319,6 +320,101 @@ test('an unread screenshot stops before thread or turn start and a quoted queued
   await h.drain();
   assert.ok(h.sent.some(sent => sent.options?.replyTo === incoming.id && sent.body.includes('截图未能全部读取')));
   assert.ok(h.sent.some(sent => sent.options?.replyTo === reply.id && sent.body.includes('支持文字补充')));
+});
+
+function fileMessage(name: string, parent?: string, chat = 'chat') {
+  return normalizeMessage({ tenant_key: 'tenant', sender: { sender_type: 'user', sender_id: { open_id: 'ou_owner' } },
+    message: { message_id: 'om_' + randomUUID(), chat_id: chat, chat_type: 'p2p', parent_id: parent,
+      message_type: 'file', content: JSON.stringify({ file_key: 'file_v2_' + randomUUID(), file_name: name }) } })!;
+}
+
+test('a quoted file reply uses its exact bytes and resumes the original topic after gateway restart', async t => {
+  const adapter = new Feishu({ appId: 'test-app', appSecret: 'test-secret' });
+  t.after(() => adapter.close());
+  const downloads: { path: { message_id: string; file_key: string }; params: unknown }[] = [];
+  const files = new Map<string, Buffer>();
+  Object.assign(adapter, { client: { im: { v1: { messageResource: { get: async (request: typeof downloads[number]) => {
+    downloads.push(request);
+    return { getReadableStream: () => Readable.from([files.get(request.path.message_id)!]) };
+  } } } } } });
+  const h = setup(t, [], adapter);
+  const original = await h.start(h.admit('换个话题。记录后台菜单的验收要求。'));
+  original.complete();
+  await original.running;
+  await h.drain();
+  const other = h.admit('换个话题。核对另一应用的发版进度。');
+  assert.notEqual(other.conversation, original.request.conversation);
+
+  const uploads = [
+    { name: 'notes.pdf', bytes: Buffer.from('%PDF-1.4\ntransport fixture\n') },
+    { name: '../../notes.docx', bytes: Buffer.from([0x50, 0x4b, 3, 4, 1, 0, 2]) },
+    { name: 'notes.custom', bytes: Buffer.from('ordinary file with an unfamiliar extension') },
+  ].map(entry => ({ ...entry, message: fileMessage(entry.name, original.request.message.id) }));
+  assert.equal(h.interactions.receive(fileMessage('foreign.pdf', original.request.message.id, 'foreign')).status, 'ignored');
+  for (const entry of uploads) {
+    files.set(entry.message.id, entry.bytes);
+    assert.equal(h.interactions.receive(entry.message).status, 'file-registered');
+    h.interactions.receive(entry.message);
+  }
+  await h.drain();
+  assert.equal(h.admission.store.requests().length, 2);
+  assert.equal(h.sent.filter(sent => sent.body.includes('已登记文件')).length, uploads.length);
+  assert.deepEqual(downloads, []);
+  await h.restart();
+  for (const entry of uploads.slice().reverse()) {
+    const followup = message('请读取这份附件。', { chatType: 'p2p', parentId: entry.message.id });
+    assert.equal(h.interactions.receive(followup).status, 'task-reply');
+    h.interactions.receive(followup);
+    await h.drain();
+    const request = h.admission.store.requestForMessage(followup)!;
+    assert.equal(request.conversation, original.request.conversation);
+    await until(() => Boolean(h.admission.store.reference(request.execution, followup)));
+    const download = downloads.at(-1);
+    assert.deepEqual(download, { path: { message_id: entry.message.id, file_key: entry.message.attachment!.key }, params: { type: 'file' } });
+    const running = await h.start(request);
+    assert.equal(running.c.calls.find(call => call.method === 'thread/resume')?.params.threadId, original.current.threadId);
+    const input = running.c.calls.find(call => call.method === 'turn/start')!.params.input as { text: string }[];
+    const ref = JSON.parse(input[0]!.text.split('\n')[1]!) as { file: { path: string; name: string; bytes: number } };
+    assert.equal(ref.file.name, entry.name);
+    assert.equal(ref.file.bytes, entry.bytes.length);
+    assert.ok(ref.file.path.startsWith(join(h.admission.stateDirectory, 'inbound-attachments', request.execution) + '/'));
+    assert.match(basename(ref.file.path), /^attachment\.(pdf|docx|custom)$/);
+    assert.deepEqual(readFileSync(ref.file.path), entry.bytes);
+    assert.equal(lstatSync(ref.file.path).mode & 0o777, 0o400);
+    assert.doesNotMatch(input[0]!.text, /attachmentBytes|file_v2_/);
+    running.complete();
+    await running.running;
+    await h.drain();
+    assert.equal(existsSync(ref.file.path), false);
+    assert.equal(h.admission.store.reference(request.execution, followup)?.context, null);
+  }
+  assert.equal(downloads.length, uploads.length);
+});
+
+test('an oversized file cannot start a model turn, and an unknown file anchor cannot silently route to another matter', async t => {
+  const h = setup(t, [], {
+    async context() { throw Error('This test cannot read chat history'); },
+    async openAttachment() { return Readable.from([Buffer.alloc(MAX_ATTACHMENT_BYTES + 1)]); },
+  });
+  const unknown = fileMessage('notes.pdf', 'om_unverified');
+  h.interactions.receive(unknown);
+  assert.equal(h.interactions.receive(message('请检查文件。', { chatType: 'p2p', parentId: unknown.id })).status, 'rejected');
+  assert.equal(h.admission.store.requests().length, 0);
+  const unquoted = fileMessage('notes.pdf');
+  h.interactions.receive(unquoted);
+  const followup = message('换个话题。请读取这个文件。', { chatType: 'p2p', parentId: unquoted.id });
+  const result = h.interactions.receive(followup);
+  assert.ok('request' in result);
+  await h.drain();
+  await until(() => Boolean(h.admission.store.reference(result.request.execution, followup)));
+  const grant = h.admission.store.reserve(result.request.id, 1);
+  assert.equal(grant.kind, 'start');
+  if (grant.kind !== 'start') throw Error('missing grant');
+  const report = await h.native.run(grant.permit);
+  assert.equal(report.outcome.status, 'interrupted');
+  assert.equal(h.codexes[0]!.calls.filter(call => /^(?:thread|turn)\//.test(call.method)).length, 0);
+  await h.drain();
+  assert.ok(h.sent.some(sent => sent.options?.replyTo === followup.id && sent.body.includes('未能读取这条任务的附件')));
 });
 
 test('default task overview separates current work from at most three recent historical records', async t => {

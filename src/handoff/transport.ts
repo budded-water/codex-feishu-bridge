@@ -1,3 +1,4 @@
+import { removeMaterializedAttachment } from './attachments.js';
 import { browserAccessText, browserRetryCommand } from '../browser-access.js';
 import { section, copyBlock } from '../presentation.js';
 import { join } from 'node:path';
@@ -107,11 +108,11 @@ export class HandoffTransport {
       this.admit(request);
       const execution = this.gateway.store.execution(request.execution);
       if (!execution) {
-        if (request.blocked || this.gateway.store.submission(request.id)?.status === 'blocked') this.gateway.store.retireReferences(request.execution);
+        if (request.blocked || this.gateway.store.submission(request.id)?.status === 'blocked') this.retireReferences(request);
         continue;
       }
       if (this.state.projectedFinal(request.execution)) {
-        if (['completed', 'interrupted'].includes(execution.status)) this.gateway.store.retireReferences(request.execution);
+        if (['completed', 'interrupted'].includes(execution.status)) this.retireReferences(request);
         continue;
       }
       try {
@@ -139,12 +140,20 @@ export class HandoffTransport {
         }
         this.state.projectNativeMessages(request, projection, repair ? repairText(repair) : verification ? verificationText(verification) : undefined,
           browserNotice, ordinaryAnswer, admissionNotice);
-        if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.gateway.store.retireReferences(request.execution);
+        if (projection.sealed && ['completed', 'interrupted'].includes(String(projection.outcome.status))) this.retireReferences(request);
       } catch {
         if (this.gateway.store.execution(request.execution)?.status === 'unknown') this.state.projectAdmissionNotice(request, '本机执行器当前无法核实，任务结果尚未确认。请先检查实际结果；不会自动重跑。');
         // Missing ownership cannot authorize prompt delivery or fabricate a final answer.
       }
     }
+  }
+
+  private retireReferences(request: RequestRecord): void {
+    if (request.message.attachment) {
+      try { removeMaterializedAttachment(this.gateway.stateDirectory, request.execution); }
+      catch { return; } // Keep the reference in the synchronization query until cleanup succeeds.
+    }
+    this.gateway.store.retireReferences(request.execution);
   }
 
   async flush(): Promise<void> {
