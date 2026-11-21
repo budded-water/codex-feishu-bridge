@@ -20,7 +20,6 @@ const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
-const editQuestion = /[?？谁誰]|是否|难道|難道|莫非|岂|豈|什么|什麼|怎么|怎麼|怎样|怎樣|多(?:[少久]|[长長](?:时间|時間)|大影[响響])|多[长長远遠深高大快宽寬厚重](?=[。！？?!，,\s]|$)|[能可应應会會该該要愿願肯需当當宜]否|有[无無]|(\p{Script=Han})(?:不|没|沒)\1|(?:可行|合适|合適|合规|合規)不(?=[。！？?!，,；;\s]|$)|[吗嗎么麼呢](?=[…。！!，,；;：:\s]|$)/u;
 const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|'[^'\n]*'|《[^》]*》/gu;
 const referenceUrlStart = /https?:\/\//giu;
 const bareUrlEnd = /[\s<>"'\x60，。；：！？、）》】」』”]/u;
@@ -103,15 +102,6 @@ function matchingTitleTerms(title: string, text: string): boolean {
   return titleTerms(title).some(term => text.includes(term));
 }
 
-function asksAboutEdit(prose: string): boolean {
-  if (editQuestion.test(prose)) return true;
-  // Segment ambiguous interrogatives so a word like 几何 does not turn an edit into a question.
-  for (const { segment } of words.segment(prose)) {
-    if (/^(?:[几幾][天日周年月小次点點时時钟鐘個个種种處处项項分秒份家组組步轮輪度号號]?|何|[如为為]何|哪(?:些|[个個里裡儿種种])?)$/u.test(segment)) return true;
-  }
-  return false;
-}
-
 function referenceUrlEnd(text: string, start: number, closer?: string): number {
   const countParentheses = !closer || closer === ')';
   let depth = 0;
@@ -140,29 +130,44 @@ function withoutReferenceUrls(text: string): string {
   let consumed = 0;
   for (const { index, 0: scheme } of text.matchAll(referenceUrlStart)) {
     if (index < consumed) continue;
-    const closer = wrappedUrlEnds[text[index - 1] ?? ''];
+    const before = text.slice(consumed, index).trimEnd();
+    const closer = wrappedUrlEnds[before.at(-1) ?? ''];
     const start = index + scheme.length;
     const end = closer ? referenceUrlEnd(text, start, closer) : undefined;
     parts.push(text.slice(consumed, index), ' ');
-    consumed = end !== undefined && text[end] === closer ? end : referenceUrlEnd(text, start);
+    consumed = end !== undefined && text.slice(end).trimStart()[0] === closer ? end : referenceUrlEnd(text, start);
   }
   return parts.join('') + text.slice(consumed);
 }
 
-function refersToMatterWorkAfterEdit(candidates: Matter[], prose: string): boolean {
-  const followup = /(?:[，,。；;\n]|[后後]|的(?:改[动動]|修改|[调調]整))([\s\S]+)/u.exec(prose)?.[1];
-  const routingText = (/[还還]是|或者|抑或|或是/u.test(prose) ? prose : followup)?.toLowerCase().normalize('NFC');
-  if (!routingText) return false;
+function separateTitleMentions(titles: Iterable<string>, text: string): string[] {
+  const normalized = text.normalize('NFC');
+  const folded = normalized.toLowerCase();
+  const matching = [...titles].filter(title => folded.includes(title.toLowerCase())).sort((a, b) => b.length - a.length);
+  if (!matching.length) return [];
 
-  // A term shared by several titles does not independently identify any of those matters.
-  const owners = new Map<string, string | null>();
+  // One span supplies one mention. Prefer a longer title when positions overlap.
+  const pattern = matching.map(title => {
+    const literal = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const before = startsLatinWord.test(title) ? '(?<!' + latinWordChar + ')' : '';
+    const after = endsLatinWord.test(title) ? '(?!' + latinWordChar + ')' : '';
+    return before + literal + after;
+  }).join('|');
+  return normalized.match(new RegExp(pattern, 'giu')) ?? [];
+}
+
+function mattersWithDistinctTerms(candidates: Matter[], text: string): Matter[] {
+  const owners = new Map<string, Matter | null>();
   for (const matter of candidates) {
     for (const term of new Set(titleTerms(matter.title))) {
-      if (routingText.includes(term)) owners.set(term, owners.has(term) ? null : matter.id);
+      owners.set(term, owners.has(term) ? null : matter);
     }
   }
-  const independent = new Set([...owners.values()].filter(owner => owner !== null));
-  return independent.size > 1;
+
+  // A term shared by several titles cannot independently identify a matter.
+  // Still include shared terms in the matcher so their spans cannot count again.
+  const mentioned = new Set(separateTitleMentions(owners.keys(), text).map(term => owners.get(term.toLowerCase())));
+  return candidates.filter(matter => mentioned.has(matter));
 }
 
 function mentionedMatters(candidates: Matter[], text: string): Matter[] {
@@ -177,15 +182,8 @@ function mentionedMatters(candidates: Matter[], text: string): Matter[] {
     matches.push(matter);
     byTitle.set(folded, matches);
   }
-  // Consume whole mentions from left to right, preferring the longest title at each position.
-  const pattern = [...exact.keys()].sort((a, b) => b.length - a.length).map(title => {
-    const literal = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const before = startsLatinWord.test(title) ? '(?<!' + latinWordChar + ')' : '';
-    const after = endsLatinWord.test(title) ? '(?!' + latinWordChar + ')' : '';
-    return before + literal + after;
-  }).join('|');
   const mentioned = new Set<Matter>();
-  for (const title of text.normalize('NFC').match(new RegExp(pattern, 'giu')) ?? []) {
+  for (const title of separateTitleMentions(exact.keys(), text)) {
     const matches = byTitle.get(title.toLowerCase());
     const matter = exact.get(title) ?? (matches?.length === 1 ? matches[0] : undefined);
     if (matter) mentioned.add(matter);
@@ -437,13 +435,12 @@ export class OwnerMatters {
     const editSubject = focus && !message.parentId ? unanchoredEditSubject.exec(text) : null;
     if (focus && !additive && editSubject && editCommand.test(text.slice(editSubject[0].length))) {
       const editText = withoutReferenceUrls(text);
-      const prose = editText.replace(editLiteral, ' ');
-      if (!asksAboutEdit(prose) && !refersToMatterWorkAfterEdit(candidates, prose)) {
-        const named = mentionedMatters(candidates, editText);
-        if (named.length > 1) return this.holdConflict(message, named.map(m => m.id));
-        const alternate = store.alternateFocusForFollowup(scope);
-        return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
-      }
+      const named = mentionedMatters(candidates, editText);
+      if (named.length > 1) return this.holdConflict(message, named.map(matter => matter.id));
+      const hinted = mattersWithDistinctTerms(candidates, editText.replace(editLiteral, ' '));
+      if (hinted.length > 1) return this.holdConflict(message, hinted.map(matter => matter.id));
+      const alternate = store.alternateFocusForFollowup(scope);
+      return alternate ? this.clarify(store.hold(scope, message, [focus, alternate])) : submit(focus);
     }
 
     const related = candidates.filter(m => matchingTitleTerms(m.title, normalized));
