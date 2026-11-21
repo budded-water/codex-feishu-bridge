@@ -2034,6 +2034,7 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   assert.equal(other.request.conversation, a.request.conversation);
   for (const text of [
     '刚才那个改一下', '刚才那个改成周五，时间不变', '刚才那个修改成周五',
+    '刚才那个改到周五', '刚才那个改回周五', '刚才那个改在周五',
     '就按刚才那个方案改吧。', '就按刚才那个方案改吧，时间改成周五', '就按刚才那个方案改成周五',
   ]) {
     const correction = h.actor(text);
@@ -2166,6 +2167,8 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五后，退款和发版分别由谁跟进');
   checkCandidates('刚才那个改成周五后，退款和发版分别受哪些影响');
   checkCandidates('刚才那个改成周五后，退款和发版分别受何影响');
+  checkCandidates('刚才那个改成周五后，退款和发版会否受影响');
+  checkCandidates('刚才那个改成周五后，退款和发版有无影响');
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');
