@@ -42,7 +42,10 @@ export class Outbox {
   }
 
   flushVisual(): Promise<void> {
-    return this.visualWork ??= Promise.all([this.deliver(true), this.updateVisualReviews()]).then(() => {}).finally(() => { this.visualWork = undefined; });
+    return this.visualWork ??= Promise.allSettled([this.deliver(true), this.updateVisualReviews()]).then(results => {
+      const failure = results.find(result => result.status === 'rejected');
+      if (failure) throw failure.reason;
+    }).finally(() => { this.visualWork = undefined; });
   }
 
   private async deliver(visual = false): Promise<void> {

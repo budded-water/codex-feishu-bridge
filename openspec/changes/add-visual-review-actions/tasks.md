@@ -2,7 +2,7 @@
 
 - [x] 1.1 Bind the confirmed card, candidate, owner decision and durable card updates.
 - [x] 1.2 Execute only configured workflows and distinguish blocked, confirmed and unknown results.
-- [x] 1.3 Verify retry, restart, role, provider binding and quotation invariants.
+- [x] 1.3 Verify retry, restart, role, provider binding, scoped inspection and deferred quotation invariants.
 
 ## 2. Managed validation
 

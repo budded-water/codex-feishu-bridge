@@ -24,6 +24,11 @@ action SHALL apply to the confirmed card identity and have one durable decision.
 - **WHEN** a write is accepted and its adapter exits without a valid result or the gateway restarts after launch
 - **THEN** the card reports uncertainty and the gateway does not automatically launch that action again
 
+#### Scenario: A local operator verifies a previously uncertain action
+
+- **WHEN** the local operator submits inspection evidence for the exact uncertain action, candidate and destination after confirming the workflow settled
+- **THEN** the gateway records the original uncertainty and inspected effect, updates the same card and requires a separate decision for any later write
+
 #### Scenario: Upload after a confirmed merge
 
 - **WHEN** the enrolled owner separately selects the configured developer upload on the merged card

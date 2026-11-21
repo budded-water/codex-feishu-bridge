@@ -74,7 +74,7 @@ function visualReviewStatus(review: VisualReviewView): string {
   if (result?.status === 'blocked') {
     const reasons = { 'stale-source': 'PR 候选已变化，请重新验收', checks: '项目交付检查未通过',
       authorization: '项目授权未就绪', 'target-unavailable': '项目目标不可用',
-      'workflow-unavailable': '登记的交付程序不可用或已变化' };
+      'workflow-unavailable': '登记的交付程序不可用或已变化', 'effect-absent': '人工核对确认本次操作未发生' };
     return captions[review.phase] + ' · ' + reasons[result.reason];
   }
   return captions[review.phase];

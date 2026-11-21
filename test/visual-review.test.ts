@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { State } from '../src/state.js';
-import { executeVisualOperation, visualWorkflows } from '../src/handoff/visual-review-workflow.js';
+import { Outbox } from '../src/outbox.js';
+import { executeVisualOperation, readVisualInspection, visualWorkflows } from '../src/handoff/visual-review-workflow.js';
 import { normalizeVisualReviewClick, type VisualDecision } from '../src/visual-review.js';
 import { visualReceiptCard } from '../src/visual-receipt-card.js';
 
@@ -39,6 +40,12 @@ test('a bound visual review runs each explicit write once and presents provider 
   const id = randomUUID();
   const owner = { tenant: 'tenant', user: 'ou_owner', chat: 'oc_private' };
   const binding = { repository, commit, pullRequest: 41, workflow };
+  chmodSync(root, 0o777);
+  try {
+    assert.deepEqual(await executeVisualOperation({ id, action: 'merge', binding }, workflows),
+      { status: 'blocked', reason: 'workflow-unavailable' });
+    assert.equal(existsSync(effects), false);
+  } finally { chmodSync(root, 0o700); }
   const images = [{ caption: '首页 · 通过 · 已执行断言 4/4', key: 'img_fixture' }];
   const body = '微信 UI 验证 · 1/1 个场景通过\n候选版本\n\n待人工看图 · 首页';
   state.visualReviews.register(id, owner, body, binding);
@@ -109,6 +116,21 @@ test('a bound visual review runs each explicit write once and presents provider 
   state.visualReviews.register(replacement, owner, body, { ...binding, pullRequest: 43 });
   state.visualReviews.delivered(replacement, 'om_new', images);
   assert.equal(decide('merge', replacement, 'om_new'), 'rejected');
+  const inspectionPath = join(root, 'inspection.json');
+  const mergeObservation = { action: 'merge', repository, commit, pullRequest: 43, base: 'main', status: 'absent', evidence: 'Provider checked original PR head and merge state' };
+  writeFileSync(inspectionPath, JSON.stringify(mergeObservation), { mode: 0o644 });
+  assert.throws(() => readVisualInspection(inspectionPath), /private to the runtime owner/);
+  chmodSync(inspectionPath, 0o600);
+  const mergeInspection = readVisualInspection(inspectionPath);
+  assert.throws(() => state.transaction(() => state.visualReviews.reconcile(interrupted, { ...mergeInspection, pullRequest: 41 })), /identity differs/);
+  assert.deepEqual(state.transaction(() => state.visualReviews.reconcile(interrupted, mergeInspection)), {
+    id: interrupted, phase: 'merge-blocked', status: 'recorded',
+  });
+  assert.equal(state.transaction(() => state.visualReviews.reconcile(interrupted, mergeInspection)).status, 'duplicate');
+  assert.equal(state.visualReviews.take(), undefined);
+  writeFileSync(provider, commit);
+  assert.equal(decide('merge', replacement, 'om_new'), 'accepted');
+  assert.deepEqual(await run(), { status: 'merged', mergeCommit });
 
   const secondTarget = randomUUID();
   state.visualReviews.register(secondTarget, owner, body, { ...binding, pullRequest: 44 });
@@ -124,6 +146,15 @@ test('a bound visual review runs each explicit write once and presents provider 
   await assert.rejects(executeVisualOperation(upload, workflows), /receipt identity differs/);
   state.visualReviews.finish(upload);
   assert.equal(state.visualReviews.view(secondTarget)?.phase, 'upload-unknown');
+  assert.equal(decide('upload', replacement, 'om_new'), 'rejected');
+  const uploadInspection = { action: 'upload', repository, commit, pullRequest: 44, base: 'main', target: 'test-dev-app', mergeCommit,
+    status: 'absent', evidence: 'Provider developer build list inspected' };
+  assert.throws(() => state.transaction(() => state.visualReviews.reconcile(secondTarget, { ...uploadInspection, target: 'other' })), /identity differs/);
+  assert.equal(state.transaction(() => state.visualReviews.reconcile(secondTarget, uploadInspection)).phase, 'upload-blocked');
+  assert.equal(state.visualReviews.take(), undefined);
+  assert.equal(decide('upload', replacement, 'om_new'), 'accepted');
+  writeFileSync(provider, commit);
+  await run();
 
   const malformed = randomUUID();
   state.visualReviews.register(malformed, owner, body, { ...binding, pullRequest: 45 });
@@ -138,6 +169,50 @@ test('a bound visual review runs each explicit write once and presents provider 
   state.visualReviews.register(other, owner, body, { ...binding, pullRequest: 45 });
   state.visualReviews.delivered(other, 'om_other', images);
   assert.equal(decide('merge', other, 'om_other'), 'rejected');
+  const verifiedMerge = { ...mergeInspection, pullRequest: 45, status: 'merged', mergeCommit, evidence: 'Provider confirmed the merge commit' };
+  assert.equal(state.transaction(() => state.visualReviews.reconcile(malformed, verifiedMerge)).phase, 'merged');
+  assert.equal(state.visualReviews.view(malformed)?.mergeCommit, mergeCommit);
+  assert.equal(state.visualReviews.take(), undefined);
+});
+
+test('visual card updates remain ordered when the delivery branch fails', async t => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'visual-card-order-')));
+  const state = new State(directory);
+  t.after(() => { state.close(); rmSync(directory, { recursive: true, force: true }); });
+  const owner = { tenant: 'tenant', chat: 'chat', user: 'owner' };
+  const id = randomUUID(), message = 'om_same_card';
+  state.visualReviews.register(id, owner, 'Visual receipt', { repository: 'example/project', commit: 'a'.repeat(40), pullRequest: 1,
+    workflow: { executable: '/unused', sha256: 'b'.repeat(64), base: 'main' } });
+  state.visualReviews.delivered(id, message, [{ caption: 'Fixture', key: 'img_fixture' }]);
+  assert.equal(state.transaction(() => state.visualReviews.decide({ ...owner,id,message,decision:'accept' })), 'accepted');
+
+  const pending = state.pending.bind(state);
+  let failing = true;
+  t.mock.method(state, 'pending', (now?: number, visual?: boolean) => {
+    if (failing) { failing = false; throw Error('Delivery ledger temporarily unavailable'); }
+    return pending(now, visual);
+  });
+  let release!: () => void, started!: () => void;
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  const arrived = new Promise<void>(resolve => { started = resolve; });
+  const patches: string[] = [];
+  const outbox = new Outbox(state, { send: async () => {}, updateVisualReview: async (target, _body, _images, review) => {
+    assert.equal(target, message);
+    if (review.phase === 'reviewed') { started(); await delayed; }
+    patches.push(review.phase);
+  } });
+  const first = outbox.flushVisual();
+  const failure = assert.rejects(first, /ledger temporarily unavailable/);
+  try {
+    await arrived;
+    await new Promise<void>(resolve => { setImmediate(resolve); });
+    assert.equal(state.transaction(() => state.visualReviews.decide({ ...owner,id,message,decision:'merge' })), 'accepted');
+    assert.equal(outbox.flushVisual(), first);
+  } finally { release(); }
+  await failure;
+  await outbox.flushVisual();
+  assert.deepEqual(patches, ['reviewed','merge-queued']);
+  assert.deepEqual(state.visualReviews.pendingUpdates(Date.now()), []);
 });
 
 test('visual workflow timeout terminates an adapter that ignores SIGTERM', { timeout: 3000 }, async t => {

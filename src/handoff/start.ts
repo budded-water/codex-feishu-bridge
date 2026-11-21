@@ -11,7 +11,7 @@ import { AutoloopSource, SourceOutbox } from './source.js';
 import { PilotInteractions } from './interactions.js';
 import { pilotMaintenance } from './maintenance.js';
 import { queueVisualReceipt } from './visual-receipt.js';
-import { visualWorkflows } from './visual-review-workflow.js';
+import { readVisualInspection, visualWorkflows } from './visual-review-workflow.js';
 import { verificationProfiles } from './verification-profile.js';
 import { managedRefundObserver, type ManagedRefundObserver } from './refund-monitor.js';
 import { parseObserverConfig } from '../sls-refund/sls-source.js';
@@ -68,6 +68,15 @@ export async function startPilot(config: Config, auth: { appId: string; appSecre
             if (stopping || performance.now() >= deadline) throw Error('Visual receipt validation window closed');
             lease.assertHeld();
           }, workflows);
+        }
+        if (request.command === 'visual-reconcile') {
+          if (stopping) throw Error('Pilot is closing');
+          const { task, reference } = request;
+          if (typeof task !== 'string' || typeof reference !== 'string') throw Error('Visual inspection requires a card and private plan');
+          const inspection = readVisualInspection(reference);
+          lease.assertHeld();
+          const state = interactions.transport.state;
+          return state.transaction(() => state.visualReviews.reconcile(task, inspection));
         }
         return pilotMaintenance(admission, native, interactions.transport.state, request);
       });

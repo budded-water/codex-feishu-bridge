@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
 import { record } from '../types.js';
 
@@ -25,7 +25,7 @@ export interface VisualOperation {
   mergeCommit?: string;
 }
 export type VisualOperationResult =
-  | { status: 'blocked'; reason: 'stale-source' | 'checks' | 'authorization' | 'target-unavailable' | 'workflow-unavailable' }
+  | { status: 'blocked'; reason: 'stale-source' | 'checks' | 'authorization' | 'target-unavailable' | 'workflow-unavailable' | 'effect-absent' }
   | { status: 'merged'; mergeCommit: string }
   | { status: 'uploaded'; version: string; receipt: string };
 
@@ -55,6 +55,18 @@ function matchesWorkflow(pinned: VisualWorkflow, current?: VisualWorkflow) {
     current.uploadTarget === pinned.uploadTarget;
 }
 
+function protectedParents(executable: string, uid: number): boolean {
+  let directory = dirname(executable);
+  for (;;) {
+    const info = lstatSync(directory);
+    if (!info.isDirectory() || (info.uid !== uid && info.uid !== 0) ||
+        ((info.mode & 0o022) !== 0 && (info.mode & 0o1000) === 0)) return false;
+    const parent = dirname(directory);
+    if (directory === parent) return true;
+    directory = parent;
+  }
+}
+
 export async function executeVisualOperation(operation: VisualOperation, workflows: VisualWorkflows,
   timeout = 20 * 60_000): Promise<VisualOperationResult> {
   const { binding, action, mergeCommit, id } = operation;
@@ -66,6 +78,7 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
     const file = lstatSync(executable);
     if (!file.isFile() || realpathSync(executable) !== executable || file.uid !== process.getuid?.() ||
         (file.mode & 0o022) !== 0 || file.size > 2 * 1024 * 1024 ||
+        !protectedParents(executable, file.uid) ||
         createHash('sha256').update(readFileSync(executable)).digest('hex') !== workflow.sha256) {
       return { status: 'blocked', reason: 'workflow-unavailable' };
     }
@@ -89,12 +102,36 @@ export async function executeVisualOperation(operation: VisualOperation, workflo
     (reason === 'stale-source' || reason === 'checks' || reason === 'authorization' || reason === 'target-unavailable')) {
     return { status: 'blocked', reason };
   }
-  if (action === 'merge' && result.status === 'merged' && typeof result.mergeCommit === 'string' && fullCommit.test(result.mergeCommit)) {
-    return { status: 'merged', mergeCommit: result.mergeCommit };
-  }
-  if (action === 'upload' && result.status === 'uploaded' && typeof result.version === 'string' && targetName.test(result.version) &&
-    typeof result.receipt === 'string' && targetName.test(result.receipt)) {
-    return { status: 'uploaded', version: result.version, receipt: result.receipt };
-  }
+  const confirmed = confirmedVisualResult(action, result);
+  if (confirmed) return confirmed;
   throw Error('Visual workflow did not confirm its result');
+}
+
+export function inspectedVisualResult(action: VisualOperation['action'], value: ReturnType<typeof record>): VisualOperationResult {
+  if (value.status === 'absent') return { status: 'blocked', reason: 'effect-absent' };
+  const confirmed = confirmedVisualResult(action, value);
+  if (!confirmed) throw Error('Invalid inspected visual result');
+  return confirmed;
+}
+
+function confirmedVisualResult(action: VisualOperation['action'], value: ReturnType<typeof record>): VisualOperationResult | undefined {
+  if (action === 'merge' && value.status === 'merged' && typeof value.mergeCommit === 'string' && fullCommit.test(value.mergeCommit)) {
+    return { status: 'merged', mergeCommit: value.mergeCommit };
+  }
+  if (action === 'upload' && value.status === 'uploaded' && typeof value.version === 'string' && targetName.test(value.version) &&
+      typeof value.receipt === 'string' && targetName.test(value.receipt)) {
+    return { status: 'uploaded', version: value.version, receipt: value.receipt };
+  }
+}
+
+export function readVisualInspection(path: string) {
+  if (!isAbsolute(path)) throw Error('Visual inspection requires an absolute path');
+  const handle = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const file = fstatSync(handle);
+    if (!file.isFile() || file.uid !== process.getuid?.() || (file.mode & 0o077) !== 0 || file.size > 16 * 1024) {
+      throw Error('Visual inspection must be private to the runtime owner');
+    }
+    return record(JSON.parse(readFileSync(handle, 'utf8')));
+  } finally { closeSync(handle); }
 }

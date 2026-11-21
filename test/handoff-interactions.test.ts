@@ -303,6 +303,29 @@ test('owner visual evidence is paired by scenario, sent once after retry and bin
   const followup = h.admission.store.request(taskReply.followup)!;
   assert.equal(followup.conversation, active.request.conversation);
   assert.match(followup.input, /"phase":"reviewed"/);
+
+  h.interactions.receive(h.actor('/matter-new 发版核对'));
+  const scope = { owner: ownerKey(active.message), project: h.admission.project };
+  const alternate = h.admission.store.matters.focus(scope)!;
+  const chooseSource = h.actor('发版核对：确认截图状态', { parentId: 'visual-receipt' });
+  const chooseAlternate = h.actor('发版核对：检查版本说明', { parentId: 'visual-receipt' });
+  for (const message of [chooseSource, chooseAlternate]) {
+    assert.equal(h.interactions.receive(message).status, 'matter-choice');
+    assert.equal(h.admission.store.requestForMessage(message), undefined);
+  }
+  await drain(h);
+  await h.restart(true);
+  for (const [message, choice] of [[chooseSource, 'default'], [chooseAlternate, alternate]] as const) {
+    const sent = h.sent.find(item => item.options?.replyTo === message.id && item.options.matterCard)!;
+    const card = sent.options!.matterCard!;
+    assert.equal(h.interactions.matterAction({ ...card, event: randomUUID(), message: 'delivered-' + sent.id, choice }), 'accepted');
+  }
+  const same = h.admission.store.requestForMessage(chooseSource)!;
+  assert.equal(h.admission.store.conversationThread(same.conversation), active.thread);
+  assert.match(same.input, /"phase":"reviewed"/);
+  const other = h.admission.store.requestForMessage(chooseAlternate)!;
+  assert.equal(other.conversation, alternate);
+  assert.equal(other.input, '检查版本说明');
 });
 
 test('managed visual submission can acknowledge validation slower than native controls', async t => {

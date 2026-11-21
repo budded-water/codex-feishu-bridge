@@ -13,7 +13,10 @@ The gateway uses the existing bounded single-owner transport and reconciles
 queued actions asynchronously. It records launch before calling the adapter.
 A crash, timeout or invalid response after launch leaves the outcome unknown.
 The operator inspects the provider before any new explicit action. A repeated
-click observes the same decision. The card reuses confirmed image keys and
+click observes the same decision. The local maintenance channel records an
+inspected result on the exact uncertain action and retains the original
+uncertainty. A resolved absence allows a new authorized action on an eligible
+card. The card reuses confirmed image keys and
 shows results based on actual workflow receipts. Owner acceptance does not start
 a model. Explicit quotation continues through the existing Codex handoff.
 

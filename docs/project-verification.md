@@ -137,9 +137,11 @@ deployment-owned programs outside the candidate checkout.
 ```
 
 The enrolled runtime owner owns the executable, which must be a regular file
-at its canonical absolute path and writable only by its owner. The gateway
-checks the registered digest and configuration at launch. `uploadTarget`
-is optional and identifies the developer app approved for that workflow.
+at its canonical absolute path and writable only by its owner. Its parent
+directories must be owned by the runtime owner or root and must protect entries
+against replacement by other accounts. The gateway checks directory ownership
+and modes, the registered digest and the current configuration at launch.
+`uploadTarget` identifies the optional developer app approved for that workflow.
 The gateway also rechecks the recorded approver against the current owner
 scope and approval configuration before launch, including after restart.
 The program receives a single JSON argument with `id`, `action` (`merge` or
@@ -164,7 +166,25 @@ echo the request identity and report one of these outcomes:
 
 An error, timeout or unusable result after starting the program leaves the
 effect unknown. A gateway restart retains that distinction and never
-automatically repeats a started action. Drain queued actions and pending
+automatically repeats a started action. After confirming the previous workflow
+and its provider operations have settled, the local operator can inspect the
+provider and record the result through the authenticated gateway:
+
+```sh
+npm run handoff -- visual-reconcile <consumer-state-root> <delivery-id> <absolute-private-inspection>
+```
+
+The owner-only JSON file names the exact `action`, `repository`, `commit`,
+`pullRequest` and `base`, plus an `evidence` reference to the inspection.
+Upload observations also include the original `mergeCommit` and `target`.
+Use `status: "absent"` if the provider confirms no effect, `status: "merged"`
+with the verified `mergeCommit`, or `status: "uploaded"` with the verified
+`version` and `receipt`. The command retains the prior unknown state and
+inspection record, then updates the existing card. A confirmed absence
+releases the corresponding guard. Any later write requires a separate click
+on an eligible card. An exact repeat of the inspection records one outcome.
+
+Drain queued actions and pending
 card updates before replacing the gateway. Preserve its visual review
 ledger during backup and rollback.
 
