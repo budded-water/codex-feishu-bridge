@@ -2134,6 +2134,8 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗');
+  checkCandidates('刚才那个改成周五是否会影响退款和发版，请确认。');
+  checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');
   assert.ok('request' in h.interactions.receive(h.actor('消息通知：核对一下回执')));
   checkCandidates('刚才那个改动会同时影响退款调查和 Solura 发版吗？');
   checkCandidates('刚才那个改成周五的改动会同时影响退款调查和 Solura 发版吗？');

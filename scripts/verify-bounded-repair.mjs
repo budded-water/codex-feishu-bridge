@@ -26,6 +26,7 @@ const bridgeCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { en
 const engine = realpathSync(arg('--engine')), revision = arg('--revision'), upstream = pinnedSource(arg('--autoloop'));
 const candidate = join(output, 'candidate'), state = join(output, 'state'), home = join(output, 'home');
 const workerLaunches = join(output, 'worker-launches');
+const budgetCase = join(output, 'worker-budget-case.json');
 mkdirSync(workerLaunches, { mode: 0o700 });
 const native = process.argv.includes('--native'), audit = join(output, 'native-audit.jsonl');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -58,7 +59,7 @@ const fixture = { ...build, projectRoot: candidate, projectId: 'prepared-web', s
   repair: { scenarios: ['home'], timeoutMs: 300_000 } };
 const profiles = verificationProfiles({
   fixture,
-  'over-budget': { ...fixture, repair: { ...fixture.repair, timeoutMs: (workerTimeoutMinutes - 2) * 60_000 } },
+  'over-budget': { ...fixture, repair: { ...fixture.repair, timeoutMs: workerTimeoutMinutes * 60_000 - 100_000 } },
 });
 mkdirSync(home, { mode: 0o700 }); writeFileSync(audit, '');
 const url = 'http://127.0.0.1:' + await port();
@@ -66,7 +67,7 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/
 Object.assign(env, { AGENT_AUTOLOOP_HOME: home, SHELL: '/bin/sh',
   HANDOFF_RUNNER: join(root, 'test/fixtures/record-worker-launch.mjs'),
   BRIDGE_PROBE_REPAIR_RUNNER: join(root, 'dist/handoff/run-assignment.js'),
-  BRIDGE_PROBE_WORKER_LAUNCHES: workerLaunches });
+  BRIDGE_PROBE_WORKER_LAUNCHES: workerLaunches, BRIDGE_PROBE_WORKER_BUDGET_CASE: budgetCase });
 const cli = ['--disable-warning=ExperimentalWarning', join(upstream, 'bin/agent-autoloop.ts')];
 writeFileSync(join(home, 'rules.json'), JSON.stringify({ sources: { fixture: { name: 'Fixture' } },
   agents: { native: { name: 'Fixture native', worker: 'fixture-worker', use: 'bridge-native', access: 'read', timeout: workerTimeoutMinutes } }, channels: { fixture: { name: 'Synthetic destination' } },
@@ -97,18 +98,24 @@ try {
   const overBudget = interactions.receive(actor('/verify-repair over-budget Isolated budget preflight'));
   assert.ok('request' in overBudget);
   const rejectedExecution = overBudget.request.execution;
+  const { deadline, cleanupDeadline } = admission.store.repairs.get(rejectedExecution);
+  writeFileSync(budgetCase, JSON.stringify({ request: overBudget.request.id, deadline, cleanupDeadline }), { flag: 'wx' });
   const rejected = await until('Worker settlement with insufficient budget', async () => {
     await interactions.flush();
     const event = admission.store.submission(overBudget.request.id)?.event;
     if (!event) return;
     const { runs } = await sourceClient.inspect(event);
     const run = runs[0];
-    if (!run || run.state === 'queued' || run.state === 'claimed') return;
+    if (!run) return;
+    const launchFile = join(workerLaunches, run.run + '.json');
+    const launch = existsSync(launchFile) ? JSON.parse(readFileSync(launchFile, 'utf8')) : undefined;
+    assert.ok(!launch?.invalidTiming, 'Invalid deadline fixture setup: Worker launch missed the required timing window');
+    if (run.state === 'queued' || run.state === 'claimed') return;
     assert.equal(run.state, 'nothing');
+    assert.ok(launch, 'Expected a recorded Worker launch for the denied request');
     const goal = admission.store.repairs.get(rejectedExecution);
     assert.equal(goal?.status, 'incomplete');
     assert.equal(goal.reason, 'Actual Worker budget is insufficient for cleanup');
-    const launch = JSON.parse(readFileSync(join(workerLaunches, run.run + '.json'), 'utf8'));
     assert.equal(launch.run, run.run);
     assert.equal(launch.rule, run.rule);
     const workerDeadline = launch.launchedAt + launch.timeoutMinutes * 60_000;
