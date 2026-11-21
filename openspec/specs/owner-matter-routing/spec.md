@@ -31,6 +31,8 @@ The managed gateway SHALL allow the enrolled private owner to create and select 
 
 - **WHEN** an ordinary request is accepted in a chat with named matters
 - **THEN** the gateway SHALL include the actual admitted matter or default conversation in a single receipt, independent of the current selection
+- **AND** the receipt SHALL identify acceptance and indicate where the separate result will appear
+- **AND** if the actor is authorized to view task progress, the receipt SHALL include the command for that exact execution
 
 ### Requirement: Ambiguous tasks require explicit selection
 

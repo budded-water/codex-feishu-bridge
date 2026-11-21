@@ -1507,7 +1507,7 @@ test('switching matters starts separate native threads and quoting the older tas
   await drain(h);
   const answerA = h.sent.find(row => row.options?.replyTo === initial.id && row.text === 'Done')!;
   assert.ok(answerA);
-  assert.equal(h.sent.filter(row => row.options?.replyTo === initial.id && row.text === '已收到 · 退款调查').length, 1);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === initial.id && row.text.includes('**事项** · 退款调查')).length, 1);
 
   h.interactions.receive(h.actor('/matter-new Solura 发版'));
   const b = h.interactions.receive(h.actor('检查待发布版本'));
@@ -1534,8 +1534,9 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.equal((await completeRequest(h, answerFollowup.id, 104)).threadId, threadA);
   assert.equal(h.interactions.receive(answerQuote).status, 'ignored');
   await drain(h);
-  assert.equal(h.sent.filter(row => row.options?.replyTo === answerQuote.id && row.text === '已续接 · 退款调查｜本轮已排队').length, 1);
-  const receipt = h.sent.find(row => row.options?.replyTo === initial.id && row.text === '已收到 · 退款调查')!;
+  assert.equal(h.sent.filter(row => row.options?.replyTo === answerQuote.id && row.text.includes('**续接事项** · 退款调查')).length, 1);
+  const receipt = h.sent.find(row => row.options?.replyTo === initial.id && row.text.includes('**事项** · 退款调查'))!;
+  assert.doesNotMatch(receipt.text, /\/task /, 'the task owner lacks the maintenance role in this fixture');
   assert.equal(h.interactions.transport.state.confirmedAnswer(h.actor('再看看', { parentId: 'delivered-' + receipt.id })), undefined);
   const plain = h.actor('继续刚才的处理');
   assert.equal(h.interactions.receive(plain).status, 'matter-choice');
@@ -1551,6 +1552,35 @@ test('switching matters starts separate native threads and quoting the older tas
   assert.ok('request' in next);
   assert.equal(next.request.conversation, b.request.conversation);
   assert.equal(h.codex.calls.filter(call => call.method === 'thread/start').length, 2);
+});
+
+test('a long titled request gets one complete receipt with progress and a separate final reply', async t => {
+  const h = setup(t);
+  h.config.approvalUsers = ['ou_owner'];
+  h.config.approvalChat = 'chat';
+  const instruction = 'Example Admin 侧栏顺序：请在 example/example-admin 把记录查询菜单移到成员管理之后。请给出验收结果。';
+  const original = h.actor('换个话题。' + instruction);
+  const accepted = h.interactions.receive(original);
+  assert.ok('request' in accepted);
+  assert.equal(accepted.request.input, instruction);
+  await drain(h);
+  const receipts = () => h.sent.filter(row => row.options?.replyTo === original.id && row.text.startsWith('### 已接单'));
+  assert.equal(receipts().length, 1);
+  assert.match(receipts()[0]!.text, /\*\*新事项\*\* · Example Admin 侧栏顺序\n/);
+  assert.match(receipts()[0]!.text, /执行结果会另发在同一条任务消息的回复里/);
+  assert.ok(receipts()[0]!.text.includes('/task ' + accepted.request.execution));
+  assert.equal(h.interactions.transport.state.confirmedAnswer(h.actor('查一下', { parentId: 'delivered-' + receipts()[0]!.id })), undefined);
+  const query = h.actor('/task ' + accepted.request.execution);
+  assert.equal(h.interactions.receive(query).status, 'task-view');
+  await drain(h);
+  assert.ok(h.sent.some(row => row.options?.replyTo === query.id && row.options.taskView?.execution === accepted.request.execution));
+  assert.equal(h.admission.store.requests().length, 1);
+  await completeRequest(h, accepted.request.id, 115);
+  await h.restart(true);
+  assert.equal(h.interactions.receive(original).status, 'duplicate');
+  await drain(h);
+  assert.equal(receipts().length, 1);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === original.id && row.text === 'Done').length, 1);
 });
 
 test('an explicit new topic admits its first request once and preserves the older quote and PR binding', async t => {
@@ -1596,7 +1626,7 @@ test('an explicit new topic admits its first request once and preserves the olde
   }
   assert.equal(h.admission.store.matters.focus(scope), result.request.conversation);
   await drain(h);
-  assert.equal(h.sent.filter(row => row.options?.replyTo === fresh.id && row.text.startsWith('已新建 · 小程序登录页')).length, 1);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === fresh.id && row.text.includes('**新事项** · 小程序登录页')).length, 1);
   const sameTitle = h.interactions.receive(h.actor(fresh.text));
   assert.ok('request' in sameTitle);
   assert.notEqual(sameTitle.request.conversation, result.request.conversation);
@@ -1699,8 +1729,8 @@ test('a direct read of one known-address PR only opens and binds the first reque
   assert.equal(h.admission.store.matters.bound(scope, 'org/solura-app/pull/43'), mergeStatus.request.conversation);
   assert.notEqual(mergeStatus.request.conversation, current);
   await drain(h);
-  assert.ok(h.sent.some(row => row.options?.replyTo === start.id && row.text === '已新建 · solura-app PR #42'));
-  assert.ok(h.sent.some(row => row.options?.replyTo === same.id && row.text === '已续接 · solura-app PR #42'));
+  assert.ok(h.sent.some(row => row.options?.replyTo === start.id && row.text.includes('**新事项** · solura-app PR #42')));
+  assert.ok(h.sent.some(row => row.options?.replyTo === same.id && row.text.includes('**续接事项** · solura-app PR #42')));
 });
 
 test('an additive subject offers the current topic or a fresh start with the same held input', async t => {
@@ -1733,7 +1763,7 @@ test('an additive subject offers the current topic or a fresh start with the sam
   assert.equal(h.interactions.receive(message).status, 'duplicate');
   assert.equal(h.admission.store.requests().length, 1);
   await drain(h);
-  assert.equal(h.sent.filter(row => row.options?.replyTo === message.id && row.text.startsWith('已新建 ·')).length, 1);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === message.id && row.text.includes('**新事项** ·')).length, 1);
   const other = h.actor('搜索页也看看');
   assert.equal(h.interactions.receive(other).status, 'matter-choice');
   await drain(h);
@@ -1785,12 +1815,12 @@ test('the first vague follow-up after a switch waits for the prior or current ma
   assert.ok('request' in keepGoing);
   assert.equal(keepGoing.request.conversation, a.request.conversation);
   await drain(h);
-  assert.equal(h.sent.filter(row => row.options?.replyTo === vague.id && row.text === '已收到 · 退款调查').length, 1);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === vague.id && row.text.includes('**事项** · 退款调查')).length, 1);
   assert.equal(h.interactions.matterAction({ ...click, id: defaultCard.id, event: randomUUID(),
     message: 'delivered-' + defaultMessage.id, choice: 'default' }), 'accepted');
   assert.equal(h.admission.store.requestForMessage(backToDefault)?.conversation, original.request.conversation);
   await drain(h);
-  assert.equal(h.sent.filter(row => row.options?.replyTo === backToDefault.id && row.text === '已收到 · 默认对话').length, 1);
+  assert.equal(h.sent.filter(row => row.options?.replyTo === backToDefault.id && row.text.includes('**事项** · 默认对话')).length, 1);
   assert.equal(h.codex.calls.length, 0);
 });
 
@@ -1961,7 +1991,7 @@ test('an ordinary answer becomes a reply anchor only when its Feishu delivery is
     assert.equal(failedReaction, true);
     const notices = h.sent.filter(row => row.options?.replyTo === fresh.id);
     assert.equal(notices.length, 1);
-    assert.match(notices[0]!.text, /已续接 · 退款调查/);
+    assert.match(notices[0]!.text, /续接事项\*\* · 退款调查/);
   } finally { transport.close(); }
 });
 

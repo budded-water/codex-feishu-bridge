@@ -8,6 +8,8 @@ The opt-in [owner native-permissions feature](docs/native-permissions.md) is mer
 
 The managed M6 pilot now uses compact task detail cards with native-state headings and expandable request/history/evidence. Source checks and deployment are verified. The owner has confirmed visible disclosure chevrons and clear expand/collapse behavior, with same-card refresh and unchanged task/evidence facts verified from backend records; this bounded client acceptance is recorded in [live acceptance](docs/live-acceptance.md).
 
+本人私聊的事项回执标明已接单，并提示到原任务消息下查看最终结果。具备维护角色的本人可直接复制该任务的进度命令。[回执与结果](docs/usage.md#收到表情后意味着什么)
+
 ## 先选择你的使用方式
 
 | 使用方式 | 谁安装和配置 | 使用哪台电脑的环境 |
