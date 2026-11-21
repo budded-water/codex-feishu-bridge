@@ -20,9 +20,9 @@ const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|
 const priorMessage = /^上一(?:条|轮)(?:的|里|中|[\s，,。？！?!]|$)/u;
 const unanchoredEditSubject = /^(?:(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那件事)|(?:那)?(?:就)?(?:按(?:照)?|照|用)(?:(?:刚才|刚刚|之前)(?:的)?那个(?:方案)?|上一步(?:的结果)?))[，,：:]?\s*/u;
 const editCommand = /^(?:修改|调整|改)(?=[成为為到回在用掉]|一下|下|吧|$|[\s，,。！？.!?：:；;…])/u;
-const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘[^’]*’|"[^"\n]*"|(?<![\p{Script=Latin}\p{N}_])'(?:[^'\n]|'(?=[\p{Script=Latin}\p{N}_]))*'(?![\p{Script=Latin}\p{N}_])|《[^》]*》/gu;
+const editLiteral = /\x60[^\x60]*\x60|「[^」]*」|『[^』]*』|“[^”]*”|‘(?:[^’\n]|’(?=[\p{Script=Latin}\p{N}_]))*’(?![\p{Script=Latin}\p{N}_])|"[^"\n]*"|(?<![\p{Script=Latin}\p{N}_])'(?:[^'\n]|'(?=[\p{Script=Latin}\p{N}_]))*'(?![\p{Script=Latin}\p{N}_])|《[^》]*》/gu;
 const referenceUrlStart = /https?:\/\//giu;
-const bareUrlEnd = /[\s<>"'\x60）》】」』”]/u;
+const bareUrlEnd = /[\s<>"\x60）》】」』”]/u;
 const bareUrlProsePunctuation = /[，。；：！？、]/u;
 const markdownLinkTitle = /^\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*(?=\))/u;
 const urlQueryBrackets: Readonly<Record<string, string>> = {
@@ -160,7 +160,7 @@ function withoutReferenceUrls(text: string): string {
   return parts.join('') + text.slice(consumed);
 }
 
-function separateTitleMentions(titles: Iterable<string>, normalized: string): string[] {
+function separateTitleMentions(titles: Iterable<string>, normalized: string, eligible: (name: string, index: number) => boolean): string[] {
   const folded = normalized.toLowerCase();
   const spans: { index: number; name: string }[] = [];
   for (const title of titles) {
@@ -169,7 +169,7 @@ function separateTitleMentions(titles: Iterable<string>, normalized: string): st
     const before = startsLatinWord.test(title) ? '(?<!' + latinWordChar + ')' : '';
     const after = endsLatinWord.test(title) ? '(?!' + latinWordChar + ')' : '';
     for (const { index, 1: name } of normalized.matchAll(new RegExp('(?=' + before + '(' + literal + ')' + after + ')', 'giu'))) {
-      if (name) spans.push({ index, name });
+      if (name && eligible(name, index)) spans.push({ index, name });
     }
   }
 
@@ -200,26 +200,23 @@ function editMatterChoices(candidates: Matter[], text: string): Matter[] {
     }
   }
 
-  const titleChoices = [...exact.keys()];
-  const proseChoices = [...new Set([...titleChoices, ...terms.keys()])];
-  const mentioned = new Set<Matter>();
-  const collect = (value: string, quoted: boolean) => {
-    for (const name of separateTitleMentions(quoted ? titleChoices : proseChoices, value)) {
-      const folded = name.toLowerCase();
-      const complete = exact.get(name) ?? foldedTitles.get(folded);
-      // A complete title takes priority at the same span. Shared terms cannot identify a matter.
-      const matter = complete ?? (!quoted && !foldedTitles.has(folded) ? terms.get(folded) : undefined);
-      if (matter) mentioned.add(matter);
-    }
-  };
   const normalized = text.normalize('NFC');
-  let offset = 0;
+  const quoted = new Uint8Array(normalized.length);
   for (const { index, 0: literal } of normalized.matchAll(editLiteral)) {
-    collect(normalized.slice(offset, index), false);
-    collect(literal, true);
-    offset = index + literal.length;
+    quoted.fill(1, index, index + literal.length);
   }
-  collect(normalized.slice(offset), false);
+  const options = new Set([...exact.keys(), ...terms.keys()]);
+  const eligible = (name: string, index: number) =>
+    foldedTitles.has(name.toLowerCase()) || !quoted.subarray(index, index + name.length).includes(1);
+
+  const mentioned = new Set<Matter>();
+  for (const name of separateTitleMentions(options, normalized, eligible)) {
+    const folded = name.toLowerCase();
+    const complete = exact.get(name) ?? foldedTitles.get(folded);
+    // A complete title takes priority at the same span. Shared terms cannot identify a matter.
+    const matter = complete ?? (!foldedTitles.has(folded) ? terms.get(folded) : undefined);
+    if (matter) mentioned.add(matter);
+  }
   return candidates.filter(matter => mentioned.has(matter));
 }
 

@@ -2173,6 +2173,12 @@ test('an edit counts overlapping matter names only when they have separate menti
   h.interactions.receive(h.actor("/matter-new D'Angelo"));
   checkChoices("刚才那个改成周五，O'Reilly 和 D'Angelo 都要同步", ["O'Reilly", "D'Angelo"]);
   checkChoices("刚才那个改成周五，'O'Reilly' 和 'D'Angelo' 都要同步", ["O'Reilly", "D'Angelo"]);
+  h.interactions.receive(h.actor('/matter-new O’Reilly'));
+  h.interactions.receive(h.actor('/matter-new D’Angelo'));
+  checkChoices('刚才那个改成周五，‘O’Reilly’ 和 ‘D’Angelo’ 都要同步', ['O’Reilly', 'D’Angelo']);
+  h.interactions.receive(h.actor('/matter-new Team “QA”'));
+  h.interactions.receive(h.actor('/matter-new Team “CI”'));
+  checkChoices('刚才那个改成周五，Team “QA” 和 Team “CI” 都要同步', ['Team “QA”', 'Team “CI”']);
   const addressed = h.interactions.receive(h.actor('退款调查：刚才那个改成退款和退款调查的共同计划'));
   assert.ok('request' in addressed);
   const scope = { owner: ownerKey(addressed.request.message), project: h.admission.project };
@@ -2232,6 +2238,8 @@ test('a question about a previous change can still match two named matters', t =
   checkCandidates('刚才那个改成周五，参考 https://example.com/details,退款和发版会否受影响');
   checkCandidates('刚才那个改成周五，参考 https://example.com/details?v=2 退款和发版会否受影响');
   checkCandidates('刚才那个改成周五，参考 https://example.com/?names=all（说明）QA,CI&mode=preview 退款和发版都要同步');
+  checkCandidates("刚才那个改成周五，参考 https://example.com/?name=O'Reilly&teams=QA,CI 退款和发版都要同步");
+  checkCandidates("刚才那个改成周五，参考 'https://example.com/?name=O%27Reilly&teams=QA,CI' 退款和发版都要同步");
   checkCandidates('刚才那个改成周五 (https://example.com/docs?from=(x)&to=y)为什么影响退款和发版');
   checkCandidates('刚才那个改成周五能不能同时照顾退款和发版');
   checkCandidates('刚才那个改成周五的改动会同时影响退款和发版吗？请解释一下。');
