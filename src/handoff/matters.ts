@@ -15,6 +15,8 @@ const conversation = (id: string) => id === DEFAULT_MATTER ? undefined : id;
 const newTopic = /^(?:请\s*)?(?:换(?:个|一个)?话题|(?:另|再)?开(?:个|一个)?新(?:话题|对话)|新(?:话题|对话|任务))(?:(?:[，,：:。；;]\s*|\s+)([\s\S]*))?$/u;
 const prReadLead = /^(?:(?:请|麻烦|帮我)\s*){0,3}(?:看(?:看|一下|下)|查(?:查|一下|下)?|检查|核对|审查|评估|分析|review\b|check\b|inspect\b)\s*(?:这个\s*PR\s*)?[（(「『]?\s*/iu;
 const prShortAddress = /(?<![\w./-])([a-z0-9_.-]+\/[a-z0-9_.-]+)(?:\s*的\s*|\s+)PR\s*[#＃]([1-9][0-9]{0,11})(?![a-z0-9_-])/gi;
+const urlBoundary = /^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"'*，。？！、；：…—]|\p{Script=Han}|[,;!](?=$|[\s\p{Pe}\p{Script=Han}]))/u;
+const prReadDetail = /^(?:(?:当前|最近)?(?:状态|构建状态|合并状态|审核状态|改动|差异|检查结果|CI(?:\s*(?:状态|结果|为什么(?:没|没有|未)(?:跑|运行)))?)|(?:为什么|怎么)(?:没|没有|未)(?:跑|运行)\s*CI|(?:latest\s+)?(?:status|checks?|diff|CI(?:\s+status)?|merge status|review status)|why\s+CI\s+(?:didn['’]t\s+run|isn['’]t\s+running))$/iu;
 const vagueFollowup = [
   /^(?:那)?(?:就)?(?:继续|接着)(?:上一步|刚才(?:的处理|那个)?)?(?:吧|啊|一下)?$/u,
   /^(?:刚才|刚刚|之前)(?:的)?(?:那个(?:方案)?|那一步|那件事|上一步)(?:呢|怎么样了)?$/u,
@@ -29,25 +31,38 @@ function pullRequest(value: string): string | undefined {
   return match?.[1]?.toLowerCase();
 }
 
-function pullRequests(text: string, atStart = false): string[] {
-  const refs = new Set<string>();
+function pullRequestAddresses(text: string): { ref: string; index: number; end: number }[] {
+  const refs: { ref: string; index: number; end: number }[] = [];
   // A slash before an unrecognized character may introduce another path
   // segment. Only treat a trailing slash as complete at a prose boundary.
   for (const match of text.matchAll(/https:\/\/[a-z0-9./_:%?&#=@~+-]+/gi)) {
-    if (atStart && match.index !== 0) continue;
     const value = match[0];
+    const end = match.index + value.length;
+    if (!urlBoundary.test(text.slice(end))) continue;
     const address = value.replace(text[match.index - 1] === '_' ? /[.:_]+$/ : /[.:]+$/, '');
     if (address.endsWith('/') && (address !== value ||
       !/^(?:$|[\s\p{Ps}\p{Pe}\p{Pi}\p{Pf}\x60<>"',;!，。？！、；：…])/u.test(text.slice(match.index + value.length)))) continue;
     const ref = pullRequest(address);
-    if (ref) refs.add(ref);
+    if (ref) refs.push({ ref, index: match.index, end });
   }
   for (const match of text.matchAll(prShortAddress)) {
-    if (atStart && match.index !== 0) continue;
+    const end = match.index + match[0].length;
+    const suffix = text.slice(end);
+    if (!urlBoundary.test(suffix) && !/^\.(?:$|\s)/u.test(suffix)) continue;
     const ref = pullRequest('https://github.com/' + match[1] + '/pull/' + match[2]);
-    if (ref) refs.add(ref);
+    if (ref) refs.push({ ref, index: match.index, end });
   }
-  return [...refs];
+  return refs;
+}
+
+function pullRequests(text: string): string[] {
+  return [...new Set(pullRequestAddresses(text).map(address => address.ref))];
+}
+
+function prReadOnlyTail(value: string): boolean {
+  const text = value.trim().replace(/^[）)」』"']+\s*/u, '').replace(/^的\s*/u, '')
+    .replace(/[。！？.!?]+$/u, '').trim();
+  return text === '' || prReadDetail.test(text);
 }
 
 function topicTitle(input: string, ref?: string): string {
@@ -57,7 +72,7 @@ function topicTitle(input: string, ref?: string): string {
   }
   const firstLine = input.trim().split(/\r?\n/, 1)[0]!;
   const shortened = firstLine.replace(/^(?:(?:请|帮我|麻烦)\s*){0,3}(?:看看|看一下|查一下|查查|检查|研究一下|研究)\s*/u, '');
-  return (shortened || firstLine).replace(/https:\/\/\S+/g, '链接')
+  return (shortened || firstLine).normalize('NFC').replace(/https:\/\/\S+/g, '链接')
     .replace(/[\u0000-\u001f:：]+/g, ' ').replace(/\s+/g, ' ').trim()
     .slice(0, 42).replace(/[\uD800-\uDBFF]$/, '').trimEnd() || '新话题';
 }
@@ -210,7 +225,7 @@ export class OwnerMatters {
   }
 
   opensNewTopic(message: IncomingMessage): boolean {
-    return this.owner(message) && newTopic.test(message.text.trim());
+    return this.owner(message) && newTopic.test(message.text.trim()) && !this.address(message);
   }
 
   overridesNaturalSteer(message: IncomingMessage): boolean {
@@ -261,7 +276,8 @@ export class OwnerMatters {
     if (held) return this.clarify(held);
     if (this.admission.store.maintenance.paused) return submit();
 
-    const requestedTopic = newTopic.exec(message.text.trim());
+    const address = this.address(message);
+    const requestedTopic = !address && newTopic.exec(message.text.trim());
     if (requestedTopic) {
       const input = requestedTopic[1]?.trim() ?? '';
       if (!input || input.startsWith('/') || naturalControl(input) === 'stop') {
@@ -270,7 +286,6 @@ export class OwnerMatters {
       return this.startTopic(message, input);
     }
 
-    const address = this.address(message);
     if (!address && this.admission.projectAddress(message.text)?.outsidePilot) return submit();
     const reference = this.state.matterReference(message);
     if (!reference && this.state.pendingRefundReference(message)) {
@@ -284,16 +299,15 @@ export class OwnerMatters {
     const lead = !message.parentId && !address && prReadLead.exec(text);
     if (lead) {
       const tail = text.slice(lead[0].length);
-      const [ref, multiple] = pullRequests(tail);
-      const direct = Boolean(ref && pullRequests(tail, true).length);
-      if ((multiple && direct) || (!targets.length && focus && /PR\s*[#＃][1-9]/i.test(tail) && !ref)) {
+      const addresses = pullRequestAddresses(tail);
+      const direct = addresses.find(item => item.index === 0);
+      const multiple = direct && addresses.some(item => item.ref !== direct.ref);
+      if (multiple || (!targets.length && focus && /PR\s*[#＃][1-9]/i.test(tail) && !addresses.length)) {
         const choices = [...new Set([...targets, focus ?? DEFAULT_MATTER, NEW_MATTER_CHOICE])];
         return this.clarify(store.hold(scope, message, choices));
       }
-      const writes = /(?:合并|发布|部署|提交|上传|删除|修改|修复|\b(?:merge|deploy|approve|upload|delete|push|fix)\b)/iu
-        .test(tail.replace(/https:\/\/[a-z0-9./_:%?&#=@~+-]+/gi, '').replace(prShortAddress, ''));
-      if (!targets.length && ref && !multiple && direct && !writes) {
-        return this.startTopic(message, message.text, ref);
+      if (!targets.length && direct && prReadOnlyTail(tail.slice(direct.end))) {
+        return this.startTopic(message, message.text, direct.ref);
       }
     }
     if (targets.length === 1) return submit(targets[0], address?.input);

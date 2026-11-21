@@ -1502,6 +1502,25 @@ test('an explicit new topic admits its first request once and preserves the olde
   assert.notEqual(sameTitle.request.conversation, result.request.conversation);
   const title = h.admission.store.matters.owned(scope, result.request.conversation)!.title;
   assert.equal(h.admission.store.matters.owned(scope, sameTitle.request.conversation)?.title, title + ' (2)');
+
+  h.interactions.receive(h.actor('/matter-new 新任务'));
+  const exact = h.interactions.receive(h.actor('新任务：检查发布'));
+  assert.ok('request' in exact);
+  assert.equal(exact.request.input, '检查发布');
+  assert.equal(exact.request.conversation, h.admission.store.matters.named(scope, '新任务')?.id);
+  const conflict = h.actor('新任务：再核对', { parentId });
+  assert.equal(h.interactions.receive(conflict).status, 'matter-choice');
+  assert.equal(h.admission.store.requestForMessage(conflict), undefined);
+  assert.deepEqual(h.admission.store.matters.held(conflict, scope.project)?.choices, [old.request.conversation, exact.request.conversation]);
+
+  const decomposed = h.interactions.receive(h.actor('换个话题，研究 Cafe\u0301 界面'));
+  assert.ok('request' in decomposed);
+  const composed = h.interactions.receive(h.actor('Café 界面：看按钮'));
+  assert.ok('request' in composed);
+  assert.equal(composed.request.conversation, decomposed.request.conversation);
+  const nfcTitle = h.interactions.receive(h.actor('换个话题，研究 Café 界面'));
+  assert.ok('request' in nfcTitle);
+  assert.equal(h.admission.store.matters.owned(scope, nfcTitle.request.conversation)?.title, 'Café 界面 (2)');
 });
 
 test('a direct read of one known-address PR only opens and binds the first request', async t => {
@@ -1524,7 +1543,9 @@ test('a direct read of one known-address PR only opens and binds the first reque
   assert.equal(h.admission.store.matters.focus(scope), current);
   assert.equal((await completeRequest(h, resumed.request.id, 113)).threadId, thread);
   for (const text of ['这个问题的背景见 https://github.com/Org/solura-app/pull/41',
-    '检查 https://github.com/Org/solura-app/pull/41，顺手合并']) {
+    '检查 https://github.com/Org/solura-app/pull/41，顺手合并',
+    'Review https://github.com/Org/solura-app/pull/41 and close it',
+    'Review https://github.com/Org/solura-app/pull/41$draft']) {
     const ordinary = h.interactions.receive(h.actor(text));
     assert.ok('request' in ordinary);
     assert.equal(ordinary.request.conversation, current);
@@ -1533,6 +1554,10 @@ test('a direct read of one known-address PR only opens and binds the first reque
   const multiple = h.actor('查一下 https://github.com/Org/solura-app/pull/41 和 https://github.com/Org/solura-app/pull/42 的 CI');
   assert.equal(h.interactions.receive(multiple).status, 'matter-choice');
   assert.equal(h.admission.store.requestForMessage(multiple), undefined);
+  const mergeStatus = h.interactions.receive(h.actor('检查 https://github.com/Org/solura-app/pull/43 的合并状态'));
+  assert.ok('request' in mergeStatus);
+  assert.equal(h.admission.store.matters.bound(scope, 'org/solura-app/pull/43'), mergeStatus.request.conversation);
+  assert.notEqual(mergeStatus.request.conversation, current);
   await drain(h);
   assert.ok(h.sent.some(row => row.options?.replyTo === start.id && row.text === '已新建 · solura-app PR #42'));
   assert.ok(h.sent.some(row => row.options?.replyTo === same.id && row.text === '已续接 · solura-app PR #42'));
