@@ -1591,6 +1591,8 @@ test('colons in time and file references do not become explicit topic separators
     { input: '检查 10：30 的出库批次', title: '10 30 的出库批次' },
     { input: '请比较 src/layout.ts：20 和 src/layout.ts：45', title: '请比较 src/layout.ts 20 和 src/layout.ts 45' },
     { input: 'Release checks: verify the candidate commit', title: 'Release checks' },
+    { input: '10:30 批次复核：请整理所有异常。', title: '10 30 批次复核' },
+    { input: 'src/layout.ts：20 核对: verify the heading', title: 'src/layout.ts 20 核对' },
   ];
   for (const { input, title } of subjects) {
     const original = h.actor('换个话题。' + input);
