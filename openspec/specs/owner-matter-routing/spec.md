@@ -132,7 +132,7 @@ canonical project admission and execution rules.
 
 #### Scenario: An unquoted question concerns the preceding message
 
-- **WHEN** the question starts by referring to the preceding message or turn, a matter is selected, and the question has no explicit destination or other complete matter title
+- **WHEN** an unquoted question uses a recognized Chinese prior-message opening such as `上一条的` or `上一轮里`, a matter is selected, and the message has no additive-subject wording, explicit destination or other complete matter title
 - **THEN** shared words in matter titles SHALL NOT take precedence over the selected matter and ordinary admission history
 - **AND** if the last eligible task and the selected matter differ, the gateway SHALL present both choices before admission
 
