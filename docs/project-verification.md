@@ -116,7 +116,7 @@ project, review focus and optional PR fields. Set `format` to `web-screenshot`
 and replace `scenes` with `screenshots` entries containing a bare PNG `file`,
 its exact lowercase hex `sha256`, and a short `label`.
 
-The gateway verifies the candidate and screenshot bytes, then sends the images
+The gateway verifies the candidate, PNG chunk integrity and screenshot hashes, then sends the images
 through the existing persistent card outbox. This format records visual
 acceptance only and offers **仅确认验收**. Automation checks remain in the
 project report. The operator binds this plan to the original task and verifies

@@ -1,3 +1,4 @@
+import { crc32 } from 'node:zlib';
 import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { record } from '../types.js';
@@ -91,7 +92,7 @@ function webScreenshotContent(plan: Extract<VisualReceiptPlan, { format: 'web-sc
   const { projectRoot, entries, commit, reviewFocus } = plan;
   const images = entries.map(({ file, sha256, label }) => {
     const png = boundedFile(projectRoot, join(projectRoot, '.ui-eval', 'visual-review', file), imageLimit);
-    if (!isPng(png) || fingerprint(png) !== sha256) throw Error('Web visual receipt screenshot differs from its plan');
+    if (!hasCompletePngChunks(png) || fingerprint(png) !== sha256) throw Error('Web visual receipt screenshot differs from its plan');
     return { caption: label, png: png.toString('base64') };
   });
   return { images, workflowEligible: false,
@@ -99,8 +100,24 @@ function webScreenshotContent(plan: Extract<VisualReceiptPlan, { format: 'web-sc
       '\n\n待人工看图 · ' + reviewFocus + '\n本卡记录看图验收，自动化检查以项目报告为准。' };
 }
 
-function isPng(png: Buffer): boolean {
+function hasPngHeader(png: Buffer): boolean {
   return png.length >= 33 && png.subarray(0, pngHeader.length).equals(pngHeader) && png.readUInt32BE(16) > 0 && png.readUInt32BE(20) > 0;
+}
+
+// Inspect framing and CRCs without decompressing attacker-controlled image data.
+function hasCompletePngChunks(png: Buffer): boolean {
+  if (!hasPngHeader(png)) return false;
+  let imageData = false;
+  for (let offset = 8; offset + 12 <= png.length;) {
+    const length = png.readUInt32BE(offset);
+    const end = offset + length + 12;
+    if (end > png.length || crc32(png.subarray(offset + 4, end - 4)) !== png.readUInt32BE(end - 4)) return false;
+    const kind = png.toString('ascii', offset + 4, offset + 8);
+    if (kind === 'IDAT' && length > 0) imageData = true;
+    if (kind === 'IEND') return imageData && length === 0 && end === png.length;
+    offset = end;
+  }
+  return false;
 }
 
 function wechatReceiptContent(plan: Extract<VisualReceiptPlan, { format: 'wechat' }>, repository: string) {
@@ -134,7 +151,7 @@ function wechatReceiptContent(plan: Extract<VisualReceiptPlan, { format: 'wechat
     const shot = matches[0];
     if (matches.length !== 1 || !shot || shot.path !== checkpoint + '.png') throw Error('Visual receipt screenshot is missing or ambiguous');
     const png = boundedFile(projectRoot, join(directory, shot.path), imageLimit);
-    if (!isPng(png) || png.readUInt32BE(16) !== shot.widthPx ||
+    if (!hasPngHeader(png) || png.readUInt32BE(16) !== shot.widthPx ||
       png.readUInt32BE(20) !== shot.heightPx || 'sha256:' + fingerprint(png) !== shot.digest) throw Error('Visual receipt screenshot differs from its report');
     const total = Number(assertions.passed) + Number(assertions.failed);
     images.push({ caption: label.trim() + ' · ' + verdict + ' · 已执行断言 ' + assertions.passed + '/' + total, png: png.toString('base64') });

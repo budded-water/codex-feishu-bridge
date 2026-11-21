@@ -117,11 +117,11 @@ test('an operator-selected Web screenshot reaches the original task with only th
   git('remote', 'add', 'origin', 'https://github.com/example/web.git');
   const folder = join(root, '.ui-eval', 'visual-review');
   mkdirSync(folder, { recursive: true });
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB9sAAAAASUVORK5CYII=', 'base64');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC', 'base64');
   const file = 'sidebar.png';
   writeFileSync(join(folder, file), png);
   const plan = join(root, '.ui-eval', 'review.json');
-  const entry = { file, sha256: fingerprint(png), label: '订单侧栏' };
+  const entry = { file, sha256: fingerprint(png), label: '订单侧栏 · 通过 · 已执行断言 1/1' };
   const planFor = (screenshot = entry) => writeFileSync(plan, JSON.stringify({ format: 'web-screenshot', projectRoot: root,
     projectId: 'fixture', commit, pullRequest: 193, reviewFocus: '核对服务订单的位置', screenshots: [screenshot] }), { mode: 0o600 });
   const state = h.interactions.transport.state;
@@ -131,6 +131,12 @@ test('an operator-selected Web screenshot reaches the original task with only th
   await assert.rejects(queue, /Invalid Web visual receipt screenshot/);
   planFor({ ...entry, sha256: '0'.repeat(64) });
   await assert.rejects(queue, /differs from its plan/);
+  const truncated = png.subarray(0, 33);
+  writeFileSync(join(folder, file), truncated);
+  planFor({ ...entry, sha256: fingerprint(truncated) });
+  await assert.rejects(queue, /differs from its plan/);
+  assert.equal(state.pending(Date.now(), true).length, 0);
+  writeFileSync(join(folder, file), png);
   planFor();
   const receipt = await queue();
   assert.deepEqual(await queue(), receipt);
@@ -160,6 +166,8 @@ test('an operator-selected Web screenshot reaches the original task with only th
   const picture = card.body.elements.find((element: { tag: string }) => element.tag === 'img');
   assert.equal(picture.img_key, 'img_web_fixture');
   assert.equal(picture.preview, true);
+  assert.equal(picture.alt.content, entry.label);
+  assert.doesNotMatch(requests[0]!.data.content, /通过 · 断言 1\/1/);
   assert.deepEqual(card.body.elements.filter((element: { tag: string }) => element.tag === 'button')
     .map((element: { text: { content: string } }) => element.text.content), ['仅确认验收']);
   assert.doesNotMatch(requests[0]!.data.content, /sidebar\.png|自动化检查通过/);
@@ -173,6 +181,7 @@ test('an operator-selected Web screenshot reaches the original task with only th
   await until(() => patches.length === 1);
   assert.equal(patches[0]!.path.message_id, 'web-card');
   assert.match(patches[0]!.data.content, /人工验收通过/);
+  assert.doesNotMatch(patches[0]!.data.content, /通过 · 断言 1\/1/);
   assert.equal(state.visualReviews.take(), undefined);
   assert.equal(h.admission.store.requests().length, 1);
   assert.equal(state.confirmedAnswer(h.actor('继续', { parentId: 'web-card' })), active.request.execution);
