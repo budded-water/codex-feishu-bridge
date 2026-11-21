@@ -8,7 +8,7 @@ Owner-private Feishu quoted-task replies are deployed on the managed M6 gateway 
 
 ## Owner-private screenshot and file input
 
-The P1 gateway supports bounded same-message images and separately sent files selected by a text reply. Source, simulated ingress-to-Codex verification and genuine owner-chat acceptance are tracked in the [active change](../openspec/changes/add-owner-private-image-tasks/tasks.md).
+The P1 gateway supports bounded same-message images and separately sent files selected by a text reply. The [M6 desktop acceptance](live-acceptance.md#2026-11-21-m6-owner-private-attachments) verified same-message screenshots and PDF and DOCX follow-ups in the original Codex thread. See the [delivered attachment requirements](../openspec/specs/owner-private-image-tasks/spec.md).
 
 ## Owner delivery checkpoints
 
